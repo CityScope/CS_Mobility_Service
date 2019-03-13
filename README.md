@@ -1,5 +1,5 @@
 # CS_Mobility_Service
-A web service providing smobility simulations for CityScope projects.
+A web service providing mobility simulations for CityScope projects.
 
 ## python
 Contains scripts for preparing the required data and calibrating prediction models to be used in the simulation
