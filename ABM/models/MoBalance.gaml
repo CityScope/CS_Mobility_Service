@@ -1,7 +1,7 @@
 /**
 * Name: ABM
 * Author: Ronan Doorley and Arnaud Grignard
-* Description: ABM implementation in GAMA of the Decision Tree
+* Description: ABM with mobility choices predicted by random forest model
 * Tags: 
 */
 
@@ -13,7 +13,7 @@ global {
 	// FILES
 	string city<-"Boston";
 	file geojson_zones <- file("../includes/"+city+"/zones.geojson");
-	file geojson_roads <- file("../includes/"+city+"/network_C123.geojson");
+	file geojson_roads <- file("../includes/"+city+"/network.geojson");
 	file geojson_grid <- file("../includes/"+city+"/interaction_zone.geojson");
 	file geojson_amenities <- file("../includes/"+city+"/amenities.geojson");
 	file job_type_1_pop <- file("../includes/"+city+"/job_type_1.csv"); // populations to sample workers  of each type from from 
