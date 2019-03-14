@@ -39,8 +39,7 @@ global {
 	int occat_1<-0; // number of new workers of each type introduced in the interacion zone (due to new commercial space).
 	int occat_2<-0;
 	int occat_3<-0;
-	int occat_4<-0;
-	int occat_5<-0;
+	int occat_4<-10;
 	int res_00<-0; // capacity of new residences of each type in the  interaction zone
 	int res_01<-0;
 	int res_02<-0;
@@ -62,7 +61,7 @@ global {
 	map<string,rgb> color_per_mobility <- ["car"::#red, "bike"::#blue, 'walk'::rgb(124,252,0), 'PT'::#yellow];
 	map<string,int> speed_per_mobility <- ["car"::20, "bike"::10, 'walk'::5, 'PT'::15];
 	
-	list nm_occats<-[occat_1, occat_2, occat_3, occat_4, occat_5];
+	list nm_occats<-[occat_1, occat_2, occat_3, occat_4];
 	list<matrix> occat_mats<-[job_type_1_mat, job_type_2_mat, job_type_3_mat, job_type_4_mat];
 //	list sampled_occat_1<-sample(range(0,1000,1),occat_1, false); // should use length of file
 
@@ -122,12 +121,16 @@ global {
 		create people from:csv_file( "../includes/"+city+"/synth_pop.csv",true) with:
 			[home_zone_num::int(get("home_geo_index")), 
 			work_zone_num::int(get("work_geo_index")),
-			motif::string(get("motif"))
+			motif::string(get("motif")),
+			age::int(get("age")),
+			hh_income::int(get("hh_income")),
+			bachelor_degree::int(get("bachelor_degree"))
 			]{
 				home_location<-any_location_in (zones[home_zone_num]);
 				pop_per_sqmile_home<-zones[home_zone_num].popsqmile;
 				work_location<-any_location_in (zones[work_zone_num]);
 				location<-home_location;
+				if (motif='HWWH') or (motif='HWOWH') {work_periods<-2;}
 				start_first <- min_start + rnd (max_start - min_start) ;
 				start_next<-start_first;
 				objective <- motif at activity_ind;
@@ -179,18 +182,16 @@ species people skills:[moving] {
 	rgb color <- #black ;
 	int resType<-0;
 	string mode<-nil;
-	int hh_income<-6;
+	int hh_income;
 	int home_zone_num<-0;
 	int work_zone_num<-0;
-	// TODO- for now, dont have attributes for the basline population so use values below
-	int age<-40;
+	int age;
 	string motif;
-//	list motif_list<-list(motif);
-	int work_periods<-2;
 	int activity_ind<-0;
-	int bachelor_degree<-1;
-	int male<-1;
-	float pop_per_sqmile_home<-4000.0;
+	int bachelor_degree;
+	int male;
+	int work_periods<-1;
+	float pop_per_sqmile_home;
 	
 	point home_location<-nil;
 	point work_location<-nil;
@@ -293,7 +294,6 @@ experiment mobilityAI type: gui {
 	parameter "Clerical jobs" var: occat_2 category: "New Jobs" min: 0 max: 50;
 	parameter "Manufacturing jobs" var: occat_3 category: "New Jobs" min: 0 max: 50;
 	parameter "Professional jobs" var: occat_4 category: "New Jobs" min: 0 max: 50;
-	parameter "Student Enrollments" var: occat_5 category: "New Jobs" min: 0 max: 50;
 	parameter "Res 1 Bed Low Rent" var: res_00 category: "New Housing" min: 0 max: 50;
 	parameter "Res 1 Bed Medium Rent" var: res_01 category: "New Housing" min: 0 max: 50;
 	parameter "Res 1 Bed High Rent" var: res_02 category: "New Housing" min: 0 max: 50;
