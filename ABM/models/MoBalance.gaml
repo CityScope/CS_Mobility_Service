@@ -11,7 +11,7 @@ import 'choiceModel.gaml'
 
 global {
 	// FILES
-	string city<-"Boston";
+	string city<-"New York";
 	file geojson_zones <- file("../includes/"+city+"/zones.geojson");
 	file geojson_roads <- file("../includes/"+city+"/network.geojson");
 	file geojson_grid <- file("../includes/"+city+"/interaction_zone.geojson");
@@ -27,6 +27,7 @@ global {
 	geometry shape <- envelope(geojson_roads);
 	float step <- 5 #sec;
 	date starting_date <- date("2018-7-01T06:00:00+00:00");
+	
 //	int current_hour update: (time / #hour) mod 24;
 	// PARAMETERS
 	//TODO  need to update logic of trip timing based on data
@@ -70,10 +71,12 @@ global {
 	init {
 		// create graph, zones and interaction zone
 		write 'init';
+		
 		create road from: geojson_roads;
 		the_graph <- as_edge_graph(road);
 		create interactionZone from: geojson_grid;
-		create zones from: geojson_zones with: [zoneId::string(read ("id")), popsqmile::(float(read ("POP100_RE"))/(float(read("AREA_SQFT"))*0.000000035870064))];
+//		create zones from: geojson_zones with: [zoneId::string(read ("id")), popsqmile::(float(read ("POP100_RE"))/(float(read("AREA_SQFT"))*0.000000035870064))];
+		create zones from: geojson_zones with: [zoneId::string(read ("id")), popsqmile::float(read ("pop_per_sqmile"))];
 		create amenities from: geojson_amenities with: [food::bool(int(read("food"))), groceries::bool(int(read("groceries"))), nightlife::bool(int(read("nightlife"))), osm_id::int(read("osm_id"))];
 		// create the new people spawned from the new workplaces
 		loop o from: 0 to:length(nm_occats)-1{ // do for each occupation category
@@ -221,8 +224,7 @@ species people skills:[moving] {
 		else if (objective= "O")
 			{start_next <- start_next+ 1*60;}
  		do set_speed_color;
-	}
-		
+	}		
 	 
 	reflex move when: the_target != nil {
 		do goto target: the_target on: the_graph ; 
@@ -255,15 +257,11 @@ species people skills:[moving] {
 		}		
 	}
 
-action choose_mode(float walk_time, float drive_time, float PT_time, float cycle_time, float walk_time_PT,float drive_time_PT){ 
-    ask world{
-       do choose_mode_per_people(myself,walk_time, drive_time, PT_time, cycle_time, walk_time_PT,drive_time_PT);
-    }
-}
-
-
-
-
+	action choose_mode(float walk_time, float drive_time, float PT_time, float cycle_time, float walk_time_PT,float drive_time_PT){ 
+	    ask world{
+	       do choose_mode_per_people(myself,walk_time, drive_time, PT_time, cycle_time, walk_time_PT,drive_time_PT);
+	    }
+	}
     
     action set_speed_color{
     		modal_split[mode] <- modal_split[mode]+1;
@@ -325,7 +323,7 @@ experiment mobilityAI type: gui {
 //					}
 //				}			
 //		}
-		display city_display background:#black autosave:false type:opengl {
+		display city_display background:#black autosave:{1600,900} type:opengl {
 			species zones aspect: base ;
 			species road aspect: base ;
 			species amenities aspect: base ;
