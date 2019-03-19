@@ -36,10 +36,10 @@ def get_NHTS_motif(u_id):
 # Constants
 # =============================================================================
 # paths to data files
-city='New York'
-state='ny'
+city='Boston'
+state='ma'
 #CDIVMSAR=11 #New England (ME, NH, VT, CT, MA, RI) MSA or CMSA of 1 million or more with heavy rail
-CDIVMSAR=21 #Mid-Atlantic (NY, NJ, PA) MSA or CMSA of 1 million or more with heavy rail
+CDIVMSAR=11 #Mid-Atlantic (NY, NJ, PA) MSA or CMSA of 1 million or more with heavy rail
 NHTS_PATH='NHTS/perpub.csv'
 NHTS_TOUR_PATH='NHTS/tour17.csv'
 NHTS_TRIP_PATH='NHTS/trippub.csv'

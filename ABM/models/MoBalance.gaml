@@ -323,7 +323,7 @@ experiment mobilityAI type: gui {
 //					}
 //				}			
 //		}
-		display city_display background:#black autosave:{1600,900} type:opengl {
+		display city_display background:#black autosave:false type:opengl {
 			species zones aspect: base ;
 			species road aspect: base ;
 			species amenities aspect: base ;
