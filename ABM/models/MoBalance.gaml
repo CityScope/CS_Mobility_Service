@@ -12,6 +12,7 @@ import 'choiceModel.gaml'
 global {
 	// FILES
 	string city<-"New York";
+	int refresh <- 100; // how often to send info to cityIO
 	file geojson_zones <- file("../includes/"+city+"/zones.geojson");
 	file geojson_roads <- file("../includes/"+city+"/network.geojson");
 	file geojson_grid <- file("../includes/"+city+"/interaction_zone.geojson");
@@ -71,7 +72,6 @@ global {
 	init {
 		// create graph, zones and interaction zone
 		write 'init';
-		
 		create road from: geojson_roads;
 		the_graph <- as_edge_graph(road);
 		create interactionZone from: geojson_grid;
@@ -140,6 +140,25 @@ global {
 				do plan_trips();    		
 			}
 	}	
+	reflex updateGrid when: ((cycle mod refresh) = 0){	
+		list projected_points <- people collect ([each.location]);
+		list<map> features<-list_with(length(projected_points), map([]));	
+		loop i from: 0 to:length(projected_points)-1{
+			list unprojected_point <-point(projected_points[i][0] CRS_transform "EPSG:4326");
+			map point_geometry<-['coordinates'::unprojected_point, 'type'::'Point'];
+			map point_properties<-['property_1'::2];
+			map feature<-["type":: "Feature",'geometry'::point_geometry, 'properties'::point_properties, 'id'::i];
+			features[i]<-feature;
+			}
+		map output_geo<-["type":: "FeatureCollection",'features'::features];	
+		write(output_geo);	
+		try{
+	  	  save(json_file("https://cityio.media.mit.edu/api/table/update/cityIO_Gama_"+city, output_geo));
+//		save(json_file("./cityIO_Gama_"+city+".json", output_geo));		
+	  	}catch{
+	  	  write #current_error + " Impossible to write to cityIO - Connection to Internet lost or cityIO is offline";	
+	  	}
+ 	}	
 }
 
 species zones {
@@ -231,6 +250,7 @@ species people skills:[moving] {
 		if the_target = location {
 			the_target <- nil ;
 		}
+		
 	}
 	
 	action plan_trips{
