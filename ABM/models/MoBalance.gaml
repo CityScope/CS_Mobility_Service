@@ -27,7 +27,7 @@ global {
 	matrix job_type_3_mat <- matrix(job_type_3_pop);
 	matrix job_type_4_mat <- matrix(job_type_4_pop);
 	geometry shape <- envelope(geojson_roads);
-	float step <- 60 #sec;
+	float step <- 600 #sec;
 	date starting_date <- date("2018-7-01T06:00:00+00:00");
 	
 //	int current_hour update: (time / #hour) mod 24;

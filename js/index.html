@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset='utf-8' />
+	<title>Update a feature in realtime</title>
+	<meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+	<script src='https://api.tiles.mapbox.com/mapbox-gl-js/v0.53.1/mapbox-gl.js'></script>
+	<link href='https://api.tiles.mapbox.com/mapbox-gl-js/v0.53.1/mapbox-gl.css' rel='stylesheet' />
+	<style>
+		body { margin:0; padding:0; }
+		#map { position:absolute; top:0; bottom:0; width:100%; }
+	</style>
+</head>
+<body>
+	
+	<div id='map'></div>
+	
+	<script src="./lib/d3.min.js"></script>
+	<script>
+		mapboxgl.accessToken = 'pk.eyJ1IjoiZG9vcmxleXJtaXQiLCJhIjoiY2pnNnh5NHJwOHp2YzJ4bXNkdWZyNWd3ZSJ9.am1Wub7LEzVfZKHAdRZe4g';
+		var map = new mapboxgl.Map({
+			container: 'map',
+			style: 'mapbox://styles/mapbox/satellite-v9',
+			zoom: 0
+		});
+		
+		map.on('load', function () {
+// We use D3 to fetch the JSON here so that we can parse and use it separately
+// from GL JS's use in the added source. You can use any request method (library
+// or otherwise) that you want.
+d3.json('https://cityio.media.mit.edu/api/table/cityIO_Gama_New%20York', function(err, data) {
+	if (err) throw err;
+	
+// save full coordinate list for later
+var geojson_object = data.objects.points;
+
+
+// add it to the map
+map.addSource('points', { type: 'geojson', data: geojson_object });
+map.addLayer({
+	"id": "points",
+	"type": "circle",
+	"source": "points",
+	"paint": {
+		"circle-color": "red",
+		"circle-radius": 5
+	}
+});
+
+// setup the viewport
+map.jumpTo({ 'center': geojson_object.features[0].geometry.coordinates, 'zoom': 12 });
+map.setPitch(30);
+
+// on a regular basis, add more coordinates from the saved list and update the map
+var i = 0;
+var timer = window.setInterval(function() {
+	d3.json('https://cityio.media.mit.edu/api/table/cityIO_Gama_New%20York', function(err, data) {
+		var geojson_object = data.objects.points;
+		map.getSource("points").setData(geojson_object); 
+	});
+	
+}, 1000);
+});
+});
+</script>
+
+</body>
+</html>
