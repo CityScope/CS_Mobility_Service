@@ -12,7 +12,8 @@ import 'choiceModel.gaml'
 global {
 	// FILES
 	string city<-"New York";
-	int refresh <- 100; // how often to send info to cityIO
+	int refresh <- 1; // how often to send info to cityIO
+	string cityIOurl <-"https://cityio.media.mit.edu/api/table/virtual_table"; 
 	file geojson_zones <- file("../includes/"+city+"/zones.geojson");
 	file geojson_roads <- file("../includes/"+city+"/network.geojson");
 	file geojson_grid <- file("../includes/"+city+"/interaction_zone.geojson");
@@ -26,7 +27,7 @@ global {
 	matrix job_type_3_mat <- matrix(job_type_3_pop);
 	matrix job_type_4_mat <- matrix(job_type_4_pop);
 	geometry shape <- envelope(geojson_roads);
-	float step <- 5 #sec;
+	float step <- 60 #sec;
 	date starting_date <- date("2018-7-01T06:00:00+00:00");
 	
 //	int current_hour update: (time / #hour) mod 24;
@@ -69,9 +70,13 @@ global {
 
 	graph the_graph;
 	
+	map<string, unknown> outputMatrixData;
+	string VIRTUAL_LOCAL_DATA <- "./../includes/virtual_table.json";
+	
 	init {
 		// create graph, zones and interaction zone
 		write 'init';
+		outputMatrixData <- json_file(VIRTUAL_LOCAL_DATA).contents;		
 		create road from: geojson_roads;
 		the_graph <- as_edge_graph(road);
 		create interactionZone from: geojson_grid;
@@ -151,10 +156,10 @@ global {
 			features[i]<-feature;
 			}
 		map output_geo<-["type":: "FeatureCollection",'features'::features];	
-		write(output_geo);	
+		outputMatrixData["objects"]<-["points"::output_geo];
 		try{
-	  	  save(json_file("https://cityio.media.mit.edu/api/table/update/cityIO_Gama_"+city, output_geo));
-//		save(json_file("./cityIO_Gama_"+city+".json", output_geo));		
+	  	  save(json_file("https://cityio.media.mit.edu/api/table/update/cityIO_Gama_"+city, outputMatrixData));
+//		save(json_file("../cityIO_Gama_"+city+".json", outputMatrixData));		
 	  	}catch{
 	  	  write #current_error + " Impossible to write to cityIO - Connection to Internet lost or cityIO is offline";	
 	  	}
