@@ -6,7 +6,7 @@ Created on Mon Mar 18 17:21:11 2019
 @author: doorleyr
 """
 import json
-city='New York'
+city='Hamburg'
 QGIS_NETWORK_PATH=city+'/raw/network_from_QGIS.geojson'
 CLEAN_NETWORK_PATH='../ABM/includes/'+city+'/network.geojson'
 ROAD_TYPES= ['motorway', 'trunk', 'primary', 'secondary'

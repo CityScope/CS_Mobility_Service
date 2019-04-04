@@ -11,8 +11,10 @@ import 'choiceModel.gaml'
 
 global {
 	// FILES
-	string city<-"New York";
+	string city<-"Hamburg";
 	int refresh <- 1; // how often to send info to cityIO
+	bool send_to_cityIO<-false;
+	bool show_others<-false;
 	string cityIOurl <-"https://cityio.media.mit.edu/api/table/virtual_table"; 
 	file geojson_zones <- file("../includes/"+city+"/zones.geojson");
 	file geojson_roads <- file("../includes/"+city+"/network.geojson");
@@ -27,7 +29,7 @@ global {
 	matrix job_type_3_mat <- matrix(job_type_3_pop);
 	matrix job_type_4_mat <- matrix(job_type_4_pop);
 	geometry shape <- envelope(geojson_roads);
-	float step <- 600 #sec;
+	float step <- 30 #sec;
 	date starting_date <- date("2018-7-01T06:00:00+00:00");
 	
 //	int current_hour update: (time / #hour) mod 24;
@@ -39,14 +41,14 @@ global {
 	int max_start <- 9*60;
 //	int min_work_end <- 16; 
 //	int max_work_end <- 20; 
-	int occat_1<-0; // number of new workers of each type introduced in the interacion zone (due to new commercial space).
-	int occat_2<-0;
-	int occat_3<-0;
-	int occat_4<-10;
-	int res_00<-0; // capacity of new residences of each type in the  interaction zone
-	int res_01<-0;
-	int res_02<-0;
-	int res_10<-0;
+	int occat_1<-20; // number of new workers of each type introduced in the interacion zone (due to new commercial space).
+	int occat_2<-20;
+	int occat_3<-20;
+	int occat_4<-20;
+	int res_00<-20; // capacity of new residences of each type in the  interaction zone
+	int res_01<-20;
+	int res_02<-20;
+	int res_10<-20;
 	int res_11<-0;
 	int res_12<-0;
 	int res_20<-0;
@@ -126,6 +128,7 @@ global {
 		}
 		
 		// Create the baseline population according to census data
+		if (show_others){
 		create people from:csv_file( "../includes/"+city+"/synth_pop.csv",true) with:
 			[home_zone_num::int(get("home_geo_index")), 
 			work_zone_num::int(get("work_geo_index")),
@@ -144,8 +147,10 @@ global {
 				objective <- motif at activity_ind;
 				do plan_trips();    		
 			}
+			
+			}
 	}	
-	reflex updateGrid when: ((cycle mod refresh) = 0){	
+	reflex updateGrid when: (cycle mod refresh  = 0 and send_to_cityIO){	
 		list projected_points <- people collect ([each.location]);
 		list<map> features<-list_with(length(projected_points), map([]));	
 		loop i from: 0 to:length(projected_points)-1{

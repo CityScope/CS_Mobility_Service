@@ -13,8 +13,8 @@ from shapely.geometry import shape
 # =============================================================================
 # Constants
 # =============================================================================
-city='New York'
-CLEAN_SHP_PATH=city+'/clean/zones.geojson'
+city='Hamburg'
+CLEAN_SHP_PATH='../ABM/includes/'+city+'/zones.geojson'
 AMENITIES_PATH='../ABM/includes/'+city+'/amenities.geojson'
 OSM_URL_ROOT='https://lz4.overpass-api.de/api/interpreter?data=[out:json][bbox];node[~"^(amenity|leisure|shop)$"~"."];out;&bbox='
 
