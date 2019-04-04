@@ -29,14 +29,14 @@ global {
 	matrix job_type_3_mat <- matrix(job_type_3_pop);
 	matrix job_type_4_mat <- matrix(job_type_4_pop);
 	geometry shape <- envelope(geojson_roads);
-	float step <- 30 #sec;
-	date starting_date <- date("2018-7-01T06:00:00+00:00");
+	float step <- 200 #sec;
+	date starting_date <- date("2018-7-01T00:00:00+00:00");
 	
 //	int current_hour update: (time / #hour) mod 24;
 	// PARAMETERS
 	//TODO  need to update logic of trip timing based on data
-	int current_hour update: 6 + (time / #hour) mod 24;
-	int current_minute update: 6*60 + (time / #minute) mod (24*60);
+	int current_hour update:  (time / #hour) mod 24;
+	int current_minute update:  (time / #minute) mod (24*60);
 	int min_start <- 6*60; //first activity of day (apart from Home)
 	int max_start <- 9*60;
 //	int min_work_end <- 16; 
@@ -45,11 +45,11 @@ global {
 	int occat_2<-20;
 	int occat_3<-20;
 	int occat_4<-20;
-	int res_00<-20; // capacity of new residences of each type in the  interaction zone
-	int res_01<-20;
-	int res_02<-20;
-	int res_10<-20;
-	int res_11<-0;
+	int res_00<-10; // capacity of new residences of each type in the  interaction zone
+	int res_01<-10;
+	int res_02<-10;
+	int res_10<-10;
+	int res_11<-10;
 	int res_12<-0;
 	int res_20<-0;
 	int res_21<-0;
@@ -113,7 +113,7 @@ global {
 						}
 		          		work_location<-any_location_in (one_of(interactionZone));
 		          		location<-home_location;
-		          		if (motif = 'H'){min_start<-25;}
+		          		if (motif = 'H'){start_first<- (-1);}
 						else {
 							start_first <- min_start + rnd (max_start - min_start) ;
 							do plan_trips();
