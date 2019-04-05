@@ -28,7 +28,7 @@
 // We use D3 to fetch the JSON here so that we can parse and use it separately
 // from GL JS's use in the added source. You can use any request method (library
 // or otherwise) that you want.
-d3.json('https://cityio.media.mit.edu/api/table/cityIO_Gama_New%20York', function(err, data) {
+d3.json('https://cityio.media.mit.edu/api/table/cityIO_Gama_Hamburg', function(err, data) {
 	if (err) throw err;
 	
 // save full coordinate list for later
@@ -54,7 +54,7 @@ map.setPitch(30);
 // on a regular basis, add more coordinates from the saved list and update the map
 var i = 0;
 var timer = window.setInterval(function() {
-	d3.json('https://cityio.media.mit.edu/api/table/cityIO_Gama_New%20York', function(err, data) {
+	d3.json('https://cityio.media.mit.edu/api/table/cityIO_Gama_Hamburg', function(err, data) {
 		var geojson_object = data.objects.points;
 		map.getSource("points").setData(geojson_object); 
 	});

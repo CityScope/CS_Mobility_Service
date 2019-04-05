@@ -29,7 +29,7 @@ global {
 	matrix job_type_3_mat <- matrix(job_type_3_pop);
 	matrix job_type_4_mat <- matrix(job_type_4_pop);
 	geometry shape <- envelope(geojson_roads);
-	float step <- 200 #sec;
+	float step <- 30 #sec;
 	date starting_date <- date("2018-7-01T00:00:00+00:00");
 	
 //	int current_hour update: (time / #hour) mod 24;
@@ -46,10 +46,10 @@ global {
 	int occat_3<-20;
 	int occat_4<-20;
 	int res_00<-10; // capacity of new residences of each type in the  interaction zone
-	int res_01<-10;
-	int res_02<-10;
-	int res_10<-10;
-	int res_11<-10;
+	int res_01<-1;
+	int res_02<-1;
+	int res_10<-1;
+	int res_11<-1;
 	int res_12<-0;
 	int res_20<-0;
 	int res_21<-0;
@@ -332,19 +332,19 @@ experiment mobilityAI type: gui {
 	parameter "Res 3 Bed Medium Rent" var: res_21 category: "New Housing" min: 0 max: 50;
 	parameter "Res 3 Bed High Rent" var: res_22 category: "New Housing" min: 0 max: 50;
 	output {
-		display housing autosave:false refresh:every(1000){
-			chart "Housing Demand" background:#white type:pie {
-				data "Res 1 Bed Low Rent" value:res_needed[0] color:rgb(166,206,227);
-				data "Res 1 Bed Medium Rent" value:res_needed[1] color:rgb(178,223,138);
-				data "Res 1 Bed High Rent" value:res_needed[2] color:rgb(51,160,44);
-				data "Res 2 Bed Low Rent" value:res_needed[3] color:rgb(251,154,153);
-				data "Res 2 Bed Medium Rent" value:res_needed[4] color:rgb(227,26,28);
-				data "Res 2 Bed High Rent" value:res_needed[5] color:rgb(253,191,111);
-				data "Res 3 Bed Low Rent" value:res_needed[6] color:rgb(31,120,180);
-				data "Res 3 Bed Medium Rent" value:res_needed[7] color:rgb(255,127,0);
-				data "Res 3 Bed High Rent" value:res_needed[8] color:rgb(202,178,214);
-			}			
-		}
+//		display housing autosave:false refresh:every(1000){
+//			chart "Housing Demand" background:#white type:pie {
+//				data "Res 1 Bed Low Rent" value:res_needed[0] color:rgb(166,206,227);
+//				data "Res 1 Bed Medium Rent" value:res_needed[1] color:rgb(178,223,138);
+//				data "Res 1 Bed High Rent" value:res_needed[2] color:rgb(51,160,44);
+//				data "Res 2 Bed Low Rent" value:res_needed[3] color:rgb(251,154,153);
+//				data "Res 2 Bed Medium Rent" value:res_needed[4] color:rgb(227,26,28);
+//				data "Res 2 Bed High Rent" value:res_needed[5] color:rgb(253,191,111);
+//				data "Res 3 Bed Low Rent" value:res_needed[6] color:rgb(31,120,180);
+//				data "Res 3 Bed Medium Rent" value:res_needed[7] color:rgb(255,127,0);
+//				data "Res 3 Bed High Rent" value:res_needed[8] color:rgb(202,178,214);
+//			}			
+//		}
 //		display modes autosave:false refresh:every(1000){
 //			chart "Modal Split" background:#white type: pie  
 //				{
@@ -356,17 +356,17 @@ experiment mobilityAI type: gui {
 		display city_display background:#black autosave:false type:opengl {
 			species zones aspect: base ;
 			species road aspect: base ;
-			species amenities aspect: base ;
-			species interactionZone aspect: base ;
+//			species amenities aspect: base ;
+//			species interactionZone aspect: base ;
 			species people transparency:0.2 aspect: base ;
 			overlay position: { 3,3 } size: { 150 #px, 170 #px } background: # gray transparency: 0.8 border: # black 
             {	
             		draw string(current_date.hour) + "h" + string(current_date.minute) +"m" at: { 20#px, 30#px } color: # white font: font("Helvetica", 25, #italic) perspective:false;
 //  				draw "Mobility Modes" at: { 20#px, 60#px } color: #black font: font("Helvetica", 15, #bold) perspective:false;
-  				draw "Car "+int(1000*modal_split["car"]/all_trips)/10 +"%" at: { 20#px, 60#px } color: #red font: font("Helvetica", 20, #bold ) perspective:false;
-  				draw "Bike "+int(1000*modal_split["bike"]/all_trips)/10 +"%" at: { 20#px, 90#px } color: rgb(100,149,237) font: font("Helvetica", 20, #bold ) perspective:false;
-  				draw "PT "+int(1000*modal_split["PT"]/all_trips)/10 +"%" at: { 20#px, 120#px } color: #yellow font: font("Helvetica", 20, #bold ) perspective:false;
-  				draw "Walk " +int(1000*modal_split["walk"]/all_trips)/10 +"%" at: { 20#px, 150#px } color: rgb(124,252,0) font: font("Helvetica", 20, #bold ) perspective:false;
+//  				draw "Car "+int(1000*modal_split["car"]/all_trips)/10 +"%" at: { 20#px, 60#px } color: #red font: font("Helvetica", 20, #bold ) perspective:false;
+//  				draw "Bike "+int(1000*modal_split["bike"]/all_trips)/10 +"%" at: { 20#px, 90#px } color: rgb(100,149,237) font: font("Helvetica", 20, #bold ) perspective:false;
+//  				draw "PT "+int(1000*modal_split["PT"]/all_trips)/10 +"%" at: { 20#px, 120#px } color: #yellow font: font("Helvetica", 20, #bold ) perspective:false;
+//  				draw "Walk " +int(1000*modal_split["walk"]/all_trips)/10 +"%" at: { 20#px, 150#px } color: rgb(124,252,0) font: font("Helvetica", 20, #bold ) perspective:false;
             }
 		
 				
