@@ -13,10 +13,12 @@ To run run the simulation and view the results, perform the following:
 - nagivate to the 'js' directory and run a local web server
 - open your browser and go to local host to view the simulation front-end.
 
+![python_js_abm](images/python_js_hamburg.gif)
+
 ## JS
 A very simple javascript front-end prototype to demonstrate getting the simulated agent data from cityIO and displaying it with Mapbox
 
 ## ABM
 A GAMA prototype simulation which can run and dispay the simulation locally but can also send point data to cityIO
 
-
+![gama_manhattan](images/gama_manhattan.gif)
