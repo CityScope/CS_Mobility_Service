@@ -1,0 +1,42 @@
+{
+  "error": "",
+  "grid": [],
+  "header": {
+    "block": [
+      "type",
+      "height",
+      "rotation"
+    ],
+    "mapping": {
+      "type": {
+        "0": "RL",
+        "1": "RM",
+        "2": "RS",
+        "3": "OL",
+        "4": "OM",
+        "5": "OS",
+        "6": "ROAD"
+      }
+    },
+    "name": "gama_points",
+    "owner": {
+      "institute": "MIT Media Lab",
+      "name": "Ronan Doorley",
+      "title": "Research Scientist"
+    },
+    "spatial": {
+      "nrows": 0,
+      "ncols": 0,
+      "physical_longitude": 53.5369,
+      "physical_latitude": 10.00748,
+      "longitude": 53.536898,
+      "latitude": 10.007472,
+      "cellSize": 0,
+      "rotation": 0
+    }
+  },
+  "id": "",
+  "meta": {},
+  "objects": {},
+  "timestamp": -1
+}

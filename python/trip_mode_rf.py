@@ -14,6 +14,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn_porter import Porter
 import matplotlib.pyplot as plt
 from sklearn.tree import _tree
+import pickle
 
 # =============================================================================
 # Functions
@@ -64,9 +65,11 @@ def forest_to_code(rf, feature_names):
 #      Constants
 #********************************************
 #MODE_TABLE_PATH='../../data/Boston/clean/main_modes.csv'
-MODE_TABLE_PATH='clean/trip_modes.csv'
-TOUR_TABLE_PATH='clean/tours.csv'
-CHOICE_FUNCTION_PATH='../../ABM/models/choiceModel.gaml'
+city='Boston'
+MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
+TOUR_TABLE_PATH='./'+city+'/clean/tours.csv'
+CHOICE_FUNCTION_PATH='../ABM/models/choiceModel.gaml'
+PICKLED_MODEL_PATH='./models/trip_mode_rf.p'
 #********************************************
 #      Data
 #********************************************
@@ -101,11 +104,9 @@ for f in range(len(features)):
 #plt.xlim([-1, len(features)])
 #plt.show()
 
-forest_to_code(rf.estimators_, features)
+#forest_to_code(rf.estimators_, features)
 
-
-
-
+pickle.dump( rf, open( PICKLED_MODEL_PATH, "wb" ) )
 
 
          

@@ -12,30 +12,29 @@ To be replaced when better data are available.
 import pandas as pd
 import json
 import random
+from shapely.geometry import shape
+import numpy as np
+
 
 BOSTON_SYNTHPOP_PATH='./Hamburg/raw/synth_pop_Boston.csv'
-ZONES_RAW_PATH='./Hamburg/raw/gis_osm_landuse_a_free_1.geojson'
+ZONES_RAW_PATH='./Hamburg/raw/zones.geojson'
+ZONE_DATA_PATH='./Hamburg/raw/district_profiles.csv'
 
-SYNTHPOP_PATH='../ABM/includes//Hamburg/synth_pop.csv'
-CLEAN_ZONES_PATH='../ABM/includes/Hamburg/zones.geojson'
+SYNTHPOP_PATH='./Hamburg/clean/synth_pop.csv'
+CLEAN_ZONES_PATH='./Hamburg/clean/zones.geojson'
 
 zones=json.load(open(ZONES_RAW_PATH))
 synth_pop=pd.read_csv(BOSTON_SYNTHPOP_PATH)
+zone_areas=[shape(f['geometry']).area for f in zones['features']]
+inv_areas=[1/a for a in zone_areas]
+zones_list=list(range(len(zones['features'])))
 
-zones['features']=[f for f in zones['features'] if f['properties']['fclass'] in ['residential', 'commercial', 'industrial']]
-zones['crs']= {"properties": {"name": "EPSG:4326"}, "type": "name"}
-
-res_zone_nums=[i for i in range(len(zones['features'])) 
-if zones['features'][i]['properties']['fclass']=='residential']
-
-work_zone_nums=[i for i in range(len(zones['features'])) 
-if zones['features'][i]['properties']['fclass']in ['commercial', 'industrial']]
-
-synth_pop['home_geo_index']=random.sample( res_zone_nums,len(synth_pop))
-synth_pop['work_geo_index']=random.sample( work_zone_nums,len(synth_pop))
+synth_pop['home_geo_index']=np.random.choice(zones_list, 1000)
+synth_pop['work_geo_index']=np.random.choice(zones_list, 1000, inv_areas)
+synth_pop['pop_per_sqmile_home']=synth_pop.apply(lambda row: 8000, axis=1)
 
 for f in zones['features']:
-    f['pop_per_sqmile']=15000
+    f['pop_per_sqmile']=8000
     
-synth_pop.to_csv(SYNTHPOP_PATH)
+synth_pop.to_csv(SYNTHPOP_PATH, index=False)
 json.dump(zones, open(CLEAN_ZONES_PATH, 'w'))
