@@ -17,7 +17,7 @@
 	
 	<script src="./lib/d3.min.js"></script>
 	<script>
-    var city='Hamburg'
+		var city='Hamburg'
 		mapboxgl.accessToken = 'pk.eyJ1IjoiZG9vcmxleXJtaXQiLCJhIjoiY2pnNnh5NHJwOHp2YzJ4bXNkdWZyNWd3ZSJ9.am1Wub7LEzVfZKHAdRZe4g';
 		var map = new mapboxgl.Map({
 			container: 'map',
@@ -40,53 +40,45 @@ var geojson_object = data.objects.points;
 map.addSource('points', { type: 'geojson', data: geojson_object });
 map.addLayer({
 	"id": "points",
-	"type": "heatmap",
+	"type": "circle",
 	"source": "points",
-	"paint":{
-    // increase weight as diameter breast height increases
-    'heatmap-weight': {
-    	property: 'dbh',
-    	type: 'exponential',
-    	stops: [
-    	[1, 0],
-    	[62, 1]
-    	]
-    },
-    // increase intensity as zoom level increases
-    'heatmap-intensity': {
-    	stops: [
-    	[11, 1],
-    	[15, 3]
-    	]
-    },
-    // assign color values be applied to points depending on their density
-    'heatmap-color': [
-    'interpolate',
-    ['linear'],
-    ['heatmap-density'],
-    0, 'rgba(236,222,239,0)',
-    0.2, 'rgb(208,209,230)',
-    0.4, 'rgb(166,189,219)',
-    0.6, 'rgb(103,169,207)',
-    0.8, 'rgb(28,144,153)'
-    ],
-    // increase radius as zoom increases
-    'heatmap-radius': {
-    	stops: [
-    	[11, 5],
-    	[15, 10],
-        [20, 15]
-    	]
-    },
-    // decrease opacity to transition into the circle layer
-    'heatmap-opacity': {
-    	default: 1,
-    	stops: [
-    	[14, 1],
-    	[15, 0]
-    	]
-    },
+	"paint": {
+		"circle-radius": 3,
+		"circle-color": ["case", 
+                    ['==',['number',['get', 'mode']],0],['rgb', 255,0,0],
+                    ['==',['number',['get', 'mode']],1],['rgb', 255,0,0],
+                    ['==',['number',['get', 'mode']],2],['rgb', 255,0,0],
+                    ['==',['number',['get', 'mode']],3],['rgb', 255,0,0],
+                    ['rgb', 255,255,255]],
+		"circle-opacity": 0.8,
+	}
+});
+
+map.on('click', 'points', function (e) {
+var coordinates = e.features[0].geometry.coordinates.slice();
+var description = e.features[0].properties.id+ ' '+ e.features[0].properties.mode;
+ 
+// Ensure that if the map is zoomed out such that multiple
+// copies of the feature are visible, the popup appears
+// over the copy being pointed to.
+while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
 }
+ 
+new mapboxgl.Popup()
+.setLngLat(coordinates)
+.setHTML(description)
+.addTo(map);
+});
+ 
+// Change the cursor to a pointer when the mouse is over the places layer.
+map.on('mouseenter', 'places', function () {
+map.getCanvas().style.cursor = 'pointer';
+});
+ 
+// Change it back to a pointer when it leaves.
+map.on('mouseleave', 'places', function () {
+map.getCanvas().style.cursor = '';
 });
 
 // setup the viewport
