@@ -211,7 +211,7 @@ def check_grid_data(p):
                     new_agents.append(Person(25, True, 5, zone_locations[home_zone], 
                              grid_locations[lu['work_'+str(level)][i]], True, 'HWH', 8000, len(agents)))
         agents=base_agents+new_agents
-#        for ag in new_agents: ag.init_period(period)
+        for ag in new_agents: ag.init_period(period)
     lastId=hash_id
 # =============================================================================
 # Constants
@@ -339,7 +339,7 @@ for ag in agents: ag.init_period(period)
 prop=0
 count=1
 while True:
-    if count%20==0:
+    if count%200==0:
         check_grid_data(period)
     if prop>0.5:
         period+=1
