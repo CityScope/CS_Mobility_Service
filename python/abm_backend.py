@@ -146,7 +146,7 @@ def update_and_send():
         if not ag.finished:
             ag.update_position(TIMESTEP_SEC)
         else:
-            ag.position=[ag.position[0]+np.random.normal(0,0.00002), ag.position[1]+np.random.normal(0,0.00002)]
+            ag.position=[ag.position[0]+np.random.normal(0,0.00001), ag.position[1]+np.random.normal(0,0.00001)]
 #            ll=pyproj.transform( utm, wgs, ag.position[0], ag.position[1])
 #            ll=[int(ll[0]*1e5)/1e5, int(ll[1]*1e5)/1e5] # reduce precision for sending data
         geometry={"type": "Point",
@@ -279,6 +279,7 @@ topEdge_lonLat={'lat':53.534868, 'lon': 10.015835}
 cell_size= cityIO_grid_data['header']['spatial']['cellSize']
 nrows=cityIO_grid_data['header']['spatial']['nrows']
 # TODO: don't hard code this when the real grid data is available
+cell_size=10
 ncols=cityIO_grid_data['header']['spatial']['ncols']
 grid_points_ll, net=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols)
 # for each connection point, find the closest grid node
