@@ -211,7 +211,7 @@ def check_grid_data(p):
                     new_agents.append(Person(25, True, 5, zone_locations[home_zone], 
                              grid_locations[lu['work_'+str(level)][i]], True, 'HWH', 8000, len(agents)))
         agents=base_agents+new_agents
-        for ag in new_agents: ag.init_period(period)
+#        for ag in new_agents: ag.init_period(period)
     lastId=hash_id
 # =============================================================================
 # Constants
@@ -238,7 +238,7 @@ UTM_MAP={'Boston':pyproj.Proj("+init=EPSG:32619"),
 utm=UTM_MAP[city]
 wgs=pyproj.Proj("+init=EPSG:4326")
 
-TIMESTEP_SEC=10
+TIMESTEP_SEC=3
 counter=0
 
 # getting grid data
@@ -273,11 +273,12 @@ original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
 with urllib.request.urlopen(cityIO_grid_url) as url:
 #get the latest json data
     cityIO_grid_data=json.loads(url.read().decode())
-topLeft_lonLat={'lat':53.533192, 'lon':10.014198}
-topEdge_lonLat={'lat':53.531324, 'lon':10.019037}
+topLeft_lonLat={'lat':53.535283,  'lon':10.013794}
+topEdge_lonLat={'lat':53.534868, 'lon': 10.015835}
 
 cell_size= cityIO_grid_data['header']['spatial']['cellSize']
 nrows=cityIO_grid_data['header']['spatial']['nrows']
+# TODO: don't hard code this when the real grid data is available
 ncols=cityIO_grid_data['header']['spatial']['ncols']
 grid_points_ll, net=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols)
 # for each connection point, find the closest grid node
