@@ -165,7 +165,7 @@ def update_and_send():
     }        
     cityio_json['objects']={"points": geojson_object}    
     r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(geojson_object))
-    time.sleep(0.1)
+    time.sleep(0.2)
     print(r)
         
 def check_grid_data(p):
