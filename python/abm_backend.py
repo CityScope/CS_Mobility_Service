@@ -165,7 +165,7 @@ def update_and_send():
     }        
     cityio_json['objects']={"points": geojson_object}    
     r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(geojson_object))
-    time.sleep(0.2)
+    time.sleep(0.3)
     print(r)
         
 def check_grid_data(p):
@@ -332,7 +332,7 @@ for ag in agents: ag.init_period(period)
 prop=0
 count=1
 while True:
-    if count%10==0:
+    if count%20==0:
         check_grid_data(period)
     if prop>0.5:
         period+=1
