@@ -33,7 +33,7 @@ d3.json('https://cityio.media.mit.edu/api/table/abm_service_'+city, function(err
 	if (err) throw err;
 	
 // save full coordinate list for later
-var geojson_object = data.objects.points;
+var geojson_object = data;
 
 
 // add it to the map
@@ -44,19 +44,21 @@ map.addLayer({
 	"source": "points",
 	"paint": {
 		"circle-radius": 3,
-		"circle-color": ["case", 
-                    ['==',['number',['get', 'mode']],0],['rgb', 255,0,0],
-                    ['==',['number',['get', 'mode']],1],['rgb', 255,0,0],
-                    ['==',['number',['get', 'mode']],2],['rgb', 255,0,0],
-                    ['==',['number',['get', 'mode']],3],['rgb', 255,0,0],
-                    ['rgb', 255,255,255]],
+		"circle-color":'red',
+		// "circle-color": ["case", 
+  //                   ['==',['number',['get', 'mode']],0],['rgb', 255,0,0],
+  //                   ['==',['number',['get', 'mode']],1],['rgb', 255,0,0],
+  //                   ['==',['number',['get', 'mode']],2],['rgb', 255,0,0],
+  //                   ['==',['number',['get', 'mode']],3],['rgb', 255,0,0],
+  //                   ['rgb', 255,255,255]],
 		"circle-opacity": 0.8,
 	}
 });
 
 map.on('click', 'points', function (e) {
 var coordinates = e.features[0].geometry.coordinates.slice();
-var description = e.features[0].properties.id+ ' '+ e.features[0].properties.mode;
+var description = e.features[0].properties.id;
+// + ' '+ e.features[0].properties.mode;
  
 // Ensure that if the map is zoomed out such that multiple
 // copies of the feature are visible, the popup appears
@@ -89,7 +91,7 @@ map.setPitch(30);
 var i = 0;
 var timer = window.setInterval(function() {
 	d3.json('https://cityio.media.mit.edu/api/table/abm_service_'+city, function(err, data) {
-		var geojson_object = data.objects.points;
+		var geojson_object = data
 		map.getSource("points").setData(geojson_object); 
 	});
 	

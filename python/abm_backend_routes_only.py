@@ -265,7 +265,7 @@ for o in range(len(grid_points_ll)):
     for d in range(len(grid_points_ll)):
         grid_node_path=grid_paths[o][d]
         grid_path_coords=[grid_points_ll[n].copy() for n in grid_node_path]
-        routes_grid_to_grid[o][d]={'coordinates':grid_path_coords.copy(), 'distances': [cell_size for n in range(len(grid_path_coords)-1)]}
+        routes_grid_to_grid[o][d]={'coordinates':grid_path_coords.copy(), 'distances': [cell_size*3 for n in range(len(grid_path_coords)-1)]}
 
 #construct the full routes in and out of interaction_zone
 full_routes_grid_to_city={n:{d:{} for d in range(len(routes))} for n in range(len(grid_points_ll))}
@@ -310,9 +310,9 @@ for node in range(len(grid_points_ll)):
 # create the agents  
 # =============================================================================
 random.seed(0)
-num_base=100
+num_base=300
 num_new_commute=0
-num_new_live_work=50
+num_new_live_work=100
 
 synth_pop=pd.read_csv(SYNTHPOP_PATH)
 agents=[]
@@ -355,3 +355,4 @@ geojson_object={
 
 cityio_json['objects']={"points": geojson_object}    
 r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(cityio_json))
+print(r)

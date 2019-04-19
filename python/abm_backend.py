@@ -17,25 +17,44 @@ import numpy as np
 import math
 import networkx as nx
 from scipy import spatial
+import threading
+import urllib
+import atexit
 
+
+class Location:
+    def __init__(self, graph_id, term_node, cp_routes):
+        self.graph_id=graph_id
+        self.term_node=term_node
+        self.cp_routes=cp_routes
+        
 class Person:
-    def __init__(self,row, id):
+    def __init__(self,age, bachelor_degree, hh_income, home_loc, work_loc, male, motif, pop_per_sqmile_home, id):
         self.id=id
-        self.age=row['age']
-        self.bachelor_degree=row['bachelor_degree']
-        self.hh_income=row['hh_income']
-        self.home_geo_index=row['home_geo_index']
-        self.work_geo_index=row['work_geo_index']
-        self.male=row['male']
-        self.motif=row['motif']
-        self.pop_per_sqmile_home=row['pop_per_sqmile_home']        
-#        root_route_work_xy=routes[str(self.home_geo_index)][str(self.work_geo_index)]['xy']
-#        root_route_home_xy=routes[str(self.work_geo_index)][str(self.home_geo_index)]['xy']
-#        home_loc=[[root_route_work_xy[0][0]+random.gauss(0,50), root_route_work_xy[0][1]+random.gauss(0,50)]]
-#        work_loc=[[root_route_work_xy[-1][0]+random.gauss(0,50), root_route_work_xy[-1][1]+random.gauss(0,50)]]
-        self.all_routes=[routes[str(self.home_geo_index)][str(self.work_geo_index)].copy(),
-                         routes[str(self.work_geo_index)][str(self.home_geo_index)].copy()]
-
+        self.age=age
+        self.bachelor_degree=bachelor_degree
+        self.hh_income=hh_income
+        self.home_loc=home_loc
+        self.work_loc=work_loc
+        self.male=male
+        self.motif=motif
+        self.pop_per_sqmile_home=pop_per_sqmile_home
+        if home_loc.graph_id==work_loc.graph_id:            
+            self.all_routes=[routes[home_loc.graph_id][str(home_loc.term_node)][str(work_loc.term_node)].copy(),
+                             routes[home_loc.graph_id][str(work_loc.term_node)][str(home_loc.term_node)].copy()]
+            for r in self.all_routes:
+                r['coordinates']=[node_coords[home_loc.graph_id][n].copy() for n in r['nodes']]
+        else:
+            self.all_routes=[{'nodes': home_loc.cp_routes['to'][0]['nodes']+work_loc.cp_routes['from'][0]['nodes'].copy(),
+                            'distances':home_loc.cp_routes['to'][0]['distances']+[1]+work_loc.cp_routes['from'][0]['distances'].copy(),
+                            'coordinates': [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['to'][0]['nodes']]+
+                            [node_coords[work_loc.graph_id][n].copy() for n in work_loc.cp_routes['from'][0]['nodes']]},
+                            {'nodes': work_loc.cp_routes['to'][0]['nodes']+home_loc.cp_routes['from'][0]['nodes'].copy(),
+                            'distances':work_loc.cp_routes['to'][0]['distances']+[1]+home_loc.cp_routes['from'][0]['distances'].copy(),
+                            'coordinates': [node_coords[work_loc.graph_id][n].copy() for n in work_loc.cp_routes['to'][0]['nodes']]+
+                            [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['from'][0]['nodes']]}]
+        
+            
     def init_period(self, p):
         self.route=self.all_routes[p%len(self.all_routes)]
 #        get the travel time and cost for each mode
@@ -61,8 +80,7 @@ class Person:
         else: 
             self.next_node_ll=self.route['coordinates'][0].copy()
             self.finished=True
-            self.prop_of_link_left=0
-        
+            self.prop_of_link_left=0        
     def update_position(self, seconds):
         # update an agent's position along a predefined route based on their 
         # speed and the time elapsed
@@ -89,21 +107,6 @@ class Person:
                     self.prop_of_link_left=1
                     dist_to_move_m-=d_to_next_node 
                     
-                    
-class new_person(Person):
-    def __init__(self, work_grid_cell, home_zone, id):
-        self.id=id
-        self.age=20
-        self.bachelor_degree=True
-        self.hh_income=5
-        self.home_geo_index=home_zone
-        self.work_geo_index=-1
-        self.male=True
-        self.motif='HWH'
-        self.pop_per_sqmile_home=15000
-        self.work_grid_cell=work_grid_cell
-        self.all_routes=[full_routes_city_to_grid[home_zone][work_grid_cell].copy(),
-                         full_routes_grid_to_city[work_grid_cell][home_zone].copy()]    
 
 def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols):
     #retuns the top left coordinate of each grid cell from left to right, top to bottom
@@ -135,48 +138,71 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
                 G.add_edge(r*ncols+c, (r+1)*ncols+c, weight=cell_size)
                 G.add_edge((r+1)*ncols+c, r*ncols+c, weight=cell_size)
     return grid_coords_ll,  G
+    
 
-def sim_period():
-    prop_finished=0
-    while prop_finished<0.95: 
-        print(prop_finished)
-    #    start_time=datetime.datetime.now()
-        features=[]
-        for ag in agents:
-            if not ag.finished:
-                ag.update_position(TIMESTEP_SEC)
+def update_and_send():
+    features=[]
+    for ag in agents:
+        if not ag.finished:
+            ag.update_position(TIMESTEP_SEC)
+        else:
+            ag.position=[ag.position[0]+np.random.normal(0,0.00002), ag.position[1]+np.random.normal(0,0.00002)]
 #            ll=pyproj.transform( utm, wgs, ag.position[0], ag.position[1])
-#            ll=[int(ll[0]*1e4)/1e4, int(ll[1]*1e4)/1e4] # reduce precision for sending data
-            geometry={"type": "Point",
-                     "coordinates": [ag.position[0], ag.position[1]]
-                    }
-            feature={"type": "Feature",
-                     "geometry":geometry,
-                     'properties':{'mode':ag.mode, 'age':ag.age, 'hh_income':ag.hh_income, 'id': ag.id}
-                     }
-            features.append(feature)        
-        geojson_object={
-          "type": "FeatureCollection",
-          "features": features    
-        }
+#            ll=[int(ll[0]*1e5)/1e5, int(ll[1]*1e5)/1e5] # reduce precision for sending data
+        geometry={"type": "Point",
+                 "coordinates": [int(ag.position[0]*1e5)/1e5, int(ag.position[1]*1e5)/1e5]
+                }
+        feature={"type": "Feature",
+                 "geometry":geometry,
+                 'properties':
+#                         {'mode':ag.mode, 'age':ag.age, 'hh_income':ag.hh_income, 'id': ag.id}
+                     {}
+                 }
+        features.append(feature)        
+    geojson_object={
+      "type": "FeatureCollection",
+      "features": features    
+    }        
+    cityio_json['objects']={"points": geojson_object}    
+    r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(geojson_object))
+    print(r)
         
-        cityio_json['objects']={"points": geojson_object}    
-        r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(cityio_json))
-    #    end_time=datetime.datetime.now()
-    #    print((end_time-start_time).microseconds)
-        prop_finished=sum([a.finished for a in agents])/len(agents)
-        time.sleep(0.05)
-
+def check_grid_data(p):
+    global agents, base_agents, new_agents, lastId
+    with urllib.request.urlopen(cityIO_grid_url) as url:
+    #get the latest json data
+        cityIO_grid_data=json.loads(url.read().decode())
+    hash_id=cityIO_grid_data['meta']['id']
+    if hash_id==lastId:
+        pass
+    else:
+        print('Update agents')
+        live_1=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==0]
+        live_2=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==1]
+        work_1=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==2]
+        work_2=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==3]
+#        live_1= [1,2,3,4]
+#        work_1= [55,56,57,58]
+        random.shuffle(live_1)
+        random.shuffle(work_1)
+        new_agents=[]
+        for i in range(min(len(live_1), len(work_1))):
+            new_agents.append(Person(25, True, 5, grid_locations[live_1[i]], 
+                         grid_locations[work_1[i]], True, 'HWH', 8000, len(agents))) 
+        agents=base_agents+new_agents
+        for ag in new_agents: ag.init_period(period)
+    lastId=hash_id
 # =============================================================================
 # Constants
 # =============================================================================
 city='Hamburg'
 
-ZONE_ROUTES_PATH='./'+city+'/clean/routes.json'
 CITYIO_TEMPLATE_PATH='./'+city+'/clean/cityio_template.json'
-SYNTHPOP_PATH='./Hamburg/clean/synth_pop.csv'
+SYNTHPOP_PATH='./'+city+'/clean/synth_pop.csv'
 PICKLED_MODEL_PATH='./models/trip_mode_rf.p'
-CONNECTION_ROUTES_PATH='./'+city+'/clean/connections.json'
+ZONE_NODE_ROUTES_PATH='./'+city+'/clean/route_nodes.json'
+CONNECTION_NODE_ROUTES_PATH='./'+city+'/clean/connection_route_nodes.json'
+NODES_PATH='./'+city+'/clean/nodes.csv'
 CONNECTION_POINTS_PATH='./'+city+'/clean/connection_points.json'
 
 
@@ -191,7 +217,16 @@ UTM_MAP={'Boston':pyproj.Proj("+init=EPSG:32619"),
 utm=UTM_MAP[city]
 wgs=pyproj.Proj("+init=EPSG:4326")
 
-TIMESTEP_SEC=1
+TIMESTEP_SEC=10
+counter=0
+
+# getting grid data
+lastId=0
+host='https://cityio.media.mit.edu/'
+#host='http://localhost:8080/' # local port running cityio
+cityIO_grid_url='{}api/table/mocho'.format(host)
+
+
 
 # load the pre-calibrated choice model
 mode_rf=pickle.load( open( PICKLED_MODEL_PATH, "rb" ) )
@@ -200,117 +235,111 @@ cityio_json=json.load(open(CITYIO_TEMPLATE_PATH))
 # load the connection points between real network and grid network
 connection_points=json.load(open(CONNECTION_POINTS_PATH))
 # load the routes from each zone to each connection
-connection_routes=json.load(open(CONNECTION_ROUTES_PATH))
+zone_connection_routes=json.load(open(CONNECTION_NODE_ROUTES_PATH))
 # get the routes between each exisitng zone
-routes=json.load(open(ZONE_ROUTES_PATH))
+zone_routes=json.load(open(ZONE_NODE_ROUTES_PATH))
 
-# =============================================================================
-#  Compute all the routes
-# =============================================================================
+nodes=pd.read_csv(NODES_PATH)
 
-# prepare the routes between each existing zones
-for o in routes:
-    for d in routes[o]:
-        xy=[list(pyproj.transform(wgs, utm, r[0], r[1])) for r in routes[o][d]['coordinates']]
-        routes[o][d]['xy']=xy
-        routes[o][d]['distances']=[((xy[i][0]-xy[i+1][0])**2+(xy[i][1]-xy[i+1][1])**2)**(1/2) for i in range(len(xy)-1)]
-
-for o in connection_routes['route_from_grid']:
-    for d in connection_routes['route_from_grid'][o]:
-        xy=[list(pyproj.transform(wgs, utm, r[0], r[1])) for r in connection_routes['route_from_grid'][o][d]['coordinates']]
-        connection_routes['route_from_grid'][o][d]['xy']=xy
-        connection_routes['route_from_grid'][o][d]['distances']=[((xy[i][0]-xy[i+1][0])**2+(xy[i][1]-xy[i+1][1])**2)**(1/2) for i in range(len(xy)-1)]
-for o in connection_routes['route_to_grid']:
-    for d in connection_routes['route_to_grid'][o]:
-        xy=[list(pyproj.transform(wgs, utm, r[0], r[1])) for r in connection_routes['route_to_grid'][o][d]['coordinates']]
-        connection_routes['route_to_grid'][o][d]['xy']=xy
-        connection_routes['route_to_grid'][o][d]['distances']=[((xy[i][0]-xy[i+1][0])**2+(xy[i][1]-xy[i+1][1])**2)**(1/2) for i in range(len(xy)-1)]
+original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
 
 # create land use grid and road network from the grid
 # TODO the grid information should come from cityIO grid data
+
+# =============================================================================
+# Happens with each change 
+# =============================================================================
+with urllib.request.urlopen(cityIO_grid_url) as url:
+#get the latest json data
+    cityIO_grid_data=json.loads(url.read().decode())
 topLeft_lonLat={'lat':53.533192, 'lon':10.014198}
 topEdge_lonLat={'lat':53.531324, 'lon':10.019037}
-cell_size, nrows, ncols= 20, 10, 20
+
+cell_size= cityIO_grid_data['header']['spatial']['cellSize']
+nrows=cityIO_grid_data['header']['spatial']['nrows']
+ncols=cityIO_grid_data['header']['spatial']['ncols']
 grid_points_ll, net=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols)
-# find the closest grid point to each connection point
+# for each connection point, find the closest grid node
 grid_tree = spatial.KDTree(np.array(grid_points_ll))
 for cp in connection_points:
     cp['closest_grid_node']=grid_tree.query([cp['lon'], cp['lat']])[1]
-# find the closest connection point to each zone
-cp_per_zone={}
-cp_tree = spatial.KDTree(np.array([[cp['lon'], cp['lat']] for cp in connection_points]))
-for o in routes:
-    ll=routes[o][o]['coordinates'][0]
-    cp_per_zone[o]=cp_tree.query(ll)[1]    
-# find the route from each connection point to each grid cell
-grid_paths =  dict(nx.all_pairs_shortest_path(net))
+# get all the internal routes and all the connection routes
+grid_node_paths =  dict(nx.all_pairs_shortest_path(net))
+grid_routes={str(i):{} for i in range(len(grid_points_ll))}
+for o in range(len(grid_points_ll)):
+    for d in range(len(grid_points_ll)):
+        grid_routes[str(o)][str(d)]={'nodes':grid_node_paths[o][d],
+                     'distances': [cell_size for l in range(len(grid_node_paths[o][d])-1)]}
+grid_connection_routes=[{'to': [], 'from':[]} for g in range(len(grid_points_ll))]
+for n in range(len(grid_points_ll)):
+    for cp in range(len(connection_points)):
+        grid_connection_routes[n]['to'].append(grid_routes[str(n)][str(connection_points[cp]['closest_grid_node'])])
+        grid_connection_routes[n]['from'].append(grid_routes[str(connection_points[cp]['closest_grid_node'])][str(n)])
 
-#construct the full routes in and out of interaction_zone
-full_routes_grid_to_city={n:{d:{} for d in range(len(routes))} for n in range(len(grid_points_ll))}
-full_routes_city_to_grid={d:{n:{} for n in range(len(grid_points_ll))} for d in range(len(routes))}
-
-for node in range(len(grid_points_ll)):
-    for d in range(len(routes)):
-        cp=cp_per_zone[str(d)]
-        grid_cp=connection_points[cp]['closest_grid_node']
-        grid_node_path_to_city=grid_paths[node][grid_cp]
-        grid_node_path_from_city=grid_paths[grid_cp][node]
-        grid_path_coords_to_city=[grid_points_ll[n].copy() for n in grid_node_path_to_city]
-        grid_path_coords_from_city=[grid_points_ll[n].copy() for n in grid_node_path_from_city]
-        # TODO: distance of link from grid node to connection point
-#        full_routes_grid_to_city[node][d]={'coordinates':grid_path_coords_to_city + connection_routes['route_from_grid'][str(cp)][str(d)]['coordinates'].copy()
-#                                , 'distances': [cell_size for n in range(len(grid_path_coords_to_city)-1)]+[1]+connection_routes['route_from_grid'][str(cp)][str(d)]['distances'].copy()}
-        full_routes_grid_to_city[node][d]={'coordinates':grid_path_coords_to_city, 'distances': [cell_size for n in range(len(grid_path_coords_to_city)-1)]}
-        full_routes_city_to_grid[d][node]={'coordinates':grid_path_coords_from_city, 'distances': [cell_size for n in range(len(grid_path_coords_from_city)-1)]}
-
-## grid to city
-#for node in range(len(grid_points_ll)):
-#    full_routes_grid_to_city[node]={}
-#    for d in range(len(routes)):
-#        cp=cp_per_zone[str(d)]
-#        grid_cp=connection_points[cp]['closest_grid_node']
-#        grid_route=paths[node][grid_cp]
-#        grid_route_xy= [grid_points_xy[n] for n in grid_route]
-#        full_route=(grid_route_xy+[[connection_points[cp]['x'], connection_points[cp]['y']]] 
-#        +connection_routes['route_from_grid'][str(cp)][str(d)]['xy'])
-#        full_routes_grid_to_city[node][d]={'xy':full_route}
-## city to grid 
-#for d in range(len(routes)):
-#    full_routes_city_to_grid[d]={}
-#    for node in range(len(grid_points_ll)):
-#        cp=cp_per_zone[str(d)]
-#        grid_cp=connection_points[cp]['closest_grid_node']
-#        grid_route=paths[node][grid_cp]
-#        grid_route_xy= [grid_points_xy[n] for n in grid_route]
-#        full_route=(connection_routes['route_to_grid'][str(d)][str(cp)]['xy']
-#        +[[connection_points[cp]['x'], connection_points[cp]['y']]]+grid_route_xy)
-#        full_routes_city_to_grid[d][node]={'xy':full_route}
+routes= [zone_routes, grid_routes]
+connection_routes= [zone_connection_routes, grid_connection_routes]
+node_coords= [original_net_node_coords, grid_points_ll]
 # =============================================================================
-# create the agents  
-# =============================================================================
+
+# for each zone, create a location object
+zone_locations=[]
+for z in range(len(zone_routes)):
+    zone_locations.append(Location(0, z, connection_routes[0][z]))
+    
+grid_locations=[]
+for n in range(len(grid_routes)):
+    grid_locations.append(Location(1, n, connection_routes[1][n]))
+
+
+# for each person in base pop, create Person
 random.seed(0)
-num_base=200
-num_new=50
 synth_pop=pd.read_csv(SYNTHPOP_PATH)
-agents=[]
+ag_ind=0
+num_base=100
+num_internal=20
+num_commute_in=50
+base_agents=[]
 for ag_ind, row in synth_pop[:num_base].iterrows():
-    agents.append(Person(row, ag_ind))
+    base_agents.append(Person(row['age'], row['bachelor_degree'], row['hh_income'], zone_locations[row['home_geo_index']], 
+                         zone_locations[row['work_geo_index']], row['male'], row['motif'], row['pop_per_sqmile_home'], ag_ind))
+    ag_ind+=1
+new_agents=[]
 
+agents= base_agents+ new_agents
+
+# create some people internal to grid
 # new agents
-for j in range(num_base, num_base+num_new):
-    grid_cell=random.choice(range(200))
-    home_zone=random.choice(range(len(routes)))
-    agents.extend([new_person(grid_cell, home_zone, j)])
-
-
+#for j in range(num_internal):
+#    home_grid_cell=random.choice(range(200))
+#    work_grid_cell=random.choice(range(200))
+#    agents.append(Person(25, True, 5, grid_locations[home_grid_cell], 
+#                         grid_locations[work_grid_cell], True, 'HWH', 8000, ag_ind))
+#    ag_ind+=1
+## create some people commuting into grid
+#for j in range(num_commute_in):    
+#    home_zone=random.choice(range(len(zone_locations)))
+#    work_grid_cell=random.choice(range(200))
+#    agents.append(Person(25, True, 5, zone_locations[home_zone], 
+#                         grid_locations[work_grid_cell], True, 'HWH', 8000, ag_ind))
+#    ag_ind+=1
+    
 # =============================================================================
 # Simulation Loop
-# =============================================================================
-period=1
+# =============================================================================   
+period=0
+for ag in agents: ag.init_period(period)
+prop=0
+count=1
 while True:
-#    then=datetime.datetime.now()
-    for ag in agents: ag.init_period(period)
-#    now=datetime.datetime.now()
-    sim_period()
-    period+=1
+    if count%10==0:
+        check_grid_data(period)
+    if prop>0.5:
+        period+=1
+        for ag in agents: ag.init_period(period)
+    update_and_send()
+    prop=sum([ag.finished for ag in agents])/len(agents)
+    count+=1
+    print(count)
+    
+
             

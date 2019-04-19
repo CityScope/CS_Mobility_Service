@@ -24,6 +24,7 @@ SYNTHPOP_PATH='./Hamburg/clean/synth_pop.csv'
 CLEAN_ZONES_PATH='./Hamburg/clean/zones.geojson'
 
 zones=json.load(open(ZONES_RAW_PATH))
+zones['features']=[zones['features'][i] for i in range(len(zones['features'])) if not i==65]
 synth_pop=pd.read_csv(BOSTON_SYNTHPOP_PATH)
 zone_areas=[shape(f['geometry']).area for f in zones['features']]
 inv_areas=[1/a for a in zone_areas]
