@@ -197,7 +197,7 @@ def check_grid_data(p):
             n_residents, n_workers=len(lu['live_'+str(level)]), len(lu['work_'+str(level)])
             for i in range(min(n_residents, n_workers)):
                 new_agents.append(Person(25, True, 5, grid_locations[lu['live_'+str(level)][i]], 
-                             grid_locations[lu['work_'+str(level)]], True, 'HWH', 8000, len(agents)))
+                             grid_locations[lu['work_'+str(level)][i]], True, 'HWH', 8000, len(agents)))
             if n_residents>n_workers: # more res than off for this type
                 # add the new agents with outside work locs
                 for i in range(n_workers, n_residents):
