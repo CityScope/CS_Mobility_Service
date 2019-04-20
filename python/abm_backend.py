@@ -146,7 +146,7 @@ def update_and_send():
         if not ag.finished:
             ag.update_position(TIMESTEP_SEC)
         else:
-            ag.position=[ag.position[0]+np.random.normal(0,0.00001), ag.position[1]+np.random.normal(0,0.00001)]
+            ag.position=[ag.position[0]+np.random.normal(0,0.000003), ag.position[1]+np.random.normal(0,0.000003)]
 #            ll=pyproj.transform( utm, wgs, ag.position[0], ag.position[1])
 #            ll=[int(ll[0]*1e5)/1e5, int(ll[1]*1e5)/1e5] # reduce precision for sending data
         geometry={"type": "Point",
@@ -164,8 +164,12 @@ def update_and_send():
       "features": features    
     }        
     cityio_json['objects']={"points": geojson_object}    
-    r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(geojson_object))
-    time.sleep(0.3)
+    try:
+	r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(geojson_object))
+    except:
+	print('Couldnt send to cityio')
+	time.sleep(5)
+    time.sleep(0.1)
     print(r)
         
 def check_grid_data(p):
@@ -273,8 +277,8 @@ original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
 with urllib.request.urlopen(cityIO_grid_url) as url:
 #get the latest json data
     cityIO_grid_data=json.loads(url.read().decode())
-topLeft_lonLat={'lat':53.535283,  'lon':10.013794}
-topEdge_lonLat={'lat':53.534868, 'lon': 10.015835}
+topLeft_lonLat={'lat':53.533192, 'lon':10.014198}
+topEdge_lonLat={'lat':53.531324, 'lon':10.019037}
 
 cell_size= cityIO_grid_data['header']['spatial']['cellSize']
 nrows=cityIO_grid_data['header']['spatial']['nrows']
@@ -318,7 +322,7 @@ for n in range(len(grid_routes)):
 random.seed(0)
 synth_pop=pd.read_csv(SYNTHPOP_PATH)
 ag_ind=0
-num_base=100
+num_base=500
 num_internal=20
 num_commute_in=50
 base_agents=[]
