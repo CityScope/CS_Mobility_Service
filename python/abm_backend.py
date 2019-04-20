@@ -165,10 +165,10 @@ def update_and_send():
     }        
     cityio_json['objects']={"points": geojson_object}    
     try:
-	r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(geojson_object))
+        r = requests.post('https://cityio.media.mit.edu/api/table/update/abm_service_'+city, data = json.dumps(geojson_object))
     except:
-	print('Couldnt send to cityio')
-	time.sleep(5)
+        print('Couldnt send to cityio')
+        time.sleep(5)
     time.sleep(0.1)
     print(r)
         
