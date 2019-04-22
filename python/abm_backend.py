@@ -48,12 +48,13 @@ class Person:
             for r in self.all_routes:
                 r['coordinates']=[node_coords[home_loc.graph_id][n].copy() for n in r['nodes']]
         else:
+#            TODO: connector links shhoud not be 100 long
             self.all_routes=[{'nodes': home_loc.cp_routes['to'][0]['nodes']+work_loc.cp_routes['from'][0]['nodes'].copy(),
-                            'distances':home_loc.cp_routes['to'][0]['distances']+[1]+work_loc.cp_routes['from'][0]['distances'].copy(),
+                            'distances':home_loc.cp_routes['to'][0]['distances']+[100]+work_loc.cp_routes['from'][0]['distances'].copy(),
                             'coordinates': [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['to'][0]['nodes']]+
                             [node_coords[work_loc.graph_id][n].copy() for n in work_loc.cp_routes['from'][0]['nodes']]},
                             {'nodes': work_loc.cp_routes['to'][0]['nodes']+home_loc.cp_routes['from'][0]['nodes'].copy(),
-                            'distances':work_loc.cp_routes['to'][0]['distances']+[1]+home_loc.cp_routes['from'][0]['distances'].copy(),
+                            'distances':work_loc.cp_routes['to'][0]['distances']+[100]+home_loc.cp_routes['from'][0]['distances'].copy(),
                             'coordinates': [node_coords[work_loc.graph_id][n].copy() for n in work_loc.cp_routes['to'][0]['nodes']]+
                             [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['from'][0]['nodes']]}]
         
