@@ -199,11 +199,12 @@ def check_grid_data(p):
     else:
         print('Update agents')
         lu={}
-        lu['live_1']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==0]
-        lu['live_2']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==1]
-        lu['work_1']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==2]
-        lu['work_2']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==3]
-        
+        lu['RL']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==0]
+        lu['RM']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==1]
+        lu['RS']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==2]
+        lu['OL']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==3]
+        lu['OM']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==4]
+        lu['OS']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==5]        
 #        lu['live_1']=[1,3,5,7]
 #        lu['live_2']=[14, 15, 16]
 #        lu['work_1']=[246, 247, 248, 249]
@@ -212,23 +213,23 @@ def check_grid_data(p):
             lu[lu_type]*=PERSONS_PER_BLD
             random.shuffle(lu[lu_type])
         new_agents=[]
-        for level in [1,2]:# for each type of housing (assuming people working in Work_1 live in Live_1)
-            n_residents, n_workers=len(lu['live_'+str(level)]), len(lu['work_'+str(level)])
+        for level in ['L', 'M', 'S']:# for each type of housing (assuming people working in Work_1 live in Live_1)
+            n_residents, n_workers=len(lu['R'+level]), len(lu['O'+level])
             for i in range(min(n_residents, n_workers)):
-                new_agents.append(Person(25, True, 5, grid_locations[lu['live_'+str(level)][i]], 
-                             grid_locations[lu['work_'+str(level)][i]], True, 'HWH', 8000, len(agents)))
+                new_agents.append(Person(25, True, 5, grid_locations[lu['R'+level][i]], 
+                             grid_locations[lu['O'+level][i]], True, 'HWH', 8000, len(agents)))
             if n_residents>n_workers: # more res than off for this type
                 # add the new agents with outside work locs
                 for i in range(n_workers, n_residents):
                     work_zone=random.choice(range(len(zone_locations))) 
-                    new_agents.append(Person(25, True, 5, grid_locations[lu['live_'+str(level)][i]], 
+                    new_agents.append(Person(25, True, 5, grid_locations[lu['R'+level][i]], 
                              zone_locations[work_zone], True, 'HWH', 8000, len(agents)))
             else:
                 # add the new agents with outside home locs
                 for i in range(n_residents, n_workers):
                     home_zone=random.choice(range(len(zone_locations))) 
                     new_agents.append(Person(25, True, 5, zone_locations[home_zone], 
-                             grid_locations[lu['work_'+str(level)][i]], True, 'HWH', 8000, len(agents)))
+                             grid_locations[lu['O'+level][i]], True, 'HWH', 8000, len(agents)))
         agents=base_agents+new_agents
         for ag in new_agents: ag.init_period(period)
     lastId=hash_id
@@ -340,11 +341,11 @@ node_coords= [original_net_node_coords, grid_points_ll]
 # for each zone, create a location object
 zone_locations=[]
 for z in range(len(zone_routes)):
-    zone_locations.append(Location(0, z, connection_routes[0][z]), 0.01)
+    zone_locations.append(Location(0, z, connection_routes[0][z], 0.01))
     
 grid_locations=[]
 for n in range(len(grid_routes)):
-    grid_locations.append(Location(1, n, connection_routes[1][n]), 0)
+    grid_locations.append(Location(1, n, connection_routes[1][n], 0))
 
 
 # for each person in base pop, create Person
