@@ -169,7 +169,7 @@ def update_and_send():
     except:
         print('Couldnt send to cityio')
         time.sleep(5)
-    time.sleep(0.1)
+    time.sleep(0.05)
     print(r)
         
 def check_grid_data(p):
@@ -242,7 +242,7 @@ UTM_MAP={'Boston':pyproj.Proj("+init=EPSG:32619"),
 utm=UTM_MAP[city]
 wgs=pyproj.Proj("+init=EPSG:4326")
 
-TIMESTEP_SEC=3
+TIMESTEP_SEC=1
 counter=0
 
 # getting grid data
