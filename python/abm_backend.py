@@ -26,7 +26,8 @@ import matplotlib.path as mplPath
 
 
 class Location:
-    def __init__(self, graph_id, term_node, cp_routes):
+    def __init__(self, graph_id, term_node, cp_routes, radius):
+        self.radius=radius
         self.graph_id=graph_id
         self.term_node=term_node
         self.cp_routes=cp_routes
@@ -48,7 +49,7 @@ class Person:
             for r in self.all_routes:
                 r['coordinates']=[node_coords[home_loc.graph_id][n].copy() for n in r['nodes']]
         else:
-#            TODO: connector links shhoud not be 100 long
+#            TODO: connector links should not be 100 long
             self.all_routes=[{'nodes': home_loc.cp_routes['to'][0]['nodes']+work_loc.cp_routes['from'][0]['nodes'].copy(),
                             'distances':home_loc.cp_routes['to'][0]['distances']+[100]+work_loc.cp_routes['from'][0]['distances'].copy(),
                             'coordinates': [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['to'][0]['nodes']]+
@@ -77,6 +78,7 @@ class Person:
         self.speed=random.triangular(0.7*speed_mode, 1.3*speed_mode, speed_mode)
         self.position=self.route['coordinates'][0].copy()
         self.next_node_index=1
+        self.start_time=random.choice(range(int(200/TIMESTEP_SEC)))
         if len(self.route['coordinates'])>1: 
             self.next_node_ll=self.route['coordinates'][1].copy()
             self.finished=False
@@ -151,12 +153,13 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
     
 
 def update_and_send():
+    global ts
     features=[]
     for ag in agents:
-        if not ag.finished:
+        if ((not ag.finished) and ts>ag.start_time):
             ag.update_position(TIMESTEP_SEC)
         else:
-            ag.position=[ag.position[0]+np.random.normal(0,0.000003), ag.position[1]+np.random.normal(0,0.000003)]
+            ag.position=[ag.position[0]+np.random.normal(0,0.000001), ag.position[1]+np.random.normal(0,0.000001)]
 #            ll=pyproj.transform( utm, wgs, ag.position[0], ag.position[1])
 #            ll=[int(ll[0]*1e5)/1e5, int(ll[1]*1e5)/1e5] # reduce precision for sending data
         if (ag.position[0]>region_lon_bounds[0] and ag.position[0]<region_lon_bounds[1] and 
@@ -181,6 +184,7 @@ def update_and_send():
     except:
         print('Couldnt send to cityio')
         time.sleep(5)
+    ts+=1
     time.sleep(0.05)
     print(r)
         
@@ -270,7 +274,6 @@ utm=UTM_MAP[city]
 wgs=pyproj.Proj("+init=EPSG:4326")
 
 TIMESTEP_SEC=1
-counter=0
 
 # getting grid data
 lastId=0
@@ -337,11 +340,11 @@ node_coords= [original_net_node_coords, grid_points_ll]
 # for each zone, create a location object
 zone_locations=[]
 for z in range(len(zone_routes)):
-    zone_locations.append(Location(0, z, connection_routes[0][z]))
+    zone_locations.append(Location(0, z, connection_routes[0][z]), 0.01)
     
 grid_locations=[]
 for n in range(len(grid_routes)):
-    grid_locations.append(Location(1, n, connection_routes[1][n]))
+    grid_locations.append(Location(1, n, connection_routes[1][n]), 0)
 
 
 # for each person in base pop, create Person
@@ -368,18 +371,18 @@ agents= base_agents+ new_agents
 period=0
 for ag in agents: ag.init_period(period)
 prop=0
-count=1
+ts=1
 while True:
-    if count%200==0:
+    if ts%100==1:
         try: check_grid_data(period)
         except: print('Problem updating from grid')
     if prop>0.5:
         period+=1
+        ts=0
         for ag in agents: ag.init_period(period)
     update_and_send()
     prop=sum([ag.finished for ag in agents])/len(agents)
-    count+=1
-    print(count)
+    print(ts)
     
 
             
