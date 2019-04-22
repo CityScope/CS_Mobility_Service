@@ -188,14 +188,13 @@ def check_grid_data(p):
         lu['work_1']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==2]
         lu['work_2']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==3]
         
-        lu['live_1']=[1,3,5,7]
-        lu['live_2']=[14, 15, 16]
-        lu['work_1']=[246, 247, 248, 249]
-        lu['work_2']=[241, 242, 243, 244, 245]
-
-#        live_1= [1,2,3,4]
-#        work_1= [55,56,57,58]
-        for l in lu: random.shuffle(lu[l])
+#        lu['live_1']=[1,3,5,7]
+#        lu['live_2']=[14, 15, 16]
+#        lu['work_1']=[246, 247, 248, 249]
+#        lu['work_2']=[241, 242, 243, 244, 245]
+        for lu_type in lu:
+            lu[lu_type]*=PERSONS_PER_BLD
+            random.shuffle(lu[lu_type])
         new_agents=[]
         for level in [1,2]:# for each type of housing (assuming people working in Work_1 live in Live_1)
             n_residents, n_workers=len(lu['live_'+str(level)]), len(lu['work_'+str(level)])
@@ -230,6 +229,7 @@ CONNECTION_NODE_ROUTES_PATH='./'+city+'/clean/connection_route_nodes.json'
 NODES_PATH='./'+city+'/clean/nodes.csv'
 CONNECTION_POINTS_PATH='./'+city+'/clean/connection_points.json'
 
+PERSONS_PER_BLD=2
 
 speeds={0:40,
         1:15,
@@ -249,9 +249,7 @@ counter=0
 lastId=0
 host='https://cityio.media.mit.edu/'
 #host='http://localhost:8080/' # local port running cityio
-cityIO_grid_url='{}api/table/mocho'.format(host)
-
-
+cityIO_grid_url='{}api/table/grasbrook'.format(host)
 
 # load the pre-calibrated choice model
 mode_rf=pickle.load( open( PICKLED_MODEL_PATH, "rb" ) )
@@ -277,13 +275,14 @@ original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
 with urllib.request.urlopen(cityIO_grid_url) as url:
 #get the latest json data
     cityIO_grid_data=json.loads(url.read().decode())
-topLeft_lonLat={'lat':53.533192, 'lon':10.014198}
-topEdge_lonLat={'lat':53.531324, 'lon':10.019037}
+topLeft_lonLat={'lat':53.533681, 'lon':10.011585}
+topEdge_lonLat={'lat':53.533433, 'lon':10.012213}
+#topLeft_lonLat={'lat':cityIO_grid_data['header']['spatial']['latitude'], 
+#                'lon':cityIO_grid_data['header']['spatial']['longitude']}
 
 cell_size= cityIO_grid_data['header']['spatial']['cellSize']
 nrows=cityIO_grid_data['header']['spatial']['nrows']
 # TODO: don't hard code this when the real grid data is available
-cell_size=10
 ncols=cityIO_grid_data['header']['spatial']['ncols']
 grid_points_ll, net=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols)
 # for each connection point, find the closest grid node
@@ -345,7 +344,8 @@ prop=0
 count=1
 while True:
     if count%200==0:
-        check_grid_data(period)
+        try: check_grid_data(period)
+        except: print('Problem updating from grid')
     if prop>0.5:
         period+=1
         for ag in agents: ag.init_period(period)
