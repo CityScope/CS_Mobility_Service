@@ -20,6 +20,9 @@ from scipy import spatial
 import threading
 import urllib
 import atexit
+import matplotlib.path as mplPath
+
+
 
 
 class Location:
@@ -107,6 +110,12 @@ class Person:
                     self.prop_of_link_left=1
                     dist_to_move_m-=d_to_next_node 
                     
+# function returns 1 if point is inside shape
+#def inTableArea(point, shape):
+#        codes, verts = zip(*shape)
+#        path = mplPath.Path(verts, codes)
+#        return path.contains_point((point[0],point[1]))
+        
 
 def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols):
     #retuns the top left coordinate of each grid cell from left to right, top to bottom
@@ -149,16 +158,18 @@ def update_and_send():
             ag.position=[ag.position[0]+np.random.normal(0,0.000003), ag.position[1]+np.random.normal(0,0.000003)]
 #            ll=pyproj.transform( utm, wgs, ag.position[0], ag.position[1])
 #            ll=[int(ll[0]*1e5)/1e5, int(ll[1]*1e5)/1e5] # reduce precision for sending data
-        geometry={"type": "Point",
-                 "coordinates": [int(ag.position[0]*1e5)/1e5, int(ag.position[1]*1e5)/1e5]
-                }
-        feature={"type": "Feature",
-                 "geometry":geometry,
-                 'properties':
-#                         {'mode':ag.mode, 'age':ag.age, 'hh_income':ag.hh_income, 'id': ag.id}
-                     {}
-                 }
-        features.append(feature)        
+        if (ag.position[0]>region_lon_bounds[0] and ag.position[0]<region_lon_bounds[1] and 
+            ag.position[1]>region_lat_bounds[0] and ag.position[1]<region_lat_bounds[1]):
+            geometry={"type": "Point",
+                     "coordinates": [int(ag.position[0]*1e5)/1e5, int(ag.position[1]*1e5)/1e5]
+                    }
+            feature={"type": "Feature",
+                     "geometry":geometry,
+                     'properties':
+    #                         {'mode':ag.mode, 'age':ag.age, 'hh_income':ag.hh_income, 'id': ag.id}
+                         {}
+                     }
+            features.append(feature)        
     geojson_object={
       "type": "FeatureCollection",
       "features": features    
@@ -221,6 +232,19 @@ def check_grid_data(p):
 # =============================================================================
 city='Hamburg'
 
+# shape of the Andorra table
+
+
+region_lon_bounds=[9.923536, 10.052368]
+region_lat_bounds=[53.491466, 53.56]
+
+#region_bbox = [
+#(mplPath.Path.MOVETO, ( 10.029278, 53.579827)),
+#(mplPath.Path.LINETO, ( 9.940691, 53.540927)),
+#(mplPath.Path.LINETO, ( 10.019032, 53.503226)),
+#(mplPath.Path.LINETO, ( 10.086855, 53.543462)),
+#(mplPath.Path.LINETO, ( 10.029278, 53.579827))]
+
 CITYIO_TEMPLATE_PATH='./'+city+'/clean/cityio_template.json'
 SYNTHPOP_PATH='./'+city+'/clean/synth_pop.csv'
 PICKLED_MODEL_PATH='./models/trip_mode_rf.p'
@@ -230,6 +254,8 @@ NODES_PATH='./'+city+'/clean/nodes.csv'
 CONNECTION_POINTS_PATH='./'+city+'/clean/connection_points.json'
 
 PERSONS_PER_BLD=2
+
+
 
 speeds={0:40,
         1:15,
