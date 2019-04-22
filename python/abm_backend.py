@@ -199,12 +199,10 @@ def check_grid_data(p):
     else:
         print('Update agents')
         lu={}
-        lu['RL']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==0]
         lu['RM']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==1]
-        lu['RS']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==2]
-        lu['OL']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==3]
-        lu['OM']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==4]
-        lu['OS']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==5]        
+        lu['RL']=[]
+        lu['OM']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==2]
+        lu['OL']=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==3]        
 #        lu['live_1']=[1,3,5,7]
 #        lu['live_2']=[14, 15, 16]
 #        lu['work_1']=[246, 247, 248, 249]
@@ -213,7 +211,7 @@ def check_grid_data(p):
             lu[lu_type]*=PERSONS_PER_BLD
             random.shuffle(lu[lu_type])
         new_agents=[]
-        for level in ['L', 'M', 'S']:# for each type of housing (assuming people working in Work_1 live in Live_1)
+        for level in ['L', 'M']:# for each type of housing (assuming people working in Work_1 live in Live_1)
             n_residents, n_workers=len(lu['R'+level]), len(lu['O'+level])
             for i in range(min(n_residents, n_workers)):
                 new_agents.append(Person(25, True, 5, grid_locations[lu['R'+level][i]], 
