@@ -10,123 +10,15 @@ import requests
 import json
 import pyproj
 import time
-import datetime
 import pandas as pd
 import pickle
 import numpy as np
 import math
 import networkx as nx
 from scipy import spatial
-import threading
 import urllib
-import atexit
-import matplotlib.path as mplPath
+from Agents import Person, Location
 
-
-
-
-class Location:
-    def __init__(self, graph_id, term_node, cp_routes, radius):
-        self.radius=radius
-        self.graph_id=graph_id
-        self.term_node=term_node
-        self.cp_routes=cp_routes
-        
-class Person:
-    def __init__(self,age, bachelor_degree, hh_income, home_loc, work_loc, male, motif, pop_per_sqmile_home, id):
-        self.id=id
-        self.age=age
-        self.bachelor_degree=bachelor_degree
-        self.hh_income=hh_income
-        self.home_loc=home_loc
-        self.work_loc=work_loc
-        self.male=male
-        self.motif=motif
-        self.pop_per_sqmile_home=pop_per_sqmile_home
-        if home_loc.graph_id==work_loc.graph_id:            
-            self.all_routes=[routes[home_loc.graph_id][str(home_loc.term_node)][str(work_loc.term_node)].copy(),
-                             routes[home_loc.graph_id][str(work_loc.term_node)][str(home_loc.term_node)].copy()]
-            for r in self.all_routes:
-                r['coordinates']=[node_coords[home_loc.graph_id][n].copy() for n in r['nodes']]
-        else:
-#            TODO: connector links should not be 100 long
-            self.all_routes=[{'nodes': home_loc.cp_routes['to'][0]['nodes']+work_loc.cp_routes['from'][0]['nodes'].copy(),
-                            'distances':home_loc.cp_routes['to'][0]['distances']+[100]+work_loc.cp_routes['from'][0]['distances'].copy(),
-                            'coordinates': [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['to'][0]['nodes']]+
-                            [node_coords[work_loc.graph_id][n].copy() for n in work_loc.cp_routes['from'][0]['nodes']]},
-                            {'nodes': work_loc.cp_routes['to'][0]['nodes']+home_loc.cp_routes['from'][0]['nodes'].copy(),
-                            'distances':work_loc.cp_routes['to'][0]['distances']+[100]+home_loc.cp_routes['from'][0]['distances'].copy(),
-                            'coordinates': [node_coords[work_loc.graph_id][n].copy() for n in work_loc.cp_routes['to'][0]['nodes']]+
-                            [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['from'][0]['nodes']]}]
-        
-            
-    def init_period(self, p):
-        self.route=self.all_routes[p%len(self.all_routes)]
-#        get the travel time and cost for each mode
-#        TODO: get travel times of each mode beforehand
-        self.network_dist_km=sum(self.route['distances'])/1000
-        self.mode=None
-        self.speed=None
-        # all times should be in minutes
-#        [drive_time, cycle_time, walk_time, PT_time]=[(route_distance/speeds[i])*(1000/60) for i in range(4)]
-#        walk_time_PT, drive_time_PT=600, 600 # minutes
-#        drive_cost, cycle_cost, walk_cost, PT_cost=0,0,0,0
-#        self.mode=int(mode_rf.predict(np.array([drive_time, cycle_time, walk_time, PT_time, 
-#                                   walk_time_PT, drive_time_PT,
-#                                   drive_cost, cycle_cost, walk_cost, PT_cost,
-#                                   self.age, self.hh_income, self.male, 
-#                                   self.bachelor_degree , self.pop_per_sqmile_home]).reshape(1,-1))[0])
-#        speed_mode=speeds[self.mode] 
-#        self.speed=random.triangular(0.7*speed_mode, 1.3*speed_mode, speed_mode)
-        self.position=self.route['coordinates'][0].copy()
-        self.next_node_index=1
-        self.start_time=random.choice(range(int(200/TIMESTEP_SEC)))
-        if len(self.route['coordinates'])>1: 
-            self.next_node_ll=self.route['coordinates'][1].copy()
-            self.finished=False
-            self.prop_of_link_left=1
-        else: 
-            self.next_node_ll=self.route['coordinates'][0].copy()
-            self.finished=True
-            self.prop_of_link_left=0  
-
-    def set_mode(self, mode):
-        self.mode=mode
-        speed_mid=speeds[mode]
-        self.speed=random.triangular(0.7*speed_mid, 1.3*speed_mid, speed_mid)
-        
-    def update_position(self, seconds):
-        # update an agent's position along a predefined route based on their 
-        # speed and the time elapsed
-        dist_to_move_m=self.speed*seconds/3.6
-        finished_move=False
-        while finished_move==False and self.finished==False:
-            d_to_next_node=self.prop_of_link_left*self.route['distances'][self.next_node_index-1]
-            move_ratio=dist_to_move_m/d_to_next_node
-            if move_ratio<1:
-                # just move the agent along this segment. move finished.
-                self.position[0]=self.position[0]+move_ratio*(self.next_node_ll[0]-self.position[0])
-                self.position[1]=self.position[1]+move_ratio*(self.next_node_ll[1]-self.position[1])
-                self.prop_of_link_left=self.prop_of_link_left*(1-move_ratio)
-                finished_move=True
-            else:
-                #agent moves to start of next segment and then continues the move
-                self.position[0]=self.next_node_ll[0]
-                self.position[1]=self.next_node_ll[1]
-                self.next_node_index+=1
-                if self.next_node_index==len(self.route['coordinates']):
-                    self.finished=True
-                else:
-                    self.next_node_ll=self.route['coordinates'][self.next_node_index]
-                    self.prop_of_link_left=1
-                    dist_to_move_m-=d_to_next_node 
-                    
-# function returns 1 if point is inside shape
-#def inTableArea(point, shape):
-#        codes, verts = zip(*shape)
-#        path = mplPath.Path(verts, codes)
-#        return path.contains_point((point[0],point[1]))
-        
 
 def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols):
     #retuns the top left coordinate of each grid cell from left to right, top to bottom
@@ -160,7 +52,7 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
     return grid_coords_ll,  G
     
 
-def update_and_send():
+def update_and_send_points():
     global ts
     features=[]
     for ag in agents:
@@ -185,15 +77,36 @@ def update_and_send():
       "type": "FeatureCollection",
       "features": features    
     }        
-    cityio_json['objects']={"points": geojson_object}    
+#    cityio_json['objects']={"points": geojson_object}    
     try:
-        r = requests.post(sim_api_root+city, data = json.dumps(geojson_object))
+        r = requests.post(sim_api_root+sim_api_end, data = json.dumps(geojson_object))
     except:
         print('Couldnt send to cityio')
         time.sleep(5)
         r='Failed to get response'
     ts+=1
     time.sleep(0.05)
+    print(r)
+    
+def send_routes():
+    features=[]
+    for ag in agents:
+        geometry={"type": "Point",
+                 "coordinates": [ag.position[0], ag.position[1]]
+                }
+        feature={"type": "Feature",
+                 "geometry":geometry,
+                 'properties':{'mode':ag.mode, 'age':ag.age, 'hh_income':ag.hh_income, 'id': ag.id,
+                               'route': ag.route, 'speed': ag.speed, 'position': ag.position, 
+                               'next_node_index': ag.next_node_index, 'next_node_ll': ag.next_node_ll, 
+                               'prop_of_link_left': ag.prop_of_link_left ,'finished': ag.finished}
+                 }
+        features.append(feature)        
+    geojson_object={
+      "type": "FeatureCollection",
+      "features": features    
+    }   
+    r = requests.post(sim_api_root+sim_api_end, data = json.dumps(geojson_object))
     print(r)
         
 def check_grid_data(p):
@@ -223,32 +136,28 @@ def check_grid_data(p):
             n_residents, n_workers=len(lu['R'+level]), len(lu['O'+level])
             for i in range(min(n_residents, n_workers)):
                 new_agents.append(Person(25, True, 5, grid_locations[lu['R'+level][i]], 
-                             grid_locations[lu['O'+level][i]], True, 'HWH', 8000, len(agents)))
+                             grid_locations[lu['O'+level][i]], True, 'HWH', 8000, len(agents), routes, node_coords))
             if n_residents>n_workers: # more res than off for this type
                 # add the new agents with outside work locs
                 for i in range(n_workers, n_residents):
                     work_zone=random.choice(range(len(zone_locations))) 
                     new_agents.append(Person(25, True, 5, grid_locations[lu['R'+level][i]], 
-                             zone_locations[work_zone], True, 'HWH', 8000, len(agents)))
+                             zone_locations[work_zone], True, 'HWH', 8000, len(agents), routes, node_coords))
             else:
                 # add the new agents with outside home locs
                 for i in range(n_residents, n_workers):
                     home_zone=random.choice(range(len(zone_locations))) 
                     new_agents.append(Person(25, True, 5, zone_locations[home_zone], 
-                             grid_locations[lu['O'+level][i]], True, 'HWH', 8000, len(agents)))
+                             grid_locations[lu['O'+level][i]], True, 'HWH', 8000, len(agents), routes, node_coords))
         agents=base_agents+new_agents
-        for ag in new_agents: ag.init_period(period)
+        for ag in new_agents: ag.init_period(period, TIMESTEP_SEC)
         predict_modes(new_agents)
     lastId=hash_id
     
 def predict_modes(agent_list):
     feature_df=pd.DataFrame([{f:getattr(a, f) for f in ['age', 'hh_income','male',
              'bachelor_degree', 'pop_per_sqmile_home',
-             'network_dist_km']} for a in agent_list])
-    #        [drive_time, cycle_time, walk_time, PT_time]=[(route_distance/speeds[i])*(1000/60) for i in range(4)]
-    #        walk_time_PT, drive_time_PT=600, 600 # minutes
-    #        drive_cost, cycle_cost, walk_cost, PT_cost=0,0,0,0
-    
+             'network_dist_km']} for a in agent_list])    
     feature_df['drive_time_minutes']=  60*feature_df['network_dist_km']/speeds[0]     
     feature_df['cycle_time_minutes']=  60*feature_df['network_dist_km']/speeds[1]     
     feature_df['walk_time_minutes']=  60*feature_df['network_dist_km']/speeds[2]     
@@ -262,7 +171,7 @@ def predict_modes(agent_list):
     assert all([rff in feature_df.columns for rff in rf_features]),"Features in table dont match features in RF model"
     feature_df=feature_df[rf_features]#reorder columns to match rf model
     mode_probs=mode_rf.predict_proba(feature_df)
-    for i,ag in enumerate(agent_list): ag.set_mode(int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0]))
+    for i,ag in enumerate(agent_list): ag.set_mode(int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0]), speeds)
 
     
 # =============================================================================
@@ -270,29 +179,22 @@ def predict_modes(agent_list):
 # =============================================================================
 city='Hamburg'
 
-# shape of the Andorra table
-
-
+# bounding box for sending points
 region_lon_bounds=[9.923536, 10.052368]
 region_lat_bounds=[53.491466, 53.56]
 
-#region_bbox = [
-#(mplPath.Path.MOVETO, ( 10.029278, 53.579827)),
-#(mplPath.Path.LINETO, ( 9.940691, 53.540927)),
-#(mplPath.Path.LINETO, ( 10.019032, 53.503226)),
-#(mplPath.Path.LINETO, ( 10.086855, 53.543462)),
-#(mplPath.Path.LINETO, ( 10.029278, 53.579827))]
-
-CITYIO_TEMPLATE_PATH='./'+city+'/clean/cityio_template.json'
-SYNTHPOP_PATH='./'+city+'/clean/synth_pop.csv'
-PICKLED_MODEL_PATH='./models/trip_mode_rf.p'
-ZONE_NODE_ROUTES_PATH='./'+city+'/clean/route_nodes.json'
-CONNECTION_NODE_ROUTES_PATH='./'+city+'/clean/connection_route_nodes.json'
-NODES_PATH='./'+city+'/clean/nodes.csv'
-CONNECTION_POINTS_PATH='./'+city+'/clean/connection_points.json'
-RF_FEATURES_LIST_PATH='./models/rf_features.json'
+#CITYIO_TEMPLATE_PATH='../'+city+'/clean/cityio_template.json'
+SYNTHPOP_PATH='../'+city+'/clean/synth_pop.csv'
+PICKLED_MODEL_PATH='../models/trip_mode_rf.p'
+ZONE_NODE_ROUTES_PATH='../'+city+'/clean/route_nodes.json'
+CONNECTION_NODE_ROUTES_PATH='../'+city+'/clean/connection_route_nodes.json'
+NODES_PATH='../'+city+'/clean/nodes.csv'
+CONNECTION_POINTS_PATH='../'+city+'/clean/connection_points.json'
+RF_FEATURES_LIST_PATH='../models/rf_features.json'
 
 PERSONS_PER_BLD=2
+
+SENDING_POINTS=False
 
 
 
@@ -316,13 +218,15 @@ host='https://cityio.media.mit.edu/'
 cityIO_grid_url='{}api/table/grasbrook'.format(host)
 
 #sending point data
-sim_api_root='https://cityio.media.mit.edu/api/table/update/abm_service_test_'
+sim_api_root='https://cityio.media.mit.edu/api/table/update/abm_service_'
+sim_api_end='test'
+#sim_api_end=city
 
 # load the pre-calibrated choice model
 mode_rf=pickle.load( open( PICKLED_MODEL_PATH, "rb" ) )
 rf_features=json.load(open(RF_FEATURES_LIST_PATH, 'r'))
 # load the cityio template
-cityio_json=json.load(open(CITYIO_TEMPLATE_PATH))
+#cityio_json=json.load(open(CITYIO_TEMPLATE_PATH))
 # load the connection points between real network and grid network
 connection_points=json.load(open(CONNECTION_POINTS_PATH))
 # load the routes from each zone to each connection
@@ -335,7 +239,6 @@ nodes=pd.read_csv(NODES_PATH)
 original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
 
 # create land use grid and road network from the grid
-# TODO the grid information should come from cityIO grid data
 
 # =============================================================================
 # Get the grid data and set up the interaction zone 
@@ -350,7 +253,6 @@ topEdge_lonLat={'lat':53.533433, 'lon':10.012213}
 
 cell_size= cityIO_grid_data['header']['spatial']['cellSize']
 nrows=cityIO_grid_data['header']['spatial']['nrows']
-# TODO: don't hard code this when the real grid data is available
 ncols=cityIO_grid_data['header']['spatial']['ncols']
 grid_points_ll, net=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols)
 
@@ -393,13 +295,11 @@ for n in range(len(grid_routes)):
 random.seed(0)
 synth_pop=pd.read_csv(SYNTHPOP_PATH)
 ag_ind=0
-num_base=500
-num_internal=20
-num_commute_in=50
+num_base=10
 base_agents=[]
 for ag_ind, row in synth_pop[:num_base].iterrows():
     base_agents.append(Person(row['age'], row['bachelor_degree'], row['hh_income'], zone_locations[row['home_geo_index']], 
-                         zone_locations[row['work_geo_index']], row['male'], row['motif'], row['pop_per_sqmile_home'], ag_ind))
+                         zone_locations[row['work_geo_index']], row['male'], row['motif'], row['pop_per_sqmile_home'], ag_ind, routes, node_coords))
     ag_ind+=1
 new_agents=[]
 
@@ -410,7 +310,7 @@ agents= base_agents+ new_agents
 # Simulation Loop
 # =============================================================================   
 period=0
-for ag in agents: ag.init_period(period)
+for ag in agents: ag.init_period(period, TIMESTEP_SEC)
 predict_modes(agents)
 # TODO: separate function to predict modes
 #predict modes of all agents
@@ -419,17 +319,22 @@ predict_modes(agents)
 
 prop=0
 ts=1
-while True:
-    if ts%100==1:
-        try: check_grid_data(period)
-        except: print('Problem updating from grid')
-    if prop>0.5:
-        period+=1
-        ts=0
-        for ag in agents: ag.init_period(period)
-    update_and_send()
-    prop=sum([ag.finished for ag in agents])/len(agents)
-    print(ts)
-    
+
+if SENDING_POINTS:
+    while True:
+        if ts%100==1:
+            try: check_grid_data(period)
+            except: print('Problem updating from grid')
+        if prop>0.5:
+            period+=1
+            ts=0
+            for ag in agents: ag.init_period(period, TIMESTEP_SEC)
+        update_and_send_points()
+        prop=sum([ag.finished for ag in agents])/len(agents)
+        print(ts)
+else:
+    try: check_grid_data(period)
+    except: print('Problem updating from grid')
+    send_routes()
 
             

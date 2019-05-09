@@ -11,11 +11,11 @@ from shapely.geometry import shape
 
 
 city='Hamburg'
-CLEAN_SHP_PATH='../ABM/includes/'+city+'/zones.geojson'
+CLEAN_SHP_PATH=city+'/clean/zones.geojson'
 SMALL_AREA_SHP_PATH='./'+city+'/raw/small_area.geojson'
 OVERPASS_NODES_ROOT='https://lz4.overpass-api.de/api/interpreter?data=[out:json][bbox];node;out;&bbox='
 OVERPASS_LINKS_ROOT='https://lz4.overpass-api.de/api/interpreter?data=[out:json][bbox];way[~"^(highway)$"~"."];out;&bbox='
-CLEAN_NETWORK_PATH='../ABM/includes/'+city+'/network_osm.geojson'
+CLEAN_NETWORK_PATH=city+'/clean/network_osm.geojson'
 # link types to include for the large area
 ROAD_TYPES_LARGE= ['motorway', 'trunk', 'primary', 
              'motorway_link', 'trunk_link', 'primary_link',

@@ -17,7 +17,8 @@
 	
 	<script src="./lib/d3.min.js"></script>
 	<script>
-		var city='Hamburg'
+		var city='test'
+		var root_sim_api='https://cityio.media.mit.edu/api/table/abm_service_'
 		var seconds=0.1
 		mapboxgl.accessToken = 'pk.eyJ1IjoiZG9vcmxleXJtaXQiLCJhIjoiY2pnNnh5NHJwOHp2YzJ4bXNkdWZyNWd3ZSJ9.am1Wub7LEzVfZKHAdRZe4g';
 		var map = new mapboxgl.Map({
@@ -30,11 +31,11 @@
 			// We use D3 to fetch the JSON here so that we can parse and use it separately
 			// from GL JS's use in the added source. You can use any request method (library
 			// or otherwise) that you want.
-			d3.json('https://cityio.media.mit.edu/api/table/abm_service_'+city, function(err, data) {
+			d3.json(root_sim_api+city, function(err, data) {
 				if (err) throw err;
 				
 			// save full coordinate list for later
-			var geojson_object = data.objects.points;
+			var geojson_object = data;
 
 
 			// add it to the map

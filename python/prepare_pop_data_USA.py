@@ -48,8 +48,8 @@ OD_PATH=city+'/raw/LODES/'+state+'_od_main_JT00_2015.csv'
 ZONE_SHAPE_PATH=city+'/raw/zones/block_groups.geojson'
 MODE_DICT_PATH='NHTS/modeDict.json'
 # paths for saving clean data
-CLEAN_SHP_PATH='../ABM/includes/'+city+'/zones.geojson'
-SYNTH_POP_PATH='../ABM/includes/'+city+'/synth_pop.csv'
+CLEAN_SHP_PATH=city+'/clean/zones.geojson'
+SYNTH_POP_PATH=city+'/clean/synth_pop.csv'
 #SYNTH_POP_PATH='clean/synth_pop.json'
 POT_POP_PATH=city+'/clean/pot_pop.csv'
 MODE_TABLE_PATH=city+'/clean/trip_modes.csv'
@@ -274,8 +274,8 @@ synth_pop_df.to_csv(SYNTH_POP_PATH, index=False)
 #json.dump(pot_pop, open(SYNTH_POP_PATH, 'w'))
 pot_pop.to_csv(POT_POP_PATH, index=False)
 # main commuting mode table for fitting long term model
-for i in range(1,5):
-    pot_pop[pot_pop['job_type_'+str(i)]==1].sample(n=50,replace=True).to_csv(POT_POP_BY_JOB_PATH+str(i)+'.csv', index=False)
+#for i in range(1,5):
+#    pot_pop[pot_pop['job_type_'+str(i)]==1].sample(n=50,replace=True).to_csv(POT_POP_BY_JOB_PATH+str(i)+'.csv', index=False)
 mode_table.to_csv(MODE_TABLE_PATH, index=False)
 # tour table for fitting short term models
 #nhts_tour_zone.to_csv(TOUR_TABLE_PATH, index=False)
