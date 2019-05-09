@@ -38,8 +38,9 @@ def get_NHTS_motif(u_id):
 # paths to data files
 city='Boston'
 state='ma'
-#CDIVMSAR=11 #New England (ME, NH, VT, CT, MA, RI) MSA or CMSA of 1 million or more with heavy rail
-CDIVMSAR=11 #Mid-Atlantic (NY, NJ, PA) MSA or CMSA of 1 million or more with heavy rail
+CITY_CDIVMSAR=11 #New England (ME, NH, VT, CT, MA, RI) MSA or CMSA of 1 million or more with heavy rail
+REGION_CDIVMSARS=[11,12,13,14]
+#CDIVMSAR=21 #Mid-Atlantic (NY, NJ, PA) MSA or CMSA of 1 million or more with heavy rail
 NHTS_PATH='NHTS/perpub.csv'
 NHTS_TOUR_PATH='NHTS/tour17.csv'
 NHTS_TRIP_PATH='NHTS/trippub.csv'
@@ -130,11 +131,14 @@ sample_ind=od_long.sample(n=N, weights=od_long['workers'])[['h_block_group', 'w_
 #      create and/or rename variables which will be used 
 #      in the populations and/or model fitting
 #********************************************
-# need to cbsa information in the tour fie for later.
+# need the cbsa information in the tour file for later.
 # look up from person file using HOUSE_ID
 nhts_tour=nhts_tour.merge(nhts_per[['HOUSEID', 'HH_CBSA']], on='HOUSEID', how='left')
+# Training data should be based on the region so subset the trip data
+# no need to subset the tour data as it gets subsetted by individual CBA later anyway
+nhts_trip_region=nhts_trip.loc[nhts_trip['CDIVMSAR'].isin(REGION_CDIVMSARS)]
 nhts_tour['uniquePersonId']=nhts_tour.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
-nhts_trip['uniquePersonId']=nhts_trip.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
+nhts_trip_region['uniquePersonId']=nhts_trip_region.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
 nhts_per['uniquePersonId']=nhts_per.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
 
 # person file: used for synth pop and calibration data for main mode model
@@ -162,9 +166,9 @@ nhts_per['bachelor_degree']=nhts_per.apply(lambda row: row['EDUC']>=4, axis=1)
 nhts_per['main_mode']=nhts_per.apply(lambda row: nhts_to_simple_mode[row['WRKTRANS']], axis=1)
 nhts_per['LODES_age_group']=nhts_per.apply(lambda row:1 if row['R_AGE']<30 else 2 if row['R_AGE']<55 else 3, axis=1)
 # select people in relevant area
-nhts_per_zone=nhts_per.loc[nhts_per['CDIVMSAR']==CDIVMSAR]
-nhts_per_zone['motif']=nhts_per_zone.apply(lambda row: get_NHTS_motif(row['uniquePersonId'])[1], axis=1)
-#nhts_per_zone['motif']='HWOWH'
+nhts_per_city=nhts_per.loc[nhts_per['CDIVMSAR']==CITY_CDIVMSAR]
+nhts_per_city['motif']=nhts_per_city.apply(lambda row: get_NHTS_motif(row['uniquePersonId'])[1], axis=1)
+#nhts_per_city['motif']='HWOWH'
 #********************************************
 #      Create the synthetic population
 #********************************************
@@ -174,10 +178,10 @@ synth_pop=[]
 #TODO add motifs and modes to synth_pop
 pop_cols=['main_mode', 'age', 'hh_income', 'pop_per_sqmile_home', 'male', 'bachelor_degree', 'motif']
 for i, row in sample_ind.iterrows():
-    candidates=nhts_per_zone.loc[nhts_per_zone['LODES_age_group']==row['age_group']]
+    candidates=nhts_per_city.loc[nhts_per_city['LODES_age_group']==row['age_group']]
     if len(candidates)==0: # in case there's no surveyed individuals with this mode
         print('global sample')
-        candidates=nhts_per.loc[nhts_per_zone['LODES_age_group']==row['age_group']]   
+        candidates=nhts_per_city.loc[nhts_per_city['LODES_age_group']==row['age_group']]   
     selection=candidates.sample(1)
     new_person={pc: str(selection.iloc[0][pc]) for pc in pop_cols}
     new_person['male']=int(new_person['male']=='True')
@@ -192,32 +196,30 @@ synth_pop_df=pd.DataFrame(synth_pop)
 #********************************************
 #      Create the potential population
 #********************************************        
-pot_pop=nhts_per_zone[['age', 'hh_income', 'male', 'bachelor_degree','job_type_1',
+pot_pop=nhts_per_city[['age', 'hh_income', 'male', 'bachelor_degree','job_type_1',
  'job_type_2','job_type_3','job_type_4', 'motif']]
 # TODO the housing requirements should be based on PUMS, Bayes Net
 pot_pop['res_type'] = np.random.randint(0, 8, pot_pop.shape[0])
 
 # =============================================================================
 # Prepare data for model fitting
-# The person file data will be used for the main mode and motif models
-# The trips file will be used for the trip mode model
 # =============================================================================
 
 # create empty df
 mode_table=pd.DataFrame()
 # rename the columns 'main_mode', 'age', 'hh_income', 'pop_per_sqmile_home', 'male', 'bachelor_degree'
-nhts_trip=nhts_trip.rename(columns={'R_AGE_IMP': 'age',
+nhts_trip_region=nhts_trip_region.rename(columns={'R_AGE_IMP': 'age',
                                   'HTPPOPDN': 'pop_per_sqmile_home', 
                                   'HHFAMINC':'hh_income'})
-nhts_trip['male']=nhts_trip.apply(lambda row: row['R_SEX_IMP']==1, axis=1)
-nhts_trip['bachelor_degree']=nhts_trip.apply(lambda row: row['EDUC']>=4, axis=1)
+nhts_trip_region['male']=nhts_trip_region.apply(lambda row: row['R_SEX_IMP']==1, axis=1)
+nhts_trip_region['bachelor_degree']=nhts_trip_region.apply(lambda row: row['EDUC']>=4, axis=1)
 # main mode column renamed as main_mode. if not there add them from person file
-nhts_trip['mode']=nhts_trip.apply(lambda row: nhts_to_simple_mode[row['TRPTRANS']], axis=1)
+nhts_trip_region['mode']=nhts_trip_region.apply(lambda row: nhts_to_simple_mode[row['TRPTRANS']], axis=1)
 # remove rows with mode<0 or other errors
-nhts_trip=nhts_trip.loc[nhts_trip['mode']>=0]
-nhts_trip.loc[nhts_trip['TRPMILES']<0, 'TRPMILES']=0 # -9 for work-from-home
+nhts_trip_region=nhts_trip_region.loc[nhts_trip_region['mode']>=0]
+nhts_trip_region.loc[nhts_trip_region['TRPMILES']<0, 'TRPMILES']=0 # -9 for work-from-home
 # set the network_dist_km column
-nhts_trip['network_dist_km']=nhts_trip.apply(lambda row: row['TRPMILES']/1.62, axis=1)
+nhts_trip_region['network_dist_km']=nhts_trip_region.apply(lambda row: row['TRPMILES']/1.62, axis=1)
 speeds={c:{} for c in set(nhts_per['HH_CBSA'])}
 nhts_tour['main_mode']=nhts_tour.apply(lambda row: nhts_to_simple_mode[row['MODE_D']], axis=1)
 
@@ -235,12 +237,12 @@ for c in speeds:
     speeds[c]['walk_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_WALK'].mean()
     speeds[c]['drive_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_POV'].mean()
 
-mode_table['drive_time']=nhts_trip.apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
-mode_table['cycle_time']=nhts_trip.apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
-mode_table['walk_time']=nhts_trip.apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
-mode_table['PT_time']=nhts_trip.apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(3)], axis=1)
-mode_table['walk_time_PT']=nhts_trip.apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
-mode_table['drive_time_PT']=nhts_trip.apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
+mode_table['drive_time_minutes']=nhts_trip_region.apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
+mode_table['cycle_time_minutes']=nhts_trip_region.apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
+mode_table['walk_time_minutes']=nhts_trip_region.apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
+mode_table['PT_time_minutes']=nhts_trip_region.apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(3)], axis=1)
+mode_table['walk_time_PT_minutes']=nhts_trip_region.apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
+mode_table['drive_time_PT_minutes']=nhts_trip_region.apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
 ## monetary costs
 mode_table['drive_cost']=ANNUAL_CAR_COST/(DAYS_PER_YEAR*2)
 mode_table['cycle_cost']=ANNUAL_BIKE_COST/(DAYS_PER_YEAR*2)
@@ -248,13 +250,13 @@ mode_table['walk_cost']=0
 mode_table['PT_cost']=COST_PT
 # above are must-have variables. in live environment, these will be calculated in real time
 # individual-specific variables are flexible but must all be in pot_pop and synth_pop_df
-mode_table[['age', 'hh_income', 'male', 'bachelor_degree', 'mode', 'pop_per_sqmile_home']]=nhts_trip[['age', 'hh_income', 'male', 'bachelor_degree', 'mode', 'pop_per_sqmile_home']]
+mode_table[['age', 'hh_income', 'male', 'bachelor_degree', 'mode', 'pop_per_sqmile_home', 'network_dist_km']]=nhts_trip_region[['age', 'hh_income', 'male', 'bachelor_degree', 'mode', 'pop_per_sqmile_home', 'network_dist_km']]
 
 # add motifs to the table
 
 # delete NaN
 mode_table=mode_table.dropna()
-mode_table_sample=mode_table.sample(n=15000)
+#mode_table_sample=mode_table.sample(n=15000)
 
 #nhts_tour_zone=nhts_tour.loc[nhts_tour['uniquePersonId'].isin(nhts_per_zone['uniquePersonId'])]
 ## add variables from person/hh files
@@ -274,6 +276,6 @@ pot_pop.to_csv(POT_POP_PATH, index=False)
 # main commuting mode table for fitting long term model
 for i in range(1,5):
     pot_pop[pot_pop['job_type_'+str(i)]==1].sample(n=50,replace=True).to_csv(POT_POP_BY_JOB_PATH+str(i)+'.csv', index=False)
-mode_table_sample.to_csv(MODE_TABLE_PATH, index=False)
+mode_table.to_csv(MODE_TABLE_PATH, index=False)
 # tour table for fitting short term models
 #nhts_tour_zone.to_csv(TOUR_TABLE_PATH, index=False)

@@ -11,83 +11,79 @@ Created on Wed Feb 13 12:24:53 2019
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn_porter import Porter
+from sklearn.model_selection import train_test_split, RandomizedSearchCV, GridSearchCV
+from sklearn.metrics import confusion_matrix, make_scorer, classification_report
 import matplotlib.pyplot as plt
-from sklearn.tree import _tree
 import pickle
+import json
+
+#********************************************
+#      Constants
+#********************************************
+city='Boston'
+MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
+PICKLED_MODEL_PATH='./models/trip_mode_rf.p'
+RF_FEATURES_LIST_PATH='./models/rf_features.json'
+
 
 # =============================================================================
 # Functions
 # =============================================================================
-def forest_to_code(rf, feature_names):
-    tab="    "
-    # takes a fitted decision tree and outputs a python function
-    with open(CHOICE_FUNCTION_PATH, 'w') as the_file: 
-        the_file.write('model choiceModel\n\n')
-        the_file.write('import "MoBalance.gaml"\n\n')
-        the_file.write('global{\n\n')
-        the_file.write('action choose_mode_per_people(people p,float walk_time, float drive_time, float PT_time, float cycle_time, float walk_time_PT,float drive_time_PT)'+'{ \n')
-        the_file.write(tab+'list probs<-[0.0,0.0,0.0,0.0];\n');        
-        for i in range(len(rf)):
-            the_file.write('// '+ 'Tree #'+str(i)+'\n')
-            tree=rf[i]
-            tree_ = tree.tree_
-            feature_name = [
-                feature_names[i] if i != _tree.TREE_UNDEFINED else "undefined!"
-                for i in tree_.feature
-            ]
-            def recurse(node, depth):
-                indent = tab * (depth+1)
-                if tree_.feature[node] != _tree.TREE_UNDEFINED:
-                    name = feature_name[node]
-                    threshold = tree_.threshold[node]
-    #                print ("{}if {} <= {}:".format(indent, name, threshold))
-    #                the_file.write("%sif (%s <= %s) { \n"%(indent, name, str(threshold)))
-                    the_file.write("%s if (%s <= %.2f) "%(indent, name, threshold)+"{ \n")
-                    recurse(tree_.children_left[node], depth + 1)
-                    the_file.write(indent+'}'+'\n')
-    #                the_file.write("{}else \{  # if {} > {} \n".format(indent, name, threshold))
-                    the_file.write(indent+'else {'+ "// if %s > %.2f \n"%(name, threshold))   
-    #                print ("{}else:  # if {} > {}".format(indent, name, threshold))
-                    recurse(tree_.children_right[node], depth + 1)
-                    the_file.write(indent+'}'+'\n')
-                else:
-                    n_samples=sum([int(v) for v in tree_.value[node][0]])
-    #                the_file.write("{}p.mode<-['car', 'bike', 'walk', 'PT'][rnd_choice({})];".format(indent, [round(v/n_samples,2) for v in tree_.value[node][0]])+"} \n")
-                    the_file.write("{}list pred<-{}".format(indent, [round(v/n_samples,2) for v in tree_.value[node][0]])+"; \n")
-                    the_file.write(indent+"loop o from: 0 to:3{probs[o]<-probs[o]+pred[o]; }")
-    #                print ("{}return {}".format(indent, [int(v) for v in tree_.value[node][0]]))
-            recurse(0, 1)
-        the_file.write(tab+"p.mode<-['car', 'bike', 'walk', 'PT'][rnd_choice(probs)];\n")
-        the_file.write(tab+'}\n')
-        the_file.write('}')
-#********************************************
-#      Constants
-#********************************************
-#MODE_TABLE_PATH='../../data/Boston/clean/main_modes.csv'
-city='Boston'
-MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
-TOUR_TABLE_PATH='./'+city+'/clean/tours.csv'
-CHOICE_FUNCTION_PATH='../ABM/models/choiceModel.gaml'
-PICKLED_MODEL_PATH='./models/trip_mode_rf.p'
+def weightedScore(y, y_pred):
+    accuracies=[]
+    for cat in set(y):
+        accuracy=[y_i==cat&(~y_pred_i==cat) for y_i, y_pred_i in zip(y, y_pred)]
+    cost=np.mean(accuracy)
+    return -cost
+
+custom_loss=make_scorer(weightedScore, greater_is_better=True)
+
 #********************************************
 #      Data
 #********************************************
 mode_table=pd.read_csv(MODE_TABLE_PATH)
-#to work with GAMA, rename all personal variables to p.name
-agent_specific_vars=['age', 'hh_income', 'male', 'bachelor_degree', 'pop_per_sqmile_home']
-mode_table=mode_table.rename(columns={v:'p.'+v for v in agent_specific_vars})
 features=[c for c in mode_table.columns if not c=='mode']
 
 X=mode_table[features]
 y=mode_table['mode']
 
-rf = RandomForestClassifier(random_state = 0,n_estimators =5, max_depth=4)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1)
 
-rf.fit(X, y)
 
-importances = rf.feature_importances_
-std = np.std([tree.feature_importances_ for tree in rf.estimators_],
+rf = RandomForestClassifier(n_estimators =32, random_state=0, class_weight='balanced')
+# Test different values of the hyper-parameters:
+# 'max_features','max_depth','min_samples_split' and 'min_samples_leaf'
+
+# Create the parameter ranges
+maxDepth = list(range(5,100,5)) # Maximum depth of tree
+maxDepth.append(None)
+minSamplesSplit = range(2,42,5) # Minimum samples required to split a node
+minSamplesLeaf = range(1,101,10) # Minimum samples required at each leaf node
+
+#Create the grid
+randomGrid = {
+               'max_depth': maxDepth,
+               'min_samples_split': minSamplesSplit,
+               'min_samples_leaf': minSamplesLeaf}
+
+# Create the random search object
+rfRandom = RandomizedSearchCV(estimator = rf, param_distributions = randomGrid,
+                               n_iter = 512, cv = 5, verbose=1, random_state=0, 
+                               refit=True, scoring='f1_macro', n_jobs=-1)
+# f1-macro better where there class imbalances as it 
+# computes f1 for each class and then takes an unweighted mean
+# "In problems where infrequent classes are nonetheless important, 
+# macro-averaging may be a means of highlighting their performance."
+
+# Perform the random search and find the best parameter set
+rfRandom.fit(X_train, y_train)
+rfWinner=rfRandom.best_estimator_
+bestParams=rfRandom.best_params_
+#forest_to_code(rf.estimators_, features)
+
+
+importances = rfWinner.feature_importances_
+std = np.std([tree.feature_importances_ for tree in rfWinner.estimators_],
              axis=0)
 indices = np.argsort(importances)[::-1]
 print("Feature ranking:")
@@ -96,18 +92,26 @@ for f in range(len(features)):
     print("%d. %s (%f)" % (f + 1, features[indices[f]], importances[indices[f]]))
 
 # Plot the feature importances of the forest
-#plt.figure(figsize=(16, 9))
-#plt.title("Feature importances")
-#plt.bar(range(len(features)), importances[indices],
-#       color="r", yerr=std[indices], align="center")
-#plt.xticks(range(len(features)), [features[i] for i in indices], rotation=90, fontsize=15)
-#plt.xlim([-1, len(features)])
-#plt.show()
+plt.figure(figsize=(16, 9))
+plt.title("Feature importances")
+plt.bar(range(len(features)), importances[indices],
+       color="r", yerr=std[indices], align="center")
+plt.xticks(range(len(features)), [features[i] for i in indices], rotation=45, fontsize=15)
+plt.xlim([-1, len(features)])
+plt.show()
 
-#forest_to_code(rf.estimators_, features)
 
-pickle.dump( rf, open( PICKLED_MODEL_PATH, "wb" ) )
-
+predicted=rfWinner.predict(X_test)
+conf_mat=confusion_matrix(y_test, predicted)
+print(conf_mat)
+# rows are true labels and coluns are predicted labels
+# Cij  is equal to the number of observations 
+# known to be in group i but predicted to be in group j.
+for i in range(len(conf_mat)):
+    print('Total True for Class '+str(i)+': '+str(sum(conf_mat[i])))
+    print('Total Predicted for Class '+str(i)+': '+str(sum([p[i] for p in conf_mat])))
+pickle.dump( rfWinner, open( PICKLED_MODEL_PATH, "wb" ) )
+json.dump(features,open(RF_FEATURES_LIST_PATH, 'w' ))
 
          
                 
