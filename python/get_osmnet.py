@@ -36,6 +36,8 @@ nodes,edges=osmnet.load.network_from_bbox(lat_min=boundsAll[1], lng_min=boundsAl
                               two_way=True, timeout=180, 
                               custom_osm_filter=None)
 
+#edges=edges[edges['highway']!='residential']
+
 edges=edges.reset_index()
 
         
@@ -74,9 +76,9 @@ for fromGeoId in range(len(lon_lat_list)):
                                    closest_nodes[toGeoId]['node_ids'][0], weight='distance')
             node_route=[int(n) for n in node_route]
             distances=[G[node_route[i]][node_route[i+1]]['attr_dict']['distance'] for i in range(len(node_route)-1)]
-            routes[fromGeoId][toGeoId]={'nodes':node_route, 'distances': distances}
+            routes[fromGeoId][toGeoId]={'nodes':tuple(node_route), 'distances': tuple(distances)}
         except:
-            routes[fromGeoId][toGeoId]={'nodes':[], 'distances': []}
+            routes[fromGeoId][toGeoId]={'nodes':(), 'distances': ()}
             print('No path from zone'+str(fromGeoId)+' to ' +str(toGeoId))
 
 # get closest node to each connection point
@@ -97,13 +99,13 @@ for zone in range(len(lon_lat_list)):
                                        closest_nodes_cp[cp]['node_ids'][0], weight='distance')
             node_route_to_cp=[int(n) for n in node_route_to_cp]
             distances=[G[node_route_to_cp[i]][node_route_to_cp[i+1]]['attr_dict']['distance'] for i in range(len(node_route_to_cp)-1)]
-            connection_routes[zone]['to'].append({'nodes': node_route_to_cp, 'distances': distances})
-            connection_routes[zone]['from'].append({'nodes':list(reversed(node_route_to_cp)), 'distances':list(reversed(distances))})
+            connection_routes[zone]['to'].append({'nodes': tuple(node_route_to_cp), 'distances': tuple(distances)})
+            connection_routes[zone]['from'].append({'nodes':tuple(reversed(node_route_to_cp)), 'distances':tuple(reversed(distances))})
         except:
-            connection_routes[zone]['to'].append({'nodes':[], 'distances': []})
-            connection_routes[zone]['from'].append({'nodes':[], 'distances': []})
+            connection_routes[zone]['to'].append({'nodes':(), 'distances': ()})
+            connection_routes[zone]['from'].append({'nodes':(), 'distances': ()})
             print('No path from zone'+str(zone)+' to CP ' +str(cp)) 
-
+# TODO: no point in using tupes if saving to json- they get converted to lists anyway
 json.dump(routes, open(ZONE_NODE_ROUTES_PATH, 'w'))    
 json.dump(connection_routes, open(CONNECTION_NODE_ROUTES_PATH, 'w')) 
 nodes.to_csv(NODES_PATH)    

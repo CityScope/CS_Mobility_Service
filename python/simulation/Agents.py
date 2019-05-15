@@ -6,6 +6,7 @@ Created on Thu May  9 16:11:12 2019
 @author: doorleyr
 """
 import random
+import numpy as np
 
 class Location:
     def __init__(self, graph_id, term_node, cp_routes, radius):
@@ -14,10 +15,27 @@ class Location:
         self.term_node=term_node
         self.cp_routes=cp_routes
         
+class House:
+    def __init__(self, rent, puma_pop, puma_med_income, location, house_id):
+        self.house_id=house_id
+        self.rent=rent
+        self.puma_pop=puma_pop
+        self.puma_med_income=puma_med_income
+        self.location=location
+        self.vacant=True
+        self.occupier=None
+    def long_data_record(self, person_income, person_id, choice_id):
+        return {'rent': self.rent,
+                'population': self.puma_pop,
+                'income_disparity': np.abs(self.puma_med_income-person_income),
+                'custom_id': person_id,
+                'choice_id': choice_id,
+                'actual_house_id':self.house_id}
+        
 class Person:
     def __init__(self,age, bachelor_degree, hh_income, home_loc, work_loc, male, 
-                 motif, pop_per_sqmile_home, id, routes, node_coords):
-        self.id=id
+                 motif, pop_per_sqmile_home, person_id, routes, node_coords):
+        self.person_id=person_id
         self.age=age
         self.bachelor_degree=bachelor_degree
         self.hh_income=hh_income
@@ -26,41 +44,30 @@ class Person:
         self.male=male
         self.motif=motif
         self.pop_per_sqmile_home=pop_per_sqmile_home
-        if home_loc.graph_id==work_loc.graph_id:            
-            self.all_routes=[routes[home_loc.graph_id][str(home_loc.term_node)][str(work_loc.term_node)].copy(),
-                             routes[home_loc.graph_id][str(work_loc.term_node)][str(home_loc.term_node)].copy()]
+        
+    def init_routes(self, routes, node_coords):
+        if self.home_loc.graph_id==self.work_loc.graph_id:            
+            self.all_routes=[routes[self.home_loc.graph_id][str(self.home_loc.term_node)][str(self.work_loc.term_node)].copy(),
+                             routes[self.home_loc.graph_id][str(self.work_loc.term_node)][str(self.home_loc.term_node)].copy()]
             for r in self.all_routes:
-                r['coordinates']=[node_coords[home_loc.graph_id][n].copy() for n in r['nodes']]
+                r['coordinates']=[node_coords[self.home_loc.graph_id][n].copy() for n in r['nodes']]
         else:
 #            TODO: connector links should not be 100 long
-            self.all_routes=[{'nodes': home_loc.cp_routes['to'][0]['nodes']+work_loc.cp_routes['from'][0]['nodes'].copy(),
-                            'distances':home_loc.cp_routes['to'][0]['distances']+[100]+work_loc.cp_routes['from'][0]['distances'].copy(),
-                            'coordinates': [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['to'][0]['nodes']]+
-                            [node_coords[work_loc.graph_id][n].copy() for n in work_loc.cp_routes['from'][0]['nodes']]},
-                            {'nodes': work_loc.cp_routes['to'][0]['nodes']+home_loc.cp_routes['from'][0]['nodes'].copy(),
-                            'distances':work_loc.cp_routes['to'][0]['distances']+[100]+home_loc.cp_routes['from'][0]['distances'].copy(),
-                            'coordinates': [node_coords[work_loc.graph_id][n].copy() for n in work_loc.cp_routes['to'][0]['nodes']]+
-                            [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['from'][0]['nodes']]}]
-        
-            
+            self.all_routes=[{'nodes': self.home_loc.cp_routes['to'][0]['nodes']+self.work_loc.cp_routes['from'][0]['nodes'].copy(),
+                            'distances':self.home_loc.cp_routes['to'][0]['distances']+[100]+self.work_loc.cp_routes['from'][0]['distances'].copy(),
+                            'coordinates': [node_coords[self.home_loc.graph_id][n].copy() for n in self.home_loc.cp_routes['to'][0]['nodes']]+
+                            [node_coords[self.work_loc.graph_id][n].copy() for n in self.work_loc.cp_routes['from'][0]['nodes']]},
+                            {'nodes': self.work_loc.cp_routes['to'][0]['nodes']+self.home_loc.cp_routes['from'][0]['nodes'].copy(),
+                            'distances':self.work_loc.cp_routes['to'][0]['distances']+[100]+self.home_loc.cp_routes['from'][0]['distances'].copy(),
+                            'coordinates': [node_coords[self.work_loc.graph_id][n].copy() for n in self.work_loc.cp_routes['to'][0]['nodes']]+
+                            [node_coords[self.home_loc.graph_id][n].copy() for n in self.home_loc.cp_routes['from'][0]['nodes']]}]
+
+
     def init_period(self, p, TIMESTEP_SEC):
         self.route=self.all_routes[p%len(self.all_routes)]
-#        get the travel time and cost for each mode
-#        TODO: get travel times of each mode beforehand
         self.network_dist_km=sum(self.route['distances'])/1000
         self.mode=None
         self.speed=None
-        # all times should be in minutes
-#        [drive_time, cycle_time, walk_time, PT_time]=[(route_distance/speeds[i])*(1000/60) for i in range(4)]
-#        walk_time_PT, drive_time_PT=600, 600 # minutes
-#        drive_cost, cycle_cost, walk_cost, PT_cost=0,0,0,0
-#        self.mode=int(mode_rf.predict(np.array([drive_time, cycle_time, walk_time, PT_time, 
-#                                   walk_time_PT, drive_time_PT,
-#                                   drive_cost, cycle_cost, walk_cost, PT_cost,
-#                                   self.age, self.hh_income, self.male, 
-#                                   self.bachelor_degree , self.pop_per_sqmile_home]).reshape(1,-1))[0])
-#        speed_mode=speeds[self.mode] 
-#        self.speed=random.triangular(0.7*speed_mode, 1.3*speed_mode, speed_mode)
         self.position=self.route['coordinates'][0].copy()
         self.next_node_index=1
         self.start_time=random.choice(range(int(200/TIMESTEP_SEC)))

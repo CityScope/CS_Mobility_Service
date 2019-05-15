@@ -1,4 +1,6 @@
 python/NHTS
+python/Boston/raw/PUMS
+python/Boston/raw/ACS
 python/Boston/raw/LODES
 python/New York/raw/LODES
 ABM/models/snapshots
