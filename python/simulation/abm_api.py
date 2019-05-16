@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Fri Apr  5 17:32:34 2019
+Created on Thu Aug 16 14:50:11 2018
 
 @author: doorleyr
 """
-import random
-import requests
-import json
-import pyproj
-import time
-import pandas as pd
+
+#!flask/bin/python
+from flask import Flask, jsonify, make_response
+import threading
+import atexit
 import pickle
-import numpy as np
+import json
+import random
+import urllib
+import pyproj
 import math
+from shapely.geometry import Point, shape
+import datetime
+import pandas as pd
+from flask_cors import CORS
+import logging
+import numpy as np
+import requests
+import time
+import pickle
 import networkx as nx
 from scipy import spatial
-import urllib
 from Agents import Person, Location, House
 
 
+# =============================================================================
+# Functions
 def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols):
     #retuns the top left coordinate of each grid cell from left to right, top to bottom
     topLeftXY=pyproj.transform(wgs, utm,topLeft_lonLat['lon'], topLeft_lonLat['lat'])
@@ -50,74 +62,18 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
                 G.add_edge(r*ncols+c, (r+1)*ncols+c, weight=cell_size)
                 G.add_edge((r+1)*ncols+c, r*ncols+c, weight=cell_size)
     return grid_coords_ll,  G
-    
 
-def update_and_send_points():
-    global ts
-    features=[]
-    for ag in agents:
-        if ((not ag.finished) and ts>ag.start_time):
-            ag.update_position(TIMESTEP_SEC)
-        else:
-            ag.position=[ag.position[0]+np.random.normal(0,0.000001), ag.position[1]+np.random.normal(0,0.000001)]
-#            ll=pyproj.transform( utm, wgs, ag.position[0], ag.position[1])
-#            ll=[int(ll[0]*1e5)/1e5, int(ll[1]*1e5)/1e5] # reduce precision for sending data
-        if (ag.position[0]>region_lon_bounds[0] and ag.position[0]<region_lon_bounds[1] and 
-            ag.position[1]>region_lat_bounds[0] and ag.position[1]<region_lat_bounds[1]):
-            geometry={"type": "Point",
-                     "coordinates": [int(ag.position[0]*1e5)/1e5, int(ag.position[1]*1e5)/1e5]
-                    }
-            feature={"type": "Feature",
-                     "geometry":geometry,
-                     'properties':
-                             {'mode':ag.mode}
-                     }
-            features.append(feature)        
-    geojson_object={
-      "type": "FeatureCollection",
-      "features": features    
-    }        
-#    cityio_json['objects']={"points": geojson_object}    
-    try:
-        r = requests.post(sim_api_root+sim_api_end, data = json.dumps(geojson_object))
-    except:
-        print('Couldnt send to cityio')
-        time.sleep(5)
-        r='Failed to get response'
-    ts+=1
-    time.sleep(0.05)
-    print(r)
-    
-def send_routes():
-    features=[]
-    for ag in agents:
-        geometry={"type": "Point",
-                 "coordinates": [ag.position[0], ag.position[1]]
-                }
-        feature={"type": "Feature",
-                 "geometry":geometry,
-                 'properties':{'mode':ag.mode, 'age':ag.age, 'hh_income':ag.hh_income, 'id': ag.person_id,
-                               'route': ag.route, 'speed': ag.speed, 'position': ag.position, 
-                               'next_node_index': ag.next_node_index, 'next_node_ll': ag.next_node_ll, 
-                               'prop_of_link_left': ag.prop_of_link_left ,'finished': ag.finished}
-                 }
-        features.append(feature)        
-    geojson_object={
-      "type": "FeatureCollection",
-      "features": features    
-    }   
-    r = requests.post(sim_api_root+sim_api_end, data = json.dumps(geojson_object))
-    print(r)
-            
 def check_grid_data(p):
     global agents, base_agents, new_agents, lastId, base_housing, new_housing, housing
     with urllib.request.urlopen(cityIO_grid_url) as url:
     #get the latest json data
+        print('Getting grid data update')
         cityIO_grid_data=json.loads(url.read().decode())
     hash_id=cityIO_grid_data['meta']['id']
     if hash_id==lastId:
         pass
     else:
+        print('Updating agents')
         #create new houses
         new_housing=[]
         for ht in housing_types:
@@ -130,8 +86,6 @@ def check_grid_data(p):
         for et in employment_types:
             et_locs=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==et]
             for etl in et_locs:
-                # TODO: multiple people per building
-                # sample by occupation type
                 new_agents.append(Person(25, True, 5, None, grid_locations[etl], True, 
                  'HWH', 8000, len(base_agents)+len(new_agents), routes, node_coords))
         agents=base_agents+new_agents
@@ -150,12 +104,9 @@ def check_grid_data(p):
             agents[ag_ind].home_loc=housing[house_id].location                
         #each new person chooses a mode
         for ag in new_agents:
-            ag.init_routes(routes, node_coords)
-            ag.init_period(period, TIMESTEP_SEC)
-        predict_modes(new_agents)
-        
-    lastId=hash_id
-    
+            ag.init_routes(routes, node_coords)      
+    lastId=hash_id    
+
 def predict_modes(agent_list):
     # instead of using get attribute one at a time: create a class method to return the dict
     feature_df=pd.DataFrame([{f:getattr(a, f) for f in ['age', 'hh_income','male',
@@ -176,7 +127,9 @@ def predict_modes(agent_list):
     mode_probs=mode_rf.predict_proba(feature_df)
     for i,ag in enumerate(agent_list): ag.set_mode(int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0]), speeds)
 
-    
+
+# =============================================================================
+
 # =============================================================================
 # Constants
 # =============================================================================
@@ -202,7 +155,8 @@ PERSONS_PER_BLD=2
 BASE_AGENTS=100
 VACANT_HOUSES=1
 
-SENDING_POINTS=True
+POOL_TIME=1 # seconds
+TIMESTEP_SEC=1
 
 speeds={0:40,
         1:15,
@@ -230,12 +184,10 @@ host='https://cityio.media.mit.edu/'
 #host='http://localhost:8080/' # local port running cityio
 cityIO_grid_url=host+'api/table/'+cityIO_grid_url_map[city]
 
-# For sending simulation data
-TIMESTEP_SEC=1
-sim_api_root='https://cityio.media.mit.edu/api/table/update/abm_service_'
-#sim_api_end='test'
-sim_api_end=city
 
+# =============================================================================
+# Load Data
+# =============================================================================
 # load the pre-calibrated mode choice model
 mode_rf=pickle.load( open( PICKLED_MODEL_PATH, "rb" ) )
 rf_features=json.load(open(RF_FEATURES_LIST_PATH, 'r'))
@@ -253,14 +205,12 @@ zone_routes=json.load(open(ZONE_NODE_ROUTES_PATH))
 nodes=pd.read_csv(NODES_PATH)
 
 original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
-
-# create land use grid and road network from the grid
-
 # =============================================================================
-# Get the grid data and set up the interaction zone 
+# Preliminary Processing
 # =============================================================================
 with urllib.request.urlopen(cityIO_grid_url) as url:
 #get the latest json data
+    print('Getting initial grid data')
     cityIO_grid_data=json.loads(url.read().decode())
 topLeft_lonLat={'lat':53.533681, 'lon':10.011585}
 topEdge_lonLat={'lat':53.533433, 'lon':10.012213}
@@ -319,6 +269,7 @@ for ag_ind, row in synth_pop[:BASE_AGENTS].iterrows():
                          zone_locations[row['work_geo_index']], row['male'], row['motif'], row['pop_per_sqmile_home'], len(base_agents), routes, node_coords))
 
 agents=base_agents+[]
+for ag in agents: ag.init_routes(routes, node_coords)
 # create new vacant housing (representing turnover of rental market and newly built housing)
 base_housing=[]
 #TODO specify attributes of housing from the data
@@ -329,41 +280,92 @@ for i in range(VACANT_HOUSES):
     base_housing.append(House(rent, puma_pop, puma_med_income, random.choice(zone_locations), len(base_housing)))
     
 housing=base_housing+[]
-    
-# =============================================================================
-# Simulation Loop
-# =============================================================================   
-period=0
-for ag in agents: 
-    ag.init_routes(routes, node_coords)
-    ag.init_period(period, TIMESTEP_SEC)
-predict_modes(agents)
-# TODO: separate function to predict modes
-#predict modes of all agents
-#do all at one in a pandas df because its faster than 
 
 
-prop=0
-ts=1
 
-if SENDING_POINTS:
-    while True:
-        if ts%100==1:
-            try: check_grid_data(period)
-            except: print('Problem updating from grid')
-        if prop>0.5:
-            period+=1
-            ts=0
-            for ag in agents: 
-                ag.init_routes(routes, node_coords)
-                ag.init_period(period, TIMESTEP_SEC)
-            predict_modes(agents)
-        update_and_send_points()
-        prop=sum([ag.finished for ag in agents])/len(agents)
-        print(ts)
-else:
-    try: check_grid_data(period)
-    except: print('Problem updating from grid')
-    send_routes()
+dataLock = threading.Lock()
+# thread handler
+yourThread = threading.Thread()
 
-            
+def create_app():
+    app = Flask(__name__)
+
+    def interrupt():
+        global yourThread
+        yourThread.cancel()
+
+    def background():
+        global agents, base_agents, new_agents, lastId, base_housing, new_housing, housing
+        with dataLock:
+            with urllib.request.urlopen(cityIO_grid_url) as url:
+            #get the latest json data
+                cityIO_grid_data=json.loads(url.read().decode())
+            hash_id=cityIO_grid_data['meta']['id']
+            if hash_id==lastId:
+                pass
+            else:
+                #create new houses
+                new_housing=[]
+                for ht in housing_types:
+                    ht_locs=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==ht]
+                    for htl in ht_locs:
+                        new_housing.append(House(housing_types[ht]['rent'], 150000, 60000, grid_locations[htl], len(base_housing)+len(new_housing)))
+                housing=base_housing+new_housing
+                #create new persons
+                new_agents=[]
+                for et in employment_types:
+                    et_locs=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==et]
+                    for etl in et_locs:
+                        new_agents.append(Person(25, True, 5, None, grid_locations[etl], True, 
+                         'HWH', 8000, len(base_agents)+len(new_agents), routes, node_coords))
+                agents=base_agents+new_agents
+                #each new person chooses a house
+                long_data=[]
+                for ag in new_agents:
+                    #choose N houses
+                    h_alts=random.sample(housing, 6)
+                    for hi, h in enumerate(h_alts):
+                         long_data.append(h.long_data_record(10000*ag.hh_income, ag.person_id, hi+1))
+                long_df=pd.DataFrame(long_data)
+                long_df['predictions']=home_loc_logit.predict(long_df)
+                for ag_ind in set(long_df['custom_id']):
+                    # find maximum prob or sample from probs in subset of long_df
+                    house_id=long_df.loc[long_df[long_df['custom_id']==ag_ind]['predictions'].idxmax(), 'actual_house_id']
+                    agents[ag_ind].home_loc=housing[house_id].location                
+                #each new person chooses a mode
+                for ag in new_agents:
+                    ag.init_routes(routes, node_coords)      
+            lastId=hash_id
+        yourThread = threading.Timer(POOL_TIME, background, args=())
+        yourThread.start()        
+
+    def initialise():
+        # Create the initial background thread
+        yourThread = threading.Timer(POOL_TIME, background, args=())
+        yourThread.start()
+    # Initiate
+    initialise()
+    # When you kill Flask (SIGTERM), clear the trigger for the next thread
+    atexit.register(interrupt)
+    return app
+
+app = create_app()
+CORS(app)
+
+@app.route('/abm_service/Hamburg/routes', methods=['GET'])
+def return_versions():
+    print('Data requested')
+    for ag in agents: ag.init_period(0, TIMESTEP_SEC)
+    predict_modes(agents)
+    return jsonify([1])
+
+
+@app.errorhandler(404)
+# standard error is html message- we need to ensure that the response is always json
+def not_found(error):
+    return make_response(jsonify({'error': 'Not found'}), 404)
+
+if __name__ == '__main__':
+    app.run(port=8000, debug=False, use_reloader=False, threaded=True)
+    # if reloader is True, it starts the background thread twice
+
