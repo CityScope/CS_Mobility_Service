@@ -16,15 +16,9 @@ import random
 import urllib
 import pyproj
 import math
-from shapely.geometry import Point, shape
-import datetime
 import pandas as pd
 from flask_cors import CORS
-import logging
 import numpy as np
-import requests
-import time
-import pickle
 import networkx as nx
 from scipy import spatial
 from Agents import Person, Location, House
@@ -32,6 +26,7 @@ from Agents import Person, Location, House
 
 # =============================================================================
 # Functions
+# =============================================================================
 def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols):
     #retuns the top left coordinate of each grid cell from left to right, top to bottom
     topLeftXY=pyproj.transform(wgs, utm,topLeft_lonLat['lon'], topLeft_lonLat['lat'])
@@ -61,51 +56,7 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
             if not r==nrows-1:
                 G.add_edge(r*ncols+c, (r+1)*ncols+c, weight=cell_size)
                 G.add_edge((r+1)*ncols+c, r*ncols+c, weight=cell_size)
-    return grid_coords_ll,  G
-
-def check_grid_data(p):
-    global agents, base_agents, new_agents, lastId, base_housing, new_housing, housing
-    with urllib.request.urlopen(cityIO_grid_url) as url:
-    #get the latest json data
-        print('Getting grid data update')
-        cityIO_grid_data=json.loads(url.read().decode())
-    hash_id=cityIO_grid_data['meta']['id']
-    if hash_id==lastId:
-        pass
-    else:
-        print('Updating agents')
-        #create new houses
-        new_housing=[]
-        for ht in housing_types:
-            ht_locs=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==ht]
-            for htl in ht_locs:
-                new_housing.append(House(housing_types[ht]['rent'], 150000, 60000, grid_locations[htl], len(base_housing)+len(new_housing)))
-        housing=base_housing+new_housing
-        #create new persons
-        new_agents=[]
-        for et in employment_types:
-            et_locs=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==et]
-            for etl in et_locs:
-                new_agents.append(Person(25, True, 5, None, grid_locations[etl], True, 
-                 'HWH', 8000, len(base_agents)+len(new_agents), routes, node_coords))
-        agents=base_agents+new_agents
-        #each new person chooses a house
-        long_data=[]
-        for ag in new_agents:
-            #choose N houses
-            h_alts=random.sample(housing, 6)
-            for hi, h in enumerate(h_alts):
-                 long_data.append(h.long_data_record(10000*ag.hh_income, ag.person_id, hi+1))
-        long_df=pd.DataFrame(long_data)
-        long_df['predictions']=home_loc_logit.predict(long_df)
-        for ag_ind in set(long_df['custom_id']):
-            # find maximum prob or sample from probs in subset of long_df
-            house_id=long_df.loc[long_df[long_df['custom_id']==ag_ind]['predictions'].idxmax(), 'actual_house_id']
-            agents[ag_ind].home_loc=housing[house_id].location                
-        #each new person chooses a mode
-        for ag in new_agents:
-            ag.init_routes(routes, node_coords)      
-    lastId=hash_id    
+    return grid_coords_ll,  G   
 
 def predict_modes(agent_list):
     # instead of using get attribute one at a time: create a class method to return the dict
@@ -127,9 +78,6 @@ def predict_modes(agent_list):
     mode_probs=mode_rf.predict_proba(feature_df)
     for i,ag in enumerate(agent_list): ag.set_mode(int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0]), speeds)
 
-
-# =============================================================================
-
 # =============================================================================
 # Constants
 # =============================================================================
@@ -141,7 +89,6 @@ region_lat_bounds=[53.491466, 53.56]
 #region_lon_bounds=[-90, 90]
 #region_lat_bounds=[-90, 90]
 
-#CITYIO_TEMPLATE_PATH='../'+city+'/clean/cityio_template.json'
 SYNTHPOP_PATH='../'+city+'/clean/synth_pop.csv'
 PICKLED_MODEL_PATH='../models/trip_mode_rf.p'
 ZONE_NODE_ROUTES_PATH='../'+city+'/clean/route_nodes.json'
@@ -150,6 +97,7 @@ NODES_PATH='../'+city+'/clean/nodes.csv'
 CONNECTION_POINTS_PATH='../'+city+'/clean/connection_points.json'
 RF_FEATURES_LIST_PATH='../models/rf_features.json'
 FITTED_HOME_LOC_MODEL_PATH='../models/home_loc_logit.p'
+CITYIO_SAMPLE_PATH='../'+city+'/clean/sample_cityio_data.json'
 
 PERSONS_PER_BLD=2
 BASE_AGENTS=100
@@ -183,7 +131,7 @@ lastId=0
 host='https://cityio.media.mit.edu/'
 #host='http://localhost:8080/' # local port running cityio
 cityIO_grid_url=host+'api/table/'+cityIO_grid_url_map[city]
-
+#cityIO_grid_url=host+'api/table/'+'virtual_table'
 
 # =============================================================================
 # Load Data
@@ -210,8 +158,11 @@ original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
 # =============================================================================
 with urllib.request.urlopen(cityIO_grid_url) as url:
 #get the latest json data
-    print('Getting initial grid data')
+#    print('Getting initial grid data')
     cityIO_grid_data=json.loads(url.read().decode())
+if 'grid' not in cityIO_grid_data:
+    cityIO_grid_data=json.load(open(CITYIO_SAMPLE_PATH))
+    
 topLeft_lonLat={'lat':53.533681, 'lon':10.011585}
 topEdge_lonLat={'lat':53.533433, 'lon':10.012213}
 #topLeft_lonLat={'lat':cityIO_grid_data['header']['spatial']['latitude'], 
@@ -247,9 +198,8 @@ for n in range(len(grid_points_ll)):
 routes= [zone_routes, grid_routes]
 connection_routes= [zone_connection_routes, grid_connection_routes]
 node_coords= [original_net_node_coords, grid_points_ll]
-# =============================================================================
 
-# for each zone, create a location object
+
 zone_locations=[]
 for z in range(len(zone_routes)):
     zone_locations.append(Location(0, z, connection_routes[0][z], 0.01))
@@ -258,6 +208,9 @@ grid_locations=[]
 for n in range(len(grid_routes)):
     grid_locations.append(Location(1, n, connection_routes[1][n], 0))
 
+# =============================================================================
+# Create the person and housing agents 
+# =============================================================================
 
 # for each person in base pop, create Person
 random.seed(0)
@@ -281,7 +234,9 @@ for i in range(VACANT_HOUSES):
     
 housing=base_housing+[]
 
-
+# =============================================================================
+# Create the Flask app
+# =============================================================================
 
 dataLock = threading.Lock()
 # thread handler
@@ -297,13 +252,18 @@ def create_app():
     def background():
         global agents, base_agents, new_agents, lastId, base_housing, new_housing, housing
         with dataLock:
+#            print('Getting grid update')
             with urllib.request.urlopen(cityIO_grid_url) as url:
             #get the latest json data
+            #    print('Getting initial grid data')
                 cityIO_grid_data=json.loads(url.read().decode())
+            if 'grid' not in cityIO_grid_data:
+                cityIO_grid_data=json.load(open(CITYIO_SAMPLE_PATH))
             hash_id=cityIO_grid_data['meta']['id']
             if hash_id==lastId:
                 pass
             else:
+#                print('Updating agents')
                 #create new houses
                 new_housing=[]
                 for ht in housing_types:
@@ -352,12 +312,18 @@ def create_app():
 app = create_app()
 CORS(app)
 
-@app.route('/abm_service/Hamburg/routes', methods=['GET'])
-def return_versions():
-    print('Data requested')
-    for ag in agents: ag.init_period(0, TIMESTEP_SEC)
+@app.route('/abm_service/Hamburg/routes/<int:period>', methods=['GET'])
+def return_routes(period):
+#    print('Data requested')
+    for ag in agents: ag.init_period(period, TIMESTEP_SEC)
     predict_modes(agents)
-    return jsonify([1])
+    agent_data= {ag.person_id: 
+        {'mode':ag.mode,
+#         'route':[[int(c[0]*1e5)/1e5,int(c[1]*1e5)/1e5]  for c in ag.route['coordinates']],
+         'route':ag.route['nodes'],
+         'distances':ag.route['distances']
+        } for ag in agents}
+    return json.dumps(agent_data)
 
 
 @app.errorhandler(404)
