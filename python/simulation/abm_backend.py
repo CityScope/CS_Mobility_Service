@@ -80,10 +80,10 @@ def update_and_send_points():
 #    cityio_json['objects']={"points": geojson_object}    
     try:
         r = requests.post(sim_api_root+sim_api_end, data = json.dumps(geojson_object))
-    except:
+    except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
         time.sleep(5)
-        r='Failed to get response'
+        r=e
     ts+=1
     time.sleep(0.05)
     print(r)
@@ -114,6 +114,8 @@ def check_grid_data(p):
     with urllib.request.urlopen(cityIO_grid_url) as url:
     #get the latest json data
         cityIO_grid_data=json.loads(url.read().decode())
+    if 'grid' not in cityIO_grid_data:
+        cityIO_grid_data=json.load(open(CITYIO_SAMPLE_PATH))
     hash_id=cityIO_grid_data['meta']['id']
     if hash_id==lastId:
         pass
@@ -197,6 +199,7 @@ NODES_PATH='../'+city+'/clean/nodes.csv'
 CONNECTION_POINTS_PATH='../'+city+'/clean/connection_points.json'
 RF_FEATURES_LIST_PATH='../models/rf_features.json'
 FITTED_HOME_LOC_MODEL_PATH='../models/home_loc_logit.p'
+CITYIO_SAMPLE_PATH='../'+city+'/clean/sample_cityio_data.json'
 
 PERSONS_PER_BLD=2
 BASE_AGENTS=100
@@ -261,7 +264,10 @@ original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
 # =============================================================================
 with urllib.request.urlopen(cityIO_grid_url) as url:
 #get the latest json data
+#    print('Getting initial grid data')
     cityIO_grid_data=json.loads(url.read().decode())
+if 'grid' not in cityIO_grid_data:
+    cityIO_grid_data=json.load(open(CITYIO_SAMPLE_PATH))
 topLeft_lonLat={'lat':53.533681, 'lon':10.011585}
 topEdge_lonLat={'lat':53.533433, 'lon':10.012213}
 #topLeft_lonLat={'lat':cityIO_grid_data['header']['spatial']['latitude'], 
@@ -342,15 +348,13 @@ predict_modes(agents)
 #predict modes of all agents
 #do all at one in a pandas df because its faster than 
 
-
 prop=0
 ts=1
 
 if SENDING_POINTS:
     while True:
         if ts%100==1:
-            try: check_grid_data(period)
-            except: print('Problem updating from grid')
+            check_grid_data(period)
         if prop>0.5:
             period+=1
             ts=0
@@ -362,8 +366,7 @@ if SENDING_POINTS:
         prop=sum([ag.finished for ag in agents])/len(agents)
         print(ts)
 else:
-    try: check_grid_data(period)
-    except: print('Problem updating from grid')
+    check_grid_data(period)
     send_routes()
 
             
