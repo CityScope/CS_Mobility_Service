@@ -21,7 +21,7 @@ from flask_cors import CORS
 import numpy as np
 import networkx as nx
 from scipy import spatial
-from Agents import Person, Location, House
+from Agents import Person, Location, House, Household
 
 
 # =============================================================================
@@ -60,24 +60,46 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
 
 def predict_modes(agent_list):
     # instead of using get attribute one at a time: create a class method to return the dict
-    feature_df=pd.DataFrame([{f:getattr(a, f) for f in ['age', 'hh_income','male',
-             'bachelor_degree', 'pop_per_sqmile_home',
-             'network_dist_km']} for a in agent_list])    
+    feature_df=pd.DataFrame([{f:getattr(a, f) for f in ['pop_per_sqmile_home',
+             'network_dist_km']} for a in agent_list])  
+    feature_df['bach_degree_yes']=[a.school_level >=4 for a in agent_list]
+    feature_df['bach_degree_no']=~feature_df['bach_degree_yes']
+    for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex']:
+        new_dummys=pd.get_dummies([getattr(a, feat) for a in agent_list], prefix=feat)
+        feature_df=pd.concat([feature_df, new_dummys],  axis=1)
     feature_df['drive_time_minutes']=  60*feature_df['network_dist_km']/speeds[0]     
     feature_df['cycle_time_minutes']=  60*feature_df['network_dist_km']/speeds[1]     
     feature_df['walk_time_minutes']=  60*feature_df['network_dist_km']/speeds[2]     
     feature_df['PT_time_minutes']=  60*feature_df['network_dist_km']/speeds[3]  
     feature_df['walk_time_PT_minutes']=5  
     feature_df['drive_time_PT_minutes']=5  
-    feature_df['drive_cost']=0
-    feature_df['cycle_cost']=0
-    feature_df['walk_cost']=0
-    feature_df['PT_cost']=0
+    feature_df['tenure_owned']=False
+    feature_df['tenure_other']=False
+
     assert all([rff in feature_df.columns for rff in rf_features]),"Features in table dont match features in RF model"
     feature_df=feature_df[rf_features]#reorder columns to match rf model
     mode_probs=mode_rf.predict_proba(feature_df)
     for i,ag in enumerate(agent_list): ag.set_mode(int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0]), speeds)
 
+def create_geojson(persons):
+    features=[]
+    for per in persons:
+        geometry={"type": "Point",
+                 "coordinates": [per.position[0], per.position[1]]
+                }
+        feature={"type": "Feature",
+                 "geometry":geometry,
+                 'properties':{'mode':per.mode, 'id': per.person_id,
+                               'route': per.route, 'speed': per.speed, 'position': per.position, 
+                               'next_node_index': per.next_node_index, 'next_node_ll': per.next_node_ll, 
+                               'prop_of_link_left': per.prop_of_link_left ,'finished': per.finished}
+                 }
+        features.append(feature)        
+    geojson_object={
+      "type": "FeatureCollection",
+      "features": features    
+    }
+    return geojson_object
 # =============================================================================
 # Constants
 # =============================================================================
@@ -89,7 +111,9 @@ region_lat_bounds=[53.491466, 53.56]
 #region_lon_bounds=[-90, 90]
 #region_lat_bounds=[-90, 90]
 
-SYNTHPOP_PATH='../'+city+'/clean/synth_pop.csv'
+#SYNTHPOP_PATH='../'+city+'/clean/synth_pop.csv'
+SYNTH_HH_PATH='../'+city+'/clean/synth_households.csv'
+SYNTH_PERSONS_PATH='../'+city+'/clean/synth_persons.csv'
 PICKLED_MODEL_PATH='../models/trip_mode_rf.p'
 ZONE_NODE_ROUTES_PATH='../'+city+'/clean/route_nodes.json'
 CONNECTION_NODE_ROUTES_PATH='../'+city+'/clean/connection_route_nodes.json'
@@ -98,10 +122,9 @@ CONNECTION_POINTS_PATH='../'+city+'/clean/connection_points.json'
 RF_FEATURES_LIST_PATH='../models/rf_features.json'
 FITTED_HOME_LOC_MODEL_PATH='../models/home_loc_logit.p'
 CITYIO_SAMPLE_PATH='../'+city+'/clean/sample_cityio_data.json'
+RENT_NORM_PATH='../models/rent_norm.json'
 
-PERSONS_PER_BLD=2
-BASE_AGENTS=100
-VACANT_HOUSES=1
+HH_PER_BLD=2
 
 POOL_TIME=1 # seconds
 TIMESTEP_SEC=1
@@ -110,13 +133,6 @@ speeds={0:40,
         1:15,
         2:5,
         3:25}
-
-# TODO: put the below in a text file
-# TODO: number of of people per housing cell should vary by type
-housing_types={1:{'rent': 1000},
-               2:{'rent': 2000} }
-# TODO: number of each employment sector for each building type
-employment_types= {3:{},4:{}}
 
 UTM_MAP={'Boston':pyproj.Proj("+init=EPSG:32619"),
      'Hamburg':pyproj.Proj("+init=EPSG:32632")}
@@ -139,9 +155,16 @@ cityIO_grid_url=host+'api/table/'+cityIO_grid_url_map[city]
 # load the pre-calibrated mode choice model
 mode_rf=pickle.load( open( PICKLED_MODEL_PATH, "rb" ) )
 rf_features=json.load(open(RF_FEATURES_LIST_PATH, 'r'))
-home_loc_logit=pickle.load( open( FITTED_HOME_LOC_MODEL_PATH, "rb" ) )
-
 # load the pre-calibrated home location choice model
+home_loc_logit=pickle.load( open( FITTED_HOME_LOC_MODEL_PATH, "rb" ) )
+rent_normalisation=json.load(open(RENT_NORM_PATH))
+
+# load the synthestic pops of households and persons
+synth_hh_df=pd.read_csv(SYNTH_HH_PATH)
+# sample ranted households only
+# TODO: separate models for rented and owned housing
+synth_hh_df=synth_hh_df.loc[~synth_hh_df['RNTP'].isnull()].sample(n=100)
+synth_persons_df=pd.read_csv(SYNTH_PERSONS_PATH).sample(n=1000)
 
 # load the connection points between real network and grid network
 connection_points=json.load(open(CONNECTION_POINTS_PATH))
@@ -173,6 +196,13 @@ nrows=cityIO_grid_data['header']['spatial']['nrows']
 ncols=cityIO_grid_data['header']['spatial']['ncols']
 grid_points_ll, net=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols)
 
+# TODO: put the below in a text file
+# TODO: number of of people per housing cell should vary by type
+housing_types={1:{'rent': 0.8*rent_normalisation['mean']['2'], 'beds': 2},
+               2:{'rent': rent_normalisation['mean']['2'], 'beds': 2 }}
+# TODO: number of each employment sector for each building type
+employment_types= {3:{},4:{}}
+
 # =============================================================================
 # Get the routes within each sub-net and from each sub-net to the connection points 
 # =============================================================================
@@ -191,7 +221,6 @@ for o in range(len(grid_points_ll)):
 grid_connection_routes=[{'to': [], 'from':[]} for g in range(len(grid_points_ll))]
 for n in range(len(grid_points_ll)):
     for cp in range(len(connection_points)):
-        # TODO: should already be tuples
         grid_connection_routes[n]['to'].append(grid_routes[str(n)][str(connection_points[cp]['closest_grid_node'])])
         grid_connection_routes[n]['from'].append(grid_routes[str(connection_points[cp]['closest_grid_node'])][str(n)])
 
@@ -202,37 +231,41 @@ node_coords= [original_net_node_coords, grid_points_ll]
 
 zone_locations=[]
 for z in range(len(zone_routes)):
-    zone_locations.append(Location(0, z, connection_routes[0][z], 0.01))
+    first_node=connection_routes[0][z]['to'][0]['nodes'][0]
+    zone_locations.append(Location(0, z , connection_routes[0][z], node_coords[0][first_node], len(zone_locations)))
     
 grid_locations=[]
 for n in range(len(grid_routes)):
-    grid_locations.append(Location(1, n, connection_routes[1][n], 0))
+    grid_locations.append(Location(1, n, connection_routes[1][n], node_coords[1][n], len(zone_locations)+len(grid_locations)))
 
+locations=zone_locations+grid_locations
 # =============================================================================
-# Create the person and housing agents 
+# Create the HH, person and housing agents 
 # =============================================================================
 
-# for each person in base pop, create Person
-random.seed(0)
-synth_pop=pd.read_csv(SYNTHPOP_PATH)
-ag_ind=0
-base_agents=[]
-for ag_ind, row in synth_pop[:BASE_AGENTS].iterrows():
-    base_agents.append(Person(row['age'], row['bachelor_degree'], row['hh_income'], zone_locations[row['home_geo_index']], 
-                         zone_locations[row['work_geo_index']], row['male'], row['motif'], row['pop_per_sqmile_home'], len(base_agents), routes, node_coords))
+base_persons, base_households, base_houses=[],[],[]
+# for each row in hh pop, create household and a house
+# TODO: add the PUMA attributes
+# TODO: only rented houses
+for ind, row in synth_hh_df.iterrows():
+    house_id=len(base_houses)
+    household_id=len(base_households)
+    # TODO zone locations should correspong to the actual zones
+    # wont work for Hamburg but will for USA
+    base_households.append(Household(row['VEH'], row['workers'], row['children'], 
+                           row['HINCP'], row['income'], row['tenure'], house_id, household_id))
+    base_houses.append(House( row['RNTP'], 0.000292, 50000, row['BDSP'], row['YBL'], random.choice(zone_locations), 
+                       house_id, household_id))
+# for each hh , spawn num_workers people
+for hh in base_households:
+    # TODO: use the num people in the household
+    for i in range(2):
+        base_persons.append(hh.spawn_person(synth_persons_df, 
+                                            len(base_persons), routes, node_coords,random.choice(zone_locations)))
+persons, households, houses=base_persons+[], base_households+[], base_houses+[] 
 
-agents=base_agents+[]
-for ag in agents: ag.init_routes(routes, node_coords)
-# create new vacant housing (representing turnover of rental market and newly built housing)
-base_housing=[]
-#TODO specify attributes of housing from the data
-for i in range(VACANT_HOUSES):
-    rent=random.choice([1000,1500,2000])
-    puma_med_income=random.choice([30000, 60000, 100000])
-    puma_pop=random.choice([100000, 150000, 200000])
-    base_housing.append(House(rent, puma_pop, puma_med_income, random.choice(zone_locations), len(base_housing)))
-    
-housing=base_housing+[]
+# random select ids of hoseholds to enter housing market in each experiment
+drifters=random.sample(range(len(households)), 10)
 
 # =============================================================================
 # Create the Flask app
@@ -250,7 +283,10 @@ def create_app():
         yourThread.cancel()
 
     def background():
-        global agents, base_agents, new_agents, lastId, base_housing, new_housing, housing
+        global lastId
+        global persons, base_persons, new_persons  
+        global houses, base_houses, new_houses
+        global households, base_households, new_households
         with dataLock:
 #            print('Getting grid update')
             with urllib.request.urlopen(cityIO_grid_url) as url:
@@ -264,37 +300,63 @@ def create_app():
                 pass
             else:
 #                print('Updating agents')
+                # free floating people become homeless, their homes become vacant
+                for d in drifters:
+                    houses[households[d].house_id].household_id=None
+                    households[d].house_id=None
                 #create new houses
-                new_housing=[]
+                new_houses=[]
+                new_persons=[]
+                new_households=[]
+                
                 for ht in housing_types:
                     ht_locs=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==ht]
                     for htl in ht_locs:
-                        new_housing.append(House(housing_types[ht]['rent'], 150000, 60000, grid_locations[htl], len(base_housing)+len(new_housing)))
-                housing=base_housing+new_housing
-                #create new persons
-                new_agents=[]
+                        new_houses.append(House(housing_types[ht]['rent'], 
+                                                 0.000292, 60000, housing_types[ht]['beds'],
+                                                 15, grid_locations[htl], 
+                                                 len(base_houses)+len(new_houses), None))
+                
+                # for each office unit, add a (homeless) household to new_hhs
                 for et in employment_types:
+#                    et_locs=list(range(50))
                     et_locs=[i for i in range(len(cityIO_grid_data['grid'])) if cityIO_grid_data['grid'][i][0]==et]
                     for etl in et_locs:
-                        new_agents.append(Person(25, True, 5, None, grid_locations[etl], True, 
-                         'HWH', 8000, len(base_agents)+len(new_agents), routes, node_coords))
-                agents=base_agents+new_agents
-                #each new person chooses a house
+                        sample_hh_row=synth_hh_df.sample(n=1).squeeze()
+                        new_hh=Household(sample_hh_row['VEH'], sample_hh_row['workers'], sample_hh_row['children'], 
+                           sample_hh_row['HINCP'], sample_hh_row['income'], sample_hh_row['tenure'], 
+                           None, len(base_households)+len(new_households))
+                        new_households.append(new_hh)
+                        # TODO: use the num people in the household
+                        for i in range(2):
+                            new_persons.append(new_hh.spawn_person(synth_persons_df, 
+                                                                len(base_persons)+len(new_persons), routes, node_coords, grid_locations[etl]))
+                # for each homeless hh, choose a house
+                houses=base_houses+new_houses
+                persons=base_persons+new_persons
+                households=base_households+new_households
+                
+                #each homeless household chooses a house
+                vacant_housing = [h for h in houses if h.household_id==None]
+                homeless_hhs= [hh for hh in households if hh.house_id==None]
                 long_data=[]
-                for ag in new_agents:
+                for hh in homeless_hhs:
                     #choose N houses
-                    h_alts=random.sample(housing, 6)
+                    h_alts=random.sample(vacant_housing, 9)
                     for hi, h in enumerate(h_alts):
-                         long_data.append(h.long_data_record(10000*ag.hh_income, ag.person_id, hi+1))
+                         long_data.append(h.long_data_record(hh.hh_income, hh.household_id, hi+1, rent_normalisation))
                 long_df=pd.DataFrame(long_data)
                 long_df['predictions']=home_loc_logit.predict(long_df)
-                for ag_ind in set(long_df['custom_id']):
+                for hh_ind in set(long_df['custom_id']):
                     # find maximum prob or sample from probs in subset of long_df
-                    house_id=long_df.loc[long_df[long_df['custom_id']==ag_ind]['predictions'].idxmax(), 'actual_house_id']
-                    agents[ag_ind].home_loc=housing[house_id].location                
-                #each new person chooses a mode
-                for ag in new_agents:
-                    ag.init_routes(routes, node_coords)      
+                    house_id=np.random.choice(long_df.loc[long_df['custom_id']==hh_ind, 'actual_house_id'], p=long_df.loc[long_df['custom_id']==hh_ind, 'predictions'])
+                    house_id=int(long_df.loc[long_df[long_df['custom_id']==hh_ind]['predictions'].idxmax(), 'actual_house_id'])
+                    households[hh_ind].house_id=house_id 
+                    houses[house_id].household_id=hh_ind
+
+                for p in persons:
+                    p.set_home_loc(houses[households[p.household_id].house_id].location)
+                    p.init_routes(routes, node_coords)      
             lastId=hash_id
         yourThread = threading.Timer(POOL_TIME, background, args=())
         yourThread.start()        
@@ -315,15 +377,25 @@ CORS(app)
 @app.route('/abm_service/Hamburg/routes/<int:period>', methods=['GET'])
 def return_routes(period):
 #    print('Data requested')
-    for ag in agents: ag.init_period(period, TIMESTEP_SEC)
-    predict_modes(agents)
-    agent_data= {ag.person_id: 
-        {'mode':ag.mode,
-#         'route':[[int(c[0]*1e5)/1e5,int(c[1]*1e5)/1e5]  for c in ag.route['coordinates']],
-         'route':ag.route['nodes'],
-         'distances':ag.route['distances']
-        } for ag in agents}
-    return json.dumps(agent_data)
+    for p in persons: p.init_period(period, TIMESTEP_SEC)
+    predict_modes(persons)
+#    person_data= {p.person_id: 
+#        {'mode':p.mode,
+##         'route':[[int(c[0]*1e5)/1e5,int(c[1]*1e5)/1e5]  for c in ag.route['coordinates']],
+#         'route':p.route['coordinates'],
+#         'distances':p.route['distances']
+#        } for p in persons}
+    return json.dumps(create_geojson(persons))
+
+@app.route('/abm_service/Hamburg/arcs/<int:period>', methods=['GET'])
+def return_arcs(period):
+    for p in persons: p.init_period(period, TIMESTEP_SEC)
+    predict_modes(persons)
+    arcs=[ {'centroid': locations[d].centroid,'flows':{o: {0:0, 1:0, 2:0, 3:0} for o in range(len(zone_locations)+len(grid_locations))}}
+        for d in range(len(zone_locations)+len(grid_locations))]
+    for p in persons:
+        arcs[p.work_loc.zone_id]['flows'][houses[households[p.household_id].house_id].location.zone_id][p.mode]+=1
+    return json.dumps(arcs)
 
 
 @app.errorhandler(404)
@@ -332,6 +404,6 @@ def not_found(error):
     return make_response(jsonify({'error': 'Not found'}), 404)
 
 if __name__ == '__main__':
-    app.run(port=8000, debug=False, use_reloader=False, threaded=True)
+    app.run(port=7777, debug=False, use_reloader=False, threaded=True)
     # if reloader is True, it starts the background thread twice
 

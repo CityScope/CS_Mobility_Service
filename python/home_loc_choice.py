@@ -15,31 +15,28 @@ import random
 from collections import OrderedDict
 
 city='Boston'
-
-NUM_ALTS=5
+NUM_ALTS=8
 sample_size=5000
 
-PUMS_HH_PATH='./'+city+'/raw/PUMS/csv_hma/ss16hma.csv'
-PUMA_POP_PATH='./'+city+'/raw/ACS/ACS_17_5YR_B01003/population.csv'
 PUMAS_INCLUDED_PATH='./'+city+'/raw/PUMS/pumas_included.json'
-PUMA_SHAPE_PATH='./'+city+'/raw/PUMS/pumas.geojson'
 FITTED_HOME_LOC_MODEL_PATH='./models/home_loc_logit.p'
+PUMA_POP_PATH='./'+city+'/raw/ACS/ACS_17_5YR_B01003/population.csv'
+PUMS_HH_PATH='./'+city+'/raw/PUMS/csv_hma/ss16hma.csv'
+PUMA_SHAPE_PATH='./'+city+'/raw/PUMS/pumas.geojson'
+RENT_NORM_PATH='./models/rent_norm.json'
 
-# get area of every PUMA
-pumas_shape=json.load(open(PUMA_SHAPE_PATH))
-print(pumas_shape['features'][0]['properties'])
-puma_land_sqm={int(f['properties']['PUMACE10']): f['properties']['ALAND10']
-                for f in pumas_shape['features']}
-
-# load the PUMS data
 hh=pd.read_csv(PUMS_HH_PATH)
 pumas_included=json.load(open(PUMAS_INCLUDED_PATH))
-# load the aggregate PUMA data
+pumas_shape=json.load(open(PUMA_SHAPE_PATH))
+
+       
+# TODO:se the API    
 puma_pop=pd.read_csv(PUMA_POP_PATH)
 puma_pop['PUMA']=puma_pop.apply(lambda row: int(row['GEO.id2'][2:]), axis=1)
 puma_pop=puma_pop.set_index('PUMA')
 
-#create subsets
+
+# identify recent movers in Boston and vacant houses
 hh_vacant=hh[hh['NP']==0]
 hh_boston=hh[hh['PUMA'].isin(pumas_included)]
 hh_vacant_for_rent=hh_boston[hh_boston['VACS']==1]
@@ -47,26 +44,11 @@ hh_rented=hh[hh['TEN']==3]
 #asking_rent=hh_for_rent['RNTP']
 renters_recent_move=hh_rented[hh_rented['MV']==1]
 
-# create features at property level
-# normalise rent in each cateogory og bedroom number
-renters_recent_move.loc[renters_recent_move['BDSP']>2, 'BDSP']=3
-renters_recent_move.loc[renters_recent_move['BDSP']<1, 'BDSP']=1
-hh_vacant_for_rent.loc[hh_vacant_for_rent['BDSP']>2, 'BDSP']=3
-hh_vacant_for_rent.loc[hh_vacant_for_rent['BDSP']<1, 'BDSP']=1
-rent_mean={}
-rent_std={}
-for beds in range(1,4):
-    rent_mean[beds]=renters_recent_move.loc[renters_recent_move['BDSP']==beds, 'RNTP'].mean()
-    rent_std[beds]=renters_recent_move.loc[renters_recent_move['BDSP']==beds, 'RNTP'].std()
-renters_recent_move['norm_rent']=renters_recent_move.apply(
-    lambda row: (row['RNTP']-rent_mean[row['BDSP']])/rent_std[row['BDSP']], axis=1)
-hh_vacant_for_rent['norm_rent']=hh_vacant_for_rent.apply(
-    lambda row: (row['RNTP']-rent_mean[row['BDSP']])/rent_std[row['BDSP']], axis=1)
 
-# Age of building
-for df in [renters_recent_move, hh_vacant_for_rent]:
-    df['less_than_5yrs_old']=df.apply(lambda row: row['YBL']>14, axis=1)
+# Load the PUMA shape data and get the area of each PUMA
 
+puma_land_sqm={int(f['properties']['PUMACE10']): f['properties']['ALAND10']
+                for f in pumas_shape['features']}
 
 # build the PUMA aggregate data data frame
 median_income_by_puma=hh.groupby('PUMA')['HINCP'].median()
@@ -79,8 +61,34 @@ puma_obj=[{'PUMA':puma,
            } for puma in all_PUMAs]
 puma_df=pd.DataFrame(puma_obj)
 puma_df=puma_df.set_index('PUMA')
-# for each PUMS person, add to the long df their actual HH and N vacant HHs
 
+
+# create features at property level
+# normalise rent stratifying by bedroom number
+renters_recent_move.loc[renters_recent_move['BDSP']>2, 'BDSP']=3
+renters_recent_move.loc[renters_recent_move['BDSP']<1, 'BDSP']=1
+hh_vacant_for_rent.loc[hh_vacant_for_rent['BDSP']>2, 'BDSP']=3
+hh_vacant_for_rent.loc[hh_vacant_for_rent['BDSP']<1, 'BDSP']=1
+rent_mean={}
+rent_std={}
+for beds in range(1,4):
+    rent_mean[beds]=renters_recent_move.loc[renters_recent_move['BDSP']==beds, 'RNTP'].mean()
+    rent_std[beds]=renters_recent_move.loc[renters_recent_move['BDSP']==beds, 'RNTP'].std()
+    
+for df in [renters_recent_move, hh_vacant_for_rent]:
+    df['norm_rent']=df.apply(
+        lambda row: (row['RNTP']-rent_mean[row['BDSP']])/rent_std[row['BDSP']], axis=1)
+    # Age of building
+    df['built_since_jan2010']=df.apply(lambda row: row['YBL']>=14, axis=1)
+    df['puma_pop_per_sqmeter']=df.apply(lambda row: puma_df.loc[row['PUMA']]['puma_pop_per_sqm'], axis=1)
+    df['med_income']=df.apply(lambda row: puma_df.loc[row['PUMA']]['med_income'], axis=1)
+        
+renters_recent_move=renters_recent_move[['PUMA','HINCP',  'norm_rent', 'RNTP', 'built_since_jan2010', 'puma_pop_per_sqmeter', 'med_income']]
+hh_vacant_for_rent=hh_vacant_for_rent[['PUMA', 'HINCP', 'norm_rent', 'RNTP','built_since_jan2010', 'puma_pop_per_sqmeter', 'med_income']]
+ 
+rent_normalisation={"mean": rent_mean, "std": rent_std}   
+        
+# TODO: include feature for same PUMA/POWPUMA
 random.seed(1)
 long_data_obj=[]
 ind=0
@@ -92,7 +100,9 @@ for ind_actual, row_actual in renters_recent_move[:sample_size].iterrows():
                'rent':row_actual['RNTP'],
                'norm_rent':row_actual['norm_rent'],
                'puma':row_actual['PUMA'],
-               'less_than_5yrs_old':int(row_actual['less_than_5yrs_old']),
+               'built_since_jan2010':int(row_actual['built_since_jan2010']),
+               'puma_pop_per_sqmeter': row_actual['puma_pop_per_sqmeter'],
+               'med_income': row_actual['med_income'],
                'hh_income':row_actual['HINCP']
                }
     cid+=1
@@ -105,7 +115,9 @@ for ind_actual, row_actual in renters_recent_move[:sample_size].iterrows():
                  'rent':hh_vacant_for_rent.iloc[selected]['RNTP'],
                  'norm_rent':hh_vacant_for_rent.iloc[selected]['norm_rent'],
                  'puma':hh_vacant_for_rent.iloc[selected]['PUMA'],
-                 'less_than_5yrs_old':int(hh_vacant_for_rent.iloc[selected]['less_than_5yrs_old']),
+                 'built_since_jan2010':int(hh_vacant_for_rent.iloc[selected]['built_since_jan2010']),
+                 'puma_pop_per_sqmeter': hh_vacant_for_rent.iloc[selected]['puma_pop_per_sqmeter'],
+                 'med_income': hh_vacant_for_rent.iloc[selected]['med_income'],
                  'hh_income':row_actual['HINCP']
                  }
         cid+=1
@@ -114,19 +126,18 @@ for ind_actual, row_actual in renters_recent_move[:sample_size].iterrows():
 
 # get zonal attributes
 long_data=pd.DataFrame(long_data_obj)  
-long_data['puma_pop_per_sqm']=long_data.apply(lambda row: puma_df.loc[row['puma']]['puma_pop_per_sqm'], axis=1)
-long_data['income_disparity']=long_data.apply(lambda row: np.abs(row['hh_income']-puma_df.loc[row['puma']]['med_income']), axis=1)
 long_data['log_rent']=long_data.apply(lambda row: np.log(row['rent']), axis=1)
 
 # TODO: calculate interactions
+long_data['income_disparity']=long_data.apply(lambda row: np.abs(row['hh_income']-row['med_income']), axis=1)
 
 # fit model
 
 basic_specification = OrderedDict()
 basic_names = OrderedDict()
 
-basic_specification["puma_pop_per_sqm"] = [list(set(long_data['choice_id']))]
-basic_names["puma_pop_per_sqm"] = ['puma_pop_per_sqm']
+basic_specification["puma_pop_per_sqmeter"] = [list(set(long_data['choice_id']))]
+basic_names["puma_pop_per_sqmeter"] = ['puma_pop_per_sqmeter']
 
 basic_specification["income_disparity"] = [list(set(long_data['choice_id']))]
 basic_names["income_disparity"] = ['income_disparity']
@@ -134,8 +145,8 @@ basic_names["income_disparity"] = ['income_disparity']
 basic_specification["norm_rent"] = [list(set(long_data['choice_id']))]
 basic_names["norm_rent"] = ['norm_rent']
 
-basic_specification["less_than_5yrs_old"] = [list(set(long_data['choice_id']))]
-basic_names["less_than_5yrs_old"] = ['less_than_5yrs_old']
+basic_specification["built_since_jan2010"] = [list(set(long_data['choice_id']))]
+basic_names["built_since_jan2010"] = ['built_since_jan2010']
 
 home_loc_mnl = pl.create_choice_model(data=long_data,
                                         alt_id_col='choice_id',
@@ -153,8 +164,8 @@ home_loc_mnl.fit_mle(np.zeros(numCoef))
 # Look at the estimation results
 print(home_loc_mnl.get_statsmodels_summary())
 
-pickle.dump(home_loc_mnl, FITTED_HOME_LOC_MODEL_PATH)
-
+pickle.dump(home_loc_mnl, open(FITTED_HOME_LOC_MODEL_PATH, 'wb'))
+json.dump(rent_normalisation, open(RENT_NORM_PATH, 'w'))
 
 
 

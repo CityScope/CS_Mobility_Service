@@ -9,41 +9,71 @@ import random
 import numpy as np
 
 class Location:
-    def __init__(self, graph_id, term_node, cp_routes, radius):
-        self.radius=radius
+    def __init__(self, graph_id, term_node, cp_routes, centroid, zone_id):
+        self.centroid=centroid
+        self.zone_id=zone_id
         self.graph_id=graph_id
         self.term_node=term_node
         self.cp_routes=cp_routes
         
 class House:
-    def __init__(self, rent, puma_pop, puma_med_income, location, house_id):
+    def __init__(self, rent, puma_pop_per_sqmeter, puma_med_income, beds, year_built, location, house_id, household_id):
         self.house_id=house_id
+        self.beds=int(beds)
+        self.built_since_jan2010=year_built>=14
+        self.household_id=household_id
         self.rent=rent
-        self.puma_pop=puma_pop
+        # TODO: puma_pop_per_sqmeter should come from property of Location
+        self.puma_pop_per_sqmeter=puma_pop_per_sqmeter
         self.puma_med_income=puma_med_income
         self.location=location
-        self.vacant=True
-        self.occupier=None
-    def long_data_record(self, person_income, person_id, choice_id):
-        return {'rent': self.rent,
-                'population': self.puma_pop,
-                'income_disparity': np.abs(self.puma_med_income-person_income),
+    def long_data_record(self, hh_income, person_id, choice_id, rent_normalisation):
+        beds=min(3, max(1, self.beds))
+        norm_rent=(self.rent-rent_normalisation['mean'][str(beds)])/rent_normalisation['std'][str(beds)]
+        return {'norm_rent': norm_rent,
+                'puma_pop_per_sqmeter': self.puma_pop_per_sqmeter,
+                'income_disparity': np.abs(self.puma_med_income-hh_income),
+                'built_since_jan2010': self.built_since_jan2010,
                 'custom_id': person_id,
                 'choice_id': choice_id,
                 'actual_house_id':self.house_id}
         
+class Household:
+    def __init__(self,  n_vehicles, n_workers, children, hh_income, hh_income_cat, tenure, house_id, household_id):
+        self.n_vehicles=n_vehicles
+        self.n_workers=n_workers
+        self.children=children
+        self.hh_income=hh_income
+        self.hh_income_cat=hh_income_cat
+        self.house_id=house_id
+        self.household_id=household_id
+        self.tenure=tenure
+    def spawn_person(self, person_pop,  person_id, routes, node_coords, work_loc):
+        # TODO: sample from the same zone
+        sample_row=person_pop.sample(n=1).squeeze()
+        return Person(sample_row['age'], sample_row['SCHL'], self.hh_income_cat, self.household_id, 
+                      work_loc, sample_row['sex'], 
+                     10000, person_id, routes, node_coords, 
+                     self.children,  self.n_workers, self.tenure)
+        
+        
 class Person:
-    def __init__(self,age, bachelor_degree, hh_income, home_loc, work_loc, male, 
-                 motif, pop_per_sqmile_home, person_id, routes, node_coords):
+    def __init__(self,age, school_level, hh_income_cat, household_id, work_loc, sex, 
+                  pop_per_sqmile_home, person_id, routes, node_coords, 
+                 children, workers, tenure):
         self.person_id=person_id
         self.age=age
-        self.bachelor_degree=bachelor_degree
-        self.hh_income=hh_income
-        self.home_loc=home_loc
+        self.sex=sex
+        self.workers=workers
+        self.tenure=tenure
+        self.school_level=school_level
+        self.children=children
+        self.income=hh_income_cat
+        self.household_id=household_id
         self.work_loc=work_loc
-        self.male=male
-        self.motif=motif
         self.pop_per_sqmile_home=pop_per_sqmile_home
+    def set_home_loc(self, loc):
+        self.home_loc=loc
         
     def init_routes(self, routes, node_coords):
         if self.home_loc.graph_id==self.work_loc.graph_id:            
