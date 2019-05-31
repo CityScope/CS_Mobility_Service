@@ -66,7 +66,7 @@ function renderLayers({ arcs}) {
         type: ArcBrushingLayer,
         id: 'arcs',
         data: arcs,
-        brushRadius: 50,
+        brushRadius: 500,
         getStrokeWidth: d => WIDTH_SCALE(d.value),
         opacity: 0.5,
         getSourcePosition: d => d.source,
@@ -85,10 +85,10 @@ function loadArcData(data) {
     var arcs=[];
     data.forEach((zone, i) => {
         // console.log(zone);
-        var target_centroid=zone.centroid;
+        var target_centroid=[zone.centroid[0]+(Math.random()-0.5)*0.0001, zone.centroid[1]+(Math.random()-0.5)*0.0001];
         var flows=zone.flows;
         Object.keys(flows).forEach(fromId => {
-            var source_centroid = data[fromId].centroid;
+            var source_centroid = [data[fromId].centroid[0]+(Math.random()-0.5)*0.0001, data[fromId].centroid[1]+(Math.random()-0.5)*0.0001];
             Object.keys(flows[fromId]).forEach(mode => {
                 if (flows[fromId][mode]>0){
                     arcs.push({

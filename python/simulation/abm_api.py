@@ -84,17 +84,18 @@ def predict_modes(agent_list):
 def create_geojson(persons):
     features=[]
     for per in persons:
-        geometry={"type": "Point",
-                 "coordinates": [per.position[0], per.position[1]]
-                }
-        feature={"type": "Feature",
-                 "geometry":geometry,
-                 'properties':{'mode':per.mode, 'id': per.person_id,
-                               'route': per.route, 'speed': per.speed, 'position': per.position, 
-                               'next_node_index': per.next_node_index, 'next_node_ll': per.next_node_ll, 
-                               'prop_of_link_left': per.prop_of_link_left ,'finished': per.finished}
-                 }
-        features.append(feature)        
+        if (houses[households[per.household_id].house_id].location.graph_id==1 or per.work_loc.graph_id==1):
+            geometry={"type": "Point",
+                     "coordinates": [per.position[0], per.position[1]]
+                    }
+            feature={"type": "Feature",
+                     "geometry":geometry,
+                     'properties':{'mode':per.mode, 'id': per.person_id,
+                                   'route': per.route, 'speed': per.speed, 'position': per.position, 
+                                   'next_node_index': per.next_node_index, 'next_node_ll': per.next_node_ll, 
+                                   'prop_of_link_left': per.prop_of_link_left ,'finished': per.finished}
+                     }
+            features.append(feature)        
     geojson_object={
       "type": "FeatureCollection",
       "features": features    
@@ -124,7 +125,7 @@ FITTED_HOME_LOC_MODEL_PATH='../models/home_loc_logit.p'
 CITYIO_SAMPLE_PATH='../'+city+'/clean/sample_cityio_data.json'
 RENT_NORM_PATH='../models/rent_norm.json'
 
-HH_PER_BLD=2
+NUM_HOUSEHOLDS=2
 
 POOL_TIME=1 # seconds
 TIMESTEP_SEC=1
@@ -163,8 +164,8 @@ rent_normalisation=json.load(open(RENT_NORM_PATH))
 synth_hh_df=pd.read_csv(SYNTH_HH_PATH)
 # sample ranted households only
 # TODO: separate models for rented and owned housing
-synth_hh_df=synth_hh_df.loc[~synth_hh_df['RNTP'].isnull()].sample(n=100)
-synth_persons_df=pd.read_csv(SYNTH_PERSONS_PATH).sample(n=1000)
+synth_hh_df=synth_hh_df.loc[~synth_hh_df['RNTP'].isnull()].sample(n=NUM_HOUSEHOLDS)
+synth_persons_df=pd.read_csv(SYNTH_PERSONS_PATH).sample(n=10000)
 
 # load the connection points between real network and grid network
 connection_points=json.load(open(CONNECTION_POINTS_PATH))
@@ -265,7 +266,7 @@ for hh in base_households:
 persons, households, houses=base_persons+[], base_households+[], base_houses+[] 
 
 # random select ids of hoseholds to enter housing market in each experiment
-drifters=random.sample(range(len(households)), 10)
+drifters=random.sample(range(len(households)), 100)
 
 # =============================================================================
 # Create the Flask app
