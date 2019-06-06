@@ -101,6 +101,14 @@ def create_geojson(persons):
       "features": features    
     }
     return geojson_object
+
+def get_trip_data(persons):
+    trips=[]
+    for per in persons:
+        if (houses[households[per.household_id].house_id].location.graph_id==1 or per.work_loc.graph_id==1): 
+            segments=[[int(1e5*per.route['coordinates'][n][0])/1e5, int(1e5*per.route['coordinates'][n][1])/1e5, per.route['timestamps'][n]] for n in range(len(per.route['timestamps']))]
+            trips.append({'mode': per.mode, 'segments': segments})
+    return trips
 # =============================================================================
 # Constants
 # =============================================================================
@@ -125,7 +133,8 @@ FITTED_HOME_LOC_MODEL_PATH='../models/home_loc_logit.p'
 CITYIO_SAMPLE_PATH='../'+city+'/clean/sample_cityio_data.json'
 RENT_NORM_PATH='../models/rent_norm.json'
 
-NUM_HOUSEHOLDS=2
+NUM_HOUSEHOLDS=1000
+NUM_MOVERS=100
 
 POOL_TIME=1 # seconds
 TIMESTEP_SEC=1
@@ -180,11 +189,13 @@ original_net_node_coords=nodes[['lon', 'lat']].values.tolist()
 # =============================================================================
 # Preliminary Processing
 # =============================================================================
-with urllib.request.urlopen(cityIO_grid_url) as url:
-#get the latest json data
-#    print('Getting initial grid data')
-    cityIO_grid_data=json.loads(url.read().decode())
-if 'grid' not in cityIO_grid_data:
+try:
+    with urllib.request.urlopen(cityIO_grid_url) as url:
+    #get the latest json data
+    #    print('Getting initial grid data')
+        cityIO_grid_data=json.loads(url.read().decode())
+except:
+    print('Using static cityIO grid file')
     cityIO_grid_data=json.load(open(CITYIO_SAMPLE_PATH))
     
 topLeft_lonLat={'lat':53.533681, 'lon':10.011585}
@@ -265,8 +276,10 @@ for hh in base_households:
                                             len(base_persons), routes, node_coords,random.choice(zone_locations)))
 persons, households, houses=base_persons+[], base_households+[], base_houses+[] 
 
+for p in persons:p.init_routes(routes, node_coords, houses[households[p.household_id].house_id].location)
+
 # random select ids of hoseholds to enter housing market in each experiment
-drifters=random.sample(range(len(households)), 100)
+drifters=random.sample(range(len(households)), NUM_MOVERS)
 
 # =============================================================================
 # Create the Flask app
@@ -290,11 +303,11 @@ def create_app():
         global households, base_households, new_households
         with dataLock:
 #            print('Getting grid update')
-            with urllib.request.urlopen(cityIO_grid_url) as url:
-            #get the latest json data
-            #    print('Getting initial grid data')
-                cityIO_grid_data=json.loads(url.read().decode())
-            if 'grid' not in cityIO_grid_data:
+            try:
+                with urllib.request.urlopen(cityIO_grid_url) as url:
+                    cityIO_grid_data=json.loads(url.read().decode())
+            except:
+                print('Using static cityIO grid file')
                 cityIO_grid_data=json.load(open(CITYIO_SAMPLE_PATH))
             hash_id=cityIO_grid_data['meta']['id']
             if hash_id==lastId:
@@ -357,7 +370,7 @@ def create_app():
 
                 for p in persons:
                     p.set_home_loc(houses[households[p.household_id].house_id].location)
-                    p.init_routes(routes, node_coords)      
+                    p.init_routes(routes, node_coords, houses[households[p.household_id].house_id].location)      
             lastId=hash_id
         yourThread = threading.Timer(POOL_TIME, background, args=())
         yourThread.start()        
@@ -387,6 +400,12 @@ def return_routes(period):
 #         'distances':p.route['distances']
 #        } for p in persons}
     return json.dumps(create_geojson(persons))
+
+@app.route('/abm_service/Hamburg/trips/<int:period>', methods=['GET'])
+def return_trips(period):
+    for p in persons: p.init_period(period, TIMESTEP_SEC)
+    predict_modes(persons)
+    return json.dumps(get_trip_data(persons))  
 
 @app.route('/abm_service/Hamburg/arcs/<int:period>', methods=['GET'])
 def return_arcs(period):

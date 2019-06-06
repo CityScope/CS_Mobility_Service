@@ -75,22 +75,25 @@ class Person:
     def set_home_loc(self, loc):
         self.home_loc=loc
         
-    def init_routes(self, routes, node_coords):
-        if self.home_loc.graph_id==self.work_loc.graph_id:            
-            self.all_routes=[routes[self.home_loc.graph_id][str(self.home_loc.term_node)][str(self.work_loc.term_node)].copy(),
-                             routes[self.home_loc.graph_id][str(self.work_loc.term_node)][str(self.home_loc.term_node)].copy()]
+    def init_routes(self, routes, node_coords, home_loc):
+        if home_loc.graph_id==self.work_loc.graph_id:            
+            self.all_routes=[routes[home_loc.graph_id][str(home_loc.term_node)][str(self.work_loc.term_node)].copy(),
+                             routes[home_loc.graph_id][str(self.work_loc.term_node)][str(home_loc.term_node)].copy()]
             for r in self.all_routes:
-                r['coordinates']=[node_coords[self.home_loc.graph_id][n].copy() for n in r['nodes']]
+                r['coordinates']=[node_coords[home_loc.graph_id][n].copy() for n in r['nodes']]
         else:
 #            TODO: connector links should not be 100 long
-            self.all_routes=[{'nodes': self.home_loc.cp_routes['to'][0]['nodes']+self.work_loc.cp_routes['from'][0]['nodes'].copy(),
-                            'distances':self.home_loc.cp_routes['to'][0]['distances']+[100]+self.work_loc.cp_routes['from'][0]['distances'].copy(),
-                            'coordinates': [node_coords[self.home_loc.graph_id][n].copy() for n in self.home_loc.cp_routes['to'][0]['nodes']]+
+            self.all_routes=[{'nodes': home_loc.cp_routes['to'][0]['nodes']+self.work_loc.cp_routes['from'][0]['nodes'].copy(),
+                            'distances':home_loc.cp_routes['to'][0]['distances']+[100]+self.work_loc.cp_routes['from'][0]['distances'].copy(),
+                            'coordinates': [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['to'][0]['nodes']]+
                             [node_coords[self.work_loc.graph_id][n].copy() for n in self.work_loc.cp_routes['from'][0]['nodes']]},
-                            {'nodes': self.work_loc.cp_routes['to'][0]['nodes']+self.home_loc.cp_routes['from'][0]['nodes'].copy(),
-                            'distances':self.work_loc.cp_routes['to'][0]['distances']+[100]+self.home_loc.cp_routes['from'][0]['distances'].copy(),
+                            {'nodes': self.work_loc.cp_routes['to'][0]['nodes']+home_loc.cp_routes['from'][0]['nodes'].copy(),
+                            'distances':self.work_loc.cp_routes['to'][0]['distances']+[100]+home_loc.cp_routes['from'][0]['distances'].copy(),
                             'coordinates': [node_coords[self.work_loc.graph_id][n].copy() for n in self.work_loc.cp_routes['to'][0]['nodes']]+
-                            [node_coords[self.home_loc.graph_id][n].copy() for n in self.home_loc.cp_routes['from'][0]['nodes']]}]
+                            [node_coords[home_loc.graph_id][n].copy() for n in home_loc.cp_routes['from'][0]['nodes']]}]
+        for ri in range(len(self.all_routes)):
+            self.all_routes[ri]['cumdist']=[0]+list(np.cumsum(self.all_routes[ri]['distances']))
+                
 
 
     def init_period(self, p, TIMESTEP_SEC):
@@ -114,6 +117,8 @@ class Person:
         self.mode=mode
         speed_mid=speeds[mode]
         self.speed=random.triangular(0.7*speed_mid, 1.3*speed_mid, speed_mid)
+        start_time=random.randint(0,500)
+        self.route['timestamps']=[start_time+int(100*cd/(self.speed/3.6))/100 for cd in self.route['cumdist']]
         
     def update_position(self, seconds):
         # update an agent's position along a predefined route based on their 

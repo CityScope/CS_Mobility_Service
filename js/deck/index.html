@@ -1,0 +1,215 @@
+<html>
+
+<head>
+    <title>Trips Example</title>
+    <!-- <script src="https://unpkg.com/deck.gl@^6.2.0-beta.3/deckgl.min.js"></script> -->
+    <script src="https://unpkg.com/@deck.gl/core@~7.0.0/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/layers@~7.0.0/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/geo-layers@~7.0.0/dist.min.js"></script>
+    <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v0.50.0/mapbox-gl.js"></script>
+    <link rel="stylesheet" type="text/css" href="https://api.tiles.mapbox.com/mapbox-gl-js/v0.50.0/mapbox-gl.css">
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <style type="text/css">
+    body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+    }
+    </style>
+</head>
+
+<body>
+</body>
+<script type="text/javascript">
+// var { MapboxLayer, TripsLayer} = deck;
+
+class App
+{
+  constructor(props) {
+    this.stateInfo = {
+      time: 0
+    };
+  }
+
+  get state()
+  {
+    return this.stateInfo;
+  }
+
+  animate() {
+    
+    var loopLength = 1500; // unit corresponds to the timestamp in source data
+    var animationSpeed = 500; // unit time per second
+
+    const timestamp = Date.now() / 1000;
+    const loopTime = loopLength / animationSpeed;
+
+    var time = Math.round(((timestamp % loopTime) / loopTime) * loopLength);
+    // console.log(time)
+    var trips_layer = new deck.TripsLayer({
+      // type: 'TripsLayer',
+      id: 'trips',
+      data: TRIP_DATA_URL,
+      getPath: d => d.segments,
+      getColor: d => colors[d.mode],
+      opacity: PROPS.opacity,
+      widthMinPixels: PROPS.widthMinPixels,
+      rounded:PROPS.rounded,
+      trailLength: PROPS.trailLength,
+      currentTime: time
+    });
+    // deckgl.setProps({layers: [trips_layer, arcsLayer]})
+    deckgl.setProps({layers: [trips_layer]})
+
+    window.requestAnimationFrame(this.animate.bind(this));
+  }
+}
+
+class ArcBrushingLayer extends deck.ArcLayer {
+    getShaders() {
+        // use customized shaders
+        return Object.assign({}, super.getShaders(), {
+            inject: {
+                'vs:#decl': `
+  uniform vec2 mousePosition;
+  uniform float brushRadius;
+              `,
+                'vs:#main-end': `
+  float brushRadiusPixels = project_scale(brushRadius);
+
+  vec2 sourcePosition = project_position(instancePositions.xy);
+  bool isSourceInBrush = distance(sourcePosition, mousePosition) <= brushRadiusPixels;
+
+  vec2 targetPosition = project_position(instancePositions.zw);
+  bool isTargetInBrush = distance(targetPosition, mousePosition) <= brushRadiusPixels;
+
+  if (!isSourceInBrush && !isTargetInBrush) {
+    vColor.a = 0.0;
+  }
+              `,
+                'fs:#main-start': `
+  if (vColor.a == 0.0) discard;
+              `
+            }
+        });
+    }
+
+    draw(opts) {
+        var { brushRadius = 500, mousePosition } = this.props;
+        // add uniforms
+        var uniforms = Object.assign({}, opts.uniforms, {
+            brushRadius: brushRadius,
+            mousePosition: mousePosition ?
+                this.projectPosition(this.unproject(mousePosition)).slice(0, 2) : [0, 0]
+        });
+        super.draw(Object.assign({}, opts, { uniforms }));
+    }
+}
+
+var arcs=[]
+var map;
+var arcsLayer;
+var deckgl;
+var app;
+const ARC_DATA_URL = 'http://localhost:7777/abm_service/Hamburg/arcs/0';
+const TRIP_DATA_URL ='http://localhost:7777/abm_service/Hamburg/trips/0'
+
+var colors = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 0]];
+
+var WIDTH_SCALE = d3.scaleLinear().domain([0, 100]).range([3, 10]);
+
+
+d3.json(ARC_DATA_URL).then(loadArcData);
+
+const PROPS ={
+    opacity: 1,
+    widthMinPixels: 3,
+    rounded:true,
+    trailLength: 300}
+
+var trips_layer = new deck.TripsLayer({
+  // type: 'TripsLayer',
+  id: 'trips',
+  data: TRIP_DATA_URL,
+  getPath: d => d.segments,
+  getColor: d => colors[d.mode],
+  opacity: PROPS.opacity,
+  widthMinPixels: PROPS.widthMinPixels,
+  rounded:PROPS.rounded,
+  trailLength: PROPS.trailLength,
+  currentTime: 0
+});
+
+
+// const LIGHT_SETTINGS = {
+//   lightsPosition: [-74.05, 40.7, 8000, -73.5, 41, 5000],
+//   ambientRatio: 0.05,
+//   diffuseRatio: 0.6,
+//   specularRatio: 0.8,
+//   lightsStrength: [2.0, 0.0, 0.0, 0.0],
+//   numberOfLights: 2
+// };
+
+const INITIAL_VIEW_STATE = {
+  longitude: 10,
+  latitude: 53.5,
+  zoom: 10,
+  maxZoom: 19,
+  pitch: 60,
+  bearing: 0
+};
+
+ app = new App();
+
+ function loadArcData(data) {
+    max_od_flow=0;
+    data.forEach((zone, i) => {
+        // console.log(zone);
+        var target_centroid=[zone.centroid[0]+(Math.random()-0.5)*0.0001, zone.centroid[1]+(Math.random()-0.5)*0.0001];
+        var flows=zone.flows;
+        Object.keys(flows).forEach(fromId => {
+            var source_centroid = [data[fromId].centroid[0]+(Math.random()-0.5)*0.0001, data[fromId].centroid[1]+(Math.random()-0.5)*0.0001];
+            Object.keys(flows[fromId]).forEach(mode => {
+                max_od_flow=Math.max(max_od_flow, flows[fromId][mode])
+                if (flows[fromId][mode]>0){
+                    arcs.push({
+                    target: target_centroid,
+                    source: source_centroid,
+                    value: flows[fromId][mode],
+                    mode:mode
+                    });
+                }
+            });
+        });
+    });
+    arcsLayer = new ArcBrushingLayer({
+  // type: 'TripsLayer',
+    id: 'arcs',
+    data: arcs,
+    brushRadius: 500,
+    getStrokeWidth: d => WIDTH_SCALE(100*d.value/max_od_flow),
+    opacity: 0.5,
+    getSourcePosition: d => d.source,
+    getTargetPosition: d => d.target,
+    getSourceColor: d => colors[d.mode],
+    getTargetColor: d => colors[d.mode],
+    // onHover: ({object, x, y}) =>self.setProps({ mousePosition: [x, y] })
+});
+    
+  deckgl = new deck.DeckGL({
+  mapboxApiAccessToken:'pk.eyJ1IjoiZG9vcmxleXJtaXQiLCJhIjoiY2pnNnh5NHJwOHp2YzJ4bXNkdWZyNWd3ZSJ9.am1Wub7LEzVfZKHAdRZe4g',
+  mapStyle: 'mapbox://styles/mapbox/dark-v9',
+  longitude: INITIAL_VIEW_STATE.longitude,
+  latitude: INITIAL_VIEW_STATE.latitude,
+  zoom: INITIAL_VIEW_STATE.zoom,
+  minZoom: INITIAL_VIEW_STATE.minZoom,
+  maxZoom: INITIAL_VIEW_STATE.maxZoom,
+  pitch: INITIAL_VIEW_STATE.pitch,
+  layers: [trips_layer]
+});
+    app.animate(0);
+}
+
+
+</script>
+</html>

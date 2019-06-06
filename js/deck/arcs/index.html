@@ -30,8 +30,8 @@ var ROUTE_DATA_URL ='http://localhost:7777/abm_service/Hamburg/routes/0'
 // drive red, cycle blue, walk green, PT yellow
 var colors = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 0]];
 
-var RADIUS_SCALE = d3.scaleSqrt().domain([0, 100]).range([100, 500]);
-var WIDTH_SCALE = d3.scaleLinear().domain([0, 100]).range([1, 4]);
+// var RADIUS_SCALE = d3.scaleSqrt().domain([0, 100]).range([100, 500]);
+var WIDTH_SCALE = d3.scaleLinear().domain([0, 100]).range([3, 10]);
 
 var seconds=5;
 
@@ -50,7 +50,7 @@ var arcsLayer;
 // Load the data and layers once Mapbox map style loads
 map.on('style.load', () => {
     d3.json(ARC_DATA_URL).then(loadArcData);
-    d3.json(ROUTE_DATA_URL).then(loadRouteData);
+    // d3.json(ROUTE_DATA_URL).then(loadRouteData);
 });
 
 //Enable arc brushing on mousemove event from Mapbox
@@ -60,15 +60,15 @@ map.on('mousemove', ({ point }) => {
     }
 });
 
-function renderLayers({ arcs}) {
+function renderLayers({ arcs}, max_od_flow) {
 
     arcsLayer = new MapboxLayer({
         type: ArcBrushingLayer,
         id: 'arcs',
         data: arcs,
         brushRadius: 500,
-        getStrokeWidth: d => WIDTH_SCALE(d.value),
-        opacity: 0.5,
+        getStrokeWidth: d => WIDTH_SCALE(100*d.value/max_od_flow),
+        opacity: 0.3,
         getSourcePosition: d => d.source,
         getTargetPosition: d => d.target,
         getSourceColor: d => colors[d.mode],
@@ -83,6 +83,7 @@ function renderLayers({ arcs}) {
 function loadArcData(data) {
     // var pairs = {};
     var arcs=[];
+    max_od_flow=0;
     data.forEach((zone, i) => {
         // console.log(zone);
         var target_centroid=[zone.centroid[0]+(Math.random()-0.5)*0.0001, zone.centroid[1]+(Math.random()-0.5)*0.0001];
@@ -90,6 +91,7 @@ function loadArcData(data) {
         Object.keys(flows).forEach(fromId => {
             var source_centroid = [data[fromId].centroid[0]+(Math.random()-0.5)*0.0001, data[fromId].centroid[1]+(Math.random()-0.5)*0.0001];
             Object.keys(flows[fromId]).forEach(mode => {
+                max_od_flow=Math.max(max_od_flow, flows[fromId][mode])
                 if (flows[fromId][mode]>0){
                     arcs.push({
                     target: target_centroid,
@@ -101,7 +103,7 @@ function loadArcData(data) {
             });
         });
     });
-    renderLayers({arcs});
+    renderLayers({arcs}, max_od_flow);
 }
 
 function loadRouteData(data) {
