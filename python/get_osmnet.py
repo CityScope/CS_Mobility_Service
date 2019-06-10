@@ -14,13 +14,14 @@ from shapely.geometry import shape
 from scipy import spatial
 import numpy as np
 
-city='Hamburg'
+city='Boston'
 
 CLEAN_ZONES_PATH='./'+city+'/clean/zones.geojson'
 ZONE_NODE_ROUTES_PATH='./'+city+'/clean/route_nodes.json'
 CONNECTION_NODE_ROUTES_PATH='./'+city+'/clean/connection_route_nodes.json'
 CONNECTION_POINTS_PATH='./'+city+'/clean/connection_points.json'
 NODES_PATH='./'+city+'/clean/nodes.csv'
+GRAPH_PATH='./'+city+'/clean/graph.p'
 
 # set the bounding box to include all zones
 zones_shp=json.load(open(CLEAN_ZONES_PATH))
@@ -53,6 +54,7 @@ G=nx.Graph()
 for i, row in edges.iterrows():
     G.add_edge(row['from'], row['to'], attr_dict={'distance':row['distance']})
 
+pickle.dump(G, open(GRAPH_PATH, 'wb'))
 #pos={p:[nodes.iloc[p]['lon'], nodes.iloc[p]['lat']] for p in list(G.nodes())}
 #nx.draw(G, pos=pos)
     

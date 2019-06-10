@@ -3,6 +3,8 @@ python/simulation/__pycache__/Agents.cpython-35.pyc
 python/Boston/raw/PUMS
 python/Hamburg/clean/synth_households.csv
 python/Hamburg/clean/synth_persons.csv
+python/Boston/clean/synth_households.csv
+python/Boston/clean/synth_persons.csv
 python/Boston/raw/ACS
 python/Boston/raw/LODES
 python/New York/raw/LODES
