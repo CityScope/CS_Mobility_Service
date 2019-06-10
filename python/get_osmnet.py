@@ -8,11 +8,10 @@ Created on Mon Mar 18 17:21:11 2019
 import osmnet
 import json
 from shapely.geometry import shape
-import pandas as pd
 import networkx as nx
-from shapely.geometry import shape
 from scipy import spatial
 import numpy as np
+import pickle
 
 city='Boston'
 
@@ -37,9 +36,28 @@ nodes,edges=osmnet.load.network_from_bbox(lat_min=boundsAll[1], lng_min=boundsAl
                               two_way=True, timeout=180, 
                               custom_osm_filter=None)
 
-#edges=edges[edges['highway']!='residential']
+types=[
+ 'living_street',
+ 'motorway',
+ 'motorway_link',
+ 'primary',
+ 'primary_link',
+# 'residential',
+ 'road',
+ 'secondary',
+ 'secondary_link',
+ 'tertiary',
+ 'tertiary_link',
+ 'trunk',
+ 'trunk_link',
+ 'unclassified']
+
+edges=edges.loc[((edges['highway'].isin(types)) | (edges['bridge']=='yes'))]
 
 edges=edges.reset_index()
+used_nodes=set(list(edges['from'])+list(edges['to']))
+
+nodes=nodes.loc[nodes['id'].isin(used_nodes)]
 
         
 node_id_map={nodes.iloc[i]['id']:i for i in range(len(nodes))}
@@ -55,59 +73,41 @@ for i, row in edges.iterrows():
     G.add_edge(row['from'], row['to'], attr_dict={'distance':row['distance']})
 
 pickle.dump(G, open(GRAPH_PATH, 'wb'))
+nodes.to_csv(NODES_PATH)  
 #pos={p:[nodes.iloc[p]['lon'], nodes.iloc[p]['lat']] for p in list(G.nodes())}
 #nx.draw(G, pos=pos)
     
-# get the N closest nodes to the centre of each zone
-lon_lat_list= [[shape(f['geometry']).centroid.x, shape(f['geometry']).centroid.y] for f in zones_shp['features']]   
-kdtree_nodes=spatial.KDTree(np.array(nodes[['lon', 'lat']]))
-closest_nodes=[]
-for i in range(len(lon_lat_list)):
-    dist, c_nodes=kdtree_nodes.query(lon_lat_list[i], 10)
-    closest_nodes.append({'node_ids':list(c_nodes)})
-# loop through all zone pairs
-routes={fromGeoId:{toGeoId:{} for toGeoId in range(len(lon_lat_list))} for fromGeoId in range(len(lon_lat_list))}
+## get the N closest nodes to the centre of each zone
+#lon_lat_list= [[shape(f['geometry']).centroid.x, shape(f['geometry']).centroid.y] for f in zones_shp['features']]   
+#kdtree_nodes=spatial.KDTree(np.array(nodes[['lon', 'lat']]))
+#closest_nodes=[]
+#for i in range(len(lon_lat_list)):
+#    dist, c_nodes=kdtree_nodes.query(lon_lat_list[i], 10)
+#    closest_nodes.append({'node_ids':list(c_nodes)})
+## loop through all zone pairs
+#routes={fromGeoId:{toGeoId:{} for toGeoId in range(len(lon_lat_list))} for fromGeoId in range(len(lon_lat_list))}
+#
+#print('Zone to Zone')
+#for fromGeoId in range(len(lon_lat_list)):
+#    #TODO: weights
+#    print(fromGeoId)
+#    for toGeoId in range(len(lon_lat_list)):
+#        try:
+#            node_route=nx.shortest_path(G, closest_nodes[fromGeoId]['node_ids'][0],
+#                                   closest_nodes[toGeoId]['node_ids'][0], weight='distance')
+#            node_route=[int(n) for n in node_route]
+#            distances=[G[node_route[i]][node_route[i+1]]['attr_dict']['distance'] for i in range(len(node_route)-1)]
+#            routes[fromGeoId][toGeoId]={'nodes':tuple(node_route), 'distances': tuple(distances)}
+#        except:
+#            routes[fromGeoId][toGeoId]={'nodes':(), 'distances': ()}
+#            print('No path from zone'+str(fromGeoId)+' to ' +str(toGeoId))
+#
+## get closest node to each connection point
+#connection_points=json.load(open(CONNECTION_POINTS_PATH))
+#closest_nodes_cp=[]
+#for i in range(len(connection_points)):
+#    dist, c_nodes=kdtree_nodes.query([connection_points[i]['lon'],connection_points[i]['lat']], 10)
+#    closest_nodes_cp.append({'node_ids':list(c_nodes)})
 
-print('Zone to Zone')
-for fromGeoId in range(len(lon_lat_list)):
-    #TODO: weights
-    print(fromGeoId)
-    for toGeoId in range(len(lon_lat_list)):
-        try:
-            node_route=nx.shortest_path(G, closest_nodes[fromGeoId]['node_ids'][0],
-                                   closest_nodes[toGeoId]['node_ids'][0], weight='distance')
-            node_route=[int(n) for n in node_route]
-            distances=[G[node_route[i]][node_route[i+1]]['attr_dict']['distance'] for i in range(len(node_route)-1)]
-            routes[fromGeoId][toGeoId]={'nodes':tuple(node_route), 'distances': tuple(distances)}
-        except:
-            routes[fromGeoId][toGeoId]={'nodes':(), 'distances': ()}
-            print('No path from zone'+str(fromGeoId)+' to ' +str(toGeoId))
-
-# get closest node to each connection point
-connection_points=json.load(open(CONNECTION_POINTS_PATH))
-closest_nodes_cp=[]
-for i in range(len(connection_points)):
-    dist, c_nodes=kdtree_nodes.query([connection_points[i]['lon'],connection_points[i]['lat']], 10)
-    closest_nodes_cp.append({'node_ids':list(c_nodes)})
-
-connection_routes=[{'to': [], 'from':[]} for g in range(len(lon_lat_list))]
-# loop through all connction point and zone pairs
-print('Zone to and from CP')
-for zone in range(len(lon_lat_list)):
-    print(zone)
-    for cp in range(len(connection_points)):
-        try:
-            node_route_to_cp=nx.shortest_path(G, closest_nodes[zone]['node_ids'][0],
-                                       closest_nodes_cp[cp]['node_ids'][0], weight='distance')
-            node_route_to_cp=[int(n) for n in node_route_to_cp]
-            distances=[G[node_route_to_cp[i]][node_route_to_cp[i+1]]['attr_dict']['distance'] for i in range(len(node_route_to_cp)-1)]
-            connection_routes[zone]['to'].append({'nodes': tuple(node_route_to_cp), 'distances': tuple(distances)})
-            connection_routes[zone]['from'].append({'nodes':tuple(reversed(node_route_to_cp)), 'distances':tuple(reversed(distances))})
-        except:
-            connection_routes[zone]['to'].append({'nodes':(), 'distances': ()})
-            connection_routes[zone]['from'].append({'nodes':(), 'distances': ()})
-            print('No path from zone'+str(zone)+' to CP ' +str(cp)) 
-# TODO: no point in using tupes if saving to json- they get converted to lists anyway
-json.dump(routes, open(ZONE_NODE_ROUTES_PATH, 'w'))    
-json.dump(connection_routes, open(CONNECTION_NODE_ROUTES_PATH, 'w')) 
-nodes.to_csv(NODES_PATH)    
+#json.dump(routes, open(ZONE_NODE_ROUTES_PATH, 'w'))    
+  
