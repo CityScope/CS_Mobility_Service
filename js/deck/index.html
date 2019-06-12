@@ -3,9 +3,10 @@
 <head>
     <title>Trips Example</title>
     <!-- <script src="https://unpkg.com/deck.gl@^6.2.0-beta.3/deckgl.min.js"></script> -->
-    <script src="https://unpkg.com/@deck.gl/core@~7.0.0/dist.min.js"></script>
+<!--     <script src="https://unpkg.com/@deck.gl/core@~7.0.0/dist.min.js"></script>
     <script src="https://unpkg.com/@deck.gl/layers@~7.0.0/dist.min.js"></script>
-    <script src="https://unpkg.com/@deck.gl/geo-layers@~7.0.0/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/geo-layers@~7.0.0/dist.min.js"></script> -->
+    <script src="https://unpkg.com/deck.gl@~7.0.0/dist.min.js"></script>
     <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v0.50.0/mapbox-gl.js"></script>
     <link rel="stylesheet" type="text/css" href="https://api.tiles.mapbox.com/mapbox-gl-js/v0.50.0/mapbox-gl.css">
     <script src="https://d3js.org/d3.v5.min.js"></script>
@@ -39,7 +40,7 @@ class App
   animate() {
     
     var loopLength = 5000; // unit corresponds to the timestamp in source data
-    var animationSpeed = 500; // unit time per second
+    var animationSpeed = 200; // unit time per second
 
     const timestamp = Date.now() / 1000;
     const loopTime = loopLength / animationSpeed;
@@ -59,11 +60,15 @@ class App
       currentTime: time
     });
     // deckgl.setProps({layers: [trips_layer, arcsLayer]})
-    deckgl.setProps({layers: [trips_layer]})
+    deckgl.setProps({layers: [trips_layer, geojsonLayer]})
 
     window.requestAnimationFrame(this.animate.bind(this));
   }
 }
+
+// function getBldColor(usage){
+//   return bld_colors[usage]
+// }
 
 var arcs=[]
 var map;
@@ -72,8 +77,12 @@ var deckgl;
 var app;
 // const ARC_DATA_URL = 'http://localhost:7777/abm_service/Hamburg/arcs/0';
 const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/mocho/trips'
+const GRID_DATA_URL ='https://cityio.media.mit.edu/api/table/mocho/site_geojson'
+// 
 
-var colors = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 0]];
+const colors = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 0]];
+const bld_line_colors = [[158,188,218, 150],[158,188,218, 150], [136,86,167, 150], [255,247,188, 150], [254,196,79, 150]]
+const bld_fill_colors = [[158,188,218, 20],[158,188,218, 20], [136,86,167, 20], [255,247,188, 20], [254,196,79, 20]]
 
 var WIDTH_SCALE = d3.scaleLinear().domain([0, 100]).range([3, 10]);
 
@@ -97,6 +106,17 @@ var trips_layer = new deck.TripsLayer({
 });
 
 
+const geojsonLayer = new deck.GeoJsonLayer({
+  data:GRID_DATA_URL,
+  extruded:true,
+  wireframe:true,
+  getElevation: d => 100+100*((d.properties.usage-1)%2),
+  // getFillColor: d => getBldColor(d.properties.usage),
+  getFillColor: d => bld_fill_colors[d.properties.usage],
+  getLineColor: d => bld_line_colors[d.properties.usage],
+});
+
+
 
 // const LIGHT_SETTINGS = {
 //   lightsPosition: [-74.05, 40.7, 8000, -73.5, 41, 5000],
@@ -110,7 +130,7 @@ var trips_layer = new deck.TripsLayer({
 const INITIAL_VIEW_STATE = {
   longitude: -71.091681,
   latitude: 42.354742, 
-  zoom: 10,
+  zoom: 12,
   maxZoom: 19,
   pitch: 60,
   bearing: 0
@@ -125,7 +145,7 @@ deckgl = new deck.DeckGL({
   minZoom: INITIAL_VIEW_STATE.minZoom,
   maxZoom: INITIAL_VIEW_STATE.maxZoom,
   pitch: INITIAL_VIEW_STATE.pitch,
-  layers: [trips_layer]
+  layers: [trips_layer, geojsonLayer]
 });
 
 

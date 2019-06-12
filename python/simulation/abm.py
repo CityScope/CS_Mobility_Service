@@ -56,13 +56,30 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
                 G.add_edge('g'+str(r*ncols+c), 'g'+str((r+1)*ncols+c), attr_dict={'distance': cell_size})
                 G.add_edge('g'+str((r+1)*ncols+c), 'g'+str(r*ncols+c), attr_dict={'distance': cell_size})
     # create links between the grid and the road network
-    upper_dist=0.0001
+    upper_dist=0.0003
     for n, ll in enumerate(grid_coords_ll):
-        dist, node=kdtree_nodes.query(ll, k=1, distance_upper_bound=0.0005)
+        dist, node=kdtree_nodes.query(ll, k=1, distance_upper_bound=upper_dist)
         if dist<upper_dist:
             G.add_edge('g'+str(n), node, attr_dict={'distance': cell_size})
             G.add_edge(node, 'g'+str(n), attr_dict={'distance': cell_size})        
     return grid_coords_ll, G   
+
+def get_grid_geojson(grid_coords_ll, grid, ncols):
+    delta_ll_across=[grid_coords_ll[1][0]-grid_coords_ll[0][0], grid_coords_ll[1][1]-grid_coords_ll[0][1]]
+    delta_ll_down=[grid_coords_ll[ncols][0]-grid_coords_ll[0][0], grid_coords_ll[ncols][1]-grid_coords_ll[0][1]]
+    features=[]
+    for i, g in enumerate(grid_coords_ll):
+        coords=[g, 
+                [g[0]+delta_ll_down[0], g[1]+delta_ll_down[1]],
+                [g[0]+delta_ll_across[0]+delta_ll_down[0], g[1]+delta_ll_across[1]+delta_ll_down[1]],
+                [g[0]+delta_ll_across[0],g[1]+delta_ll_across[1]], 
+                g]
+        features.append({'type': 'Feature',
+                         'geometry':{'type': 'Polygon', 'coordinates': [coords]},
+                         'properties': {'usage': grid[i][0]}})
+    geojson_object={'type': 'FeatureCollection',
+                    'features': features}
+    return geojson_object
 
 def random_points_within(poly, num_points):
     """ takes a polygon such as an admin boundary or building and selects 
@@ -104,8 +121,8 @@ def get_routes(persons):
     for p in persons:
         start_time=random.choice(range(2*60*60))
         p['start_time']=start_time
-        work_node=kdtree_nodes.query(p['work_ll'])[1]
-        home_node=kdtree_nodes.query(p['home_ll'])[1]
+        work_node=node_names[kdtree_nodes_all.query(p['work_ll'])[1]]
+        home_node=node_names[kdtree_nodes_all.query(p['home_ll'])[1]]
         try:
             node_route=nx.shortest_path(G, home_node,work_node, weight='distance')
             distances=[G[node_route[i]][node_route[i+1]]['attr_dict']['distance'] 
@@ -113,7 +130,6 @@ def get_routes(persons):
             p['cum_dist_m']=[0]+list(np.cumsum(distances))
             p['network_dist_km']=p['cum_dist_m'][-1]/1000
         except:
-            #teleport
             print(p['person_id'])
             p['cum_dist_m']=[]
             p['network_dist_km']=0
@@ -134,12 +150,12 @@ def predict_modes(persons):
         feature_df=pd.concat([feature_df, new_dummys],  axis=1)
     # TODO: better method of predicting travel times
     # routing engine or feedback from simulation
-    feature_df['drive_time_minutes']=  (60/1000)*feature_df['network_dist_km']/SPEEDS_MET_S[0]     
-    feature_df['cycle_time_minutes']=  (60/1000)*feature_df['network_dist_km']/SPEEDS_MET_S[1]     
-    feature_df['walk_time_minutes']=  (60/1000)*feature_df['network_dist_km']/SPEEDS_MET_S[2]     
-    feature_df['PT_time_minutes']=  (60/1000)*feature_df['network_dist_km']/SPEEDS_MET_S[3]  
-    feature_df['walk_time_PT_minutes']=5  
-    feature_df['drive_time_PT_minutes']=5 
+    feature_df['drive_time_minutes']=  (1000/60)*feature_df['network_dist_km']/SPEEDS_MET_S[0]     
+    feature_df['cycle_time_minutes']=  (1000/60)*feature_df['network_dist_km']/SPEEDS_MET_S[1]     
+    feature_df['walk_time_minutes']=  (1000/60)*feature_df['network_dist_km']/SPEEDS_MET_S[2]     
+    feature_df['PT_time_minutes']=  (1000/60)*feature_df['network_dist_km']/SPEEDS_MET_S[3]  
+    feature_df['walk_time_PT_minutes']=3  
+    feature_df['drive_time_PT_minutes']=3 
     # TODO: change below if modelling housing sales as well
     feature_df['tenure_owned']=False
     feature_df['tenure_other']=False  
@@ -158,6 +174,7 @@ def create_trips(persons):
     """
     for p in persons:
         speed_met_s=SPEEDS_MET_S[p['mode']]
+        p['kgCO2']=2* kgCO2PerMet[p['mode']]* (p['network_dist_km']/1000)
         route_coords=[node_coords[p['node_route'][n]] for n in range(len(p['node_route']))]
         p['trip']=[[int(1e5*route_coords[n][0])/1e5, # reduce precision
                     int(1e5*route_coords[n][1])/1e5,
@@ -172,6 +189,15 @@ def post_trips_data(persons, destination_address):
         print(r)
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
+        
+def post_grid_geojson(grid_geo, destination_address):
+    """ posts grid geojson to cityIO
+    """
+    try:
+        r = requests.post(destination_address, data = json.dumps(grid_geo))
+        print(r)
+    except requests.exceptions.RequestException as e:
+        print('Couldnt send grid geojson to cityio')
         
 def create_long_record(household, house, choice_id):
     """ takes a house object and a household object and 
@@ -256,11 +282,15 @@ NODES_PATH='../'+city+'/clean/nodes.csv'
 NUM_HOUSEHOLDS=100
 NUM_MOVERS=20
 
-SPEEDS_MET_S={0:40/3.6,
+SPEEDS_MET_S={0:30/3.6,
         1:15/3.6,
         2:5/3.6,
-        3:25/3.6}
+        3:30/3.6}
 
+kgCO2PerMet={0: 0.45*0.8708/0.00162,
+                    1: 0,
+                    2: 0,
+                    3: 0.45*0.2359/0.00162}#from lbs/mile to US tonnes/m
 # TODO: put the below in a text file
 # TODO: number of of people per housing cell should vary by type
 housing_types={1:{'rent': 800, 'beds': 2, 'built_since_jan2010': True, 
@@ -320,8 +350,8 @@ except:
 # TODO calculate this from cityIO spatial 
 position={'Hamburg':{'topleft':{'lat':53.533681, 'lon':10.011585},
                     'topedge':{'lat':53.533433, 'lon':10.012213}},
-        'Boston': {'topleft':{'lat':42.367867,   'lon':  -71.087913},
-                  'topedge': {'lat':42.367255,   'lon':  -71.083231}}}
+        'Boston': {'topleft':{'lat':42.365980,    'lon': -71.085560},
+                  'topedge': {'lat':42.3649,   'lon':  -71.082947}}}
 topLeft_lonLat=position[city]['topleft']
 topEdge_lonLat=position[city]['topedge']
 
@@ -333,6 +363,10 @@ for i, row in nodes.iterrows():
     node_coords[i]=[row['lon'], row['lat']]
 for n in range(len(grid_points_ll)):
     node_coords['g'+str(n)]=grid_points_ll[n]
+    
+node_names=[n for n in node_coords]
+node_coords_list=[node_coords[n] for n in node_names]
+kdtree_nodes_all=spatial.KDTree(node_coords_list)
 
 geoid_order=[f['properties']['GEO_ID'].split('US')[1] for f in zones['features']]
 
@@ -389,9 +423,17 @@ if True:
             #    set mobile household to homeless
             base_houses[hh_id]['household_id']=None
             base_households[hh_id]['house_id']=None
+# =============================================================================
+#         FAKE DATA FOR SCENAIO EXPLORATION
+#        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(cityIO_grid_data))] # all employment
+#        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(cityIO_grid_data))] # all housing
+        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(cityIO_grid_data))] # random mix
+#        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(cityIO_grid_data))] # affordable + employment
+# =============================================================================
+        grid_geo=get_grid_geojson(grid_points_ll, cityIO_grid_data, cityIO_spatial_data['ncols'])
         new_houses=[]
         new_persons=[]
-        new_households=[]
+        new_households=[]        
         for ht in housing_types:
             ht_locs=[i for i in range(len(cityIO_grid_data)) if cityIO_grid_data[i][0]==ht]
             for htl in ht_locs:
@@ -437,6 +479,12 @@ if True:
         predict_modes(viz_persons)
         create_trips(viz_persons)
         post_trips_data(viz_persons, CITYIO_OUTPUT_PATH+'trips')
+        post_grid_geojson(grid_geo, CITYIO_OUTPUT_PATH+'site_geojson')
+        for m in range(4):
+            print(100*sum([1 for p in viz_persons if p['mode']==m])/len(viz_persons))
+        print(np.mean([p['kgCO2']for p in viz_persons]))
+        # 0.005829237386919256 for all_employ
+        # 0.0034782411259221 for random mix
         # TODO: make sure those who change locations, change their modes, routes, trips etc.
 
     
