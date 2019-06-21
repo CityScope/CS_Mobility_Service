@@ -22,8 +22,9 @@ import json
 #      Constants
 #********************************************
 city='Boston'
-CITY_CDIVMSAR=11 #New England (ME, NH, VT, CT, MA, RI) MSA or CMSA of 1 million or more with heavy rail
-REGION_CDIVMSARS=[11,12,13,14]
+REGION_CDIVMSARS=[11,21] 
+# MSAs in New England and N Atlantic with 1mil+ pop and heavy rail
+# using New England only results in toos small a sample
 
 NHTS_PATH='NHTS/perpub.csv'
 NHTS_TOUR_PATH='NHTS/tour17.csv'
@@ -31,22 +32,6 @@ NHTS_TRIP_PATH='NHTS/trippub.csv'
 #MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
 PICKLED_MODEL_PATH='./models/trip_mode_rf.p'
 RF_FEATURES_LIST_PATH='./models/rf_features.json'
-
-
-nhts_to_simple_mode={
-        # map NHTS modes to a simpler list of modes
-        # 0: drive, 1: cycle, 2: walk, 3: PT
-        -7:-99,-8:-99,-9:-99,
-        1:2,
-        2:1,
-        3:0,4:0,5:0,6:0,
-        7:-99,
-        8:0,9:0,
-        10:3,11:3,12:3,13:3,14:3,15:3,16:3,
-        17:0,18:0,
-        19:3,20:3,
-        97:-99}
-
 
 # =============================================================================
 # Functions
@@ -86,6 +71,28 @@ def sex_cat_nhts(row):
 def bach_degree_cat_nhts(row):
     if row['EDUC'] >=4: return "yes"
     return "no" 
+
+# Functions to simplify some NHTS categories
+def trip_type_cat(row):
+    if row['TRIPPURP']=='HBW': # includes to work and back to home trips
+        return 'HBW'
+    elif row['TRIPPURP']=='NHB':
+        return 'NHB'
+    else:
+        return 'HBO'
+    
+def mode_cat(nhts_mode):
+    # map NHTS modes to a simpler list of modes
+    if nhts_mode in [3,4,5,6,8,9,17,18]:
+        return 0 # drive
+    elif nhts_mode ==2:
+        return 1 # cycle
+    elif nhts_mode ==1:
+        return 2 # walk
+    elif nhts_mode in [10,11,12,13,14,15,16, 19,20]:
+        return 3 # PT
+    else:
+        return -99
     
 
 #********************************************
@@ -108,8 +115,8 @@ tables={'trips': nhts_trip, 'persons': nhts_per, 'tours': nhts_tour}
 # put tables in a dict so we can use a loop to avoid repetition
 for t in ['trips', 'persons']:
 # remove some records
-    tables[t]=tables[t].loc[tables[t]['CDIVMSAR'].isin(REGION_CDIVMSARS)] 
-    tables[t]=tables[t].loc[tables[t]['R_AGE_IMP']>15]
+    tables[t]=tables[t].loc[((tables[t]['CDIVMSAR'].isin(REGION_CDIVMSARS))&
+                             (tables[t]['URBAN']==1))]
     tables[t]=tables[t].loc[tables[t]['R_AGE_IMP']>15]
     tables[t]['income']=tables[t].apply(lambda row: income_cat_nhts(row), axis=1)
     tables[t]['age']=tables[t].apply(lambda row: age_cat_nhts(row), axis=1)
@@ -121,10 +128,10 @@ for t in ['trips', 'persons']:
     tables[t]=tables[t].rename(columns= {'HTPPOPDN': 'pop_per_sqmile_home'})
 
 #with the tour file:
-#    get the speed for each mode and the distance to walk/drive to transit for weach CBSA
+#    get the speed for each mode and the distance to walk/drive to transit for each CBSA
 #    we can use this to estimate the travel time for each potential mode in the trip file
 speeds={c:{} for c in set(tables['persons']['HH_CBSA'])}
-tables['tours']['main_mode']=tables['tours'].apply(lambda row: nhts_to_simple_mode[row['MODE_D']], axis=1)
+tables['tours']['main_mode']=tables['tours'].apply(lambda row: mode_cat(row['MODE_D']), axis=1)
 for c in speeds:
     this_cbsa=tables['tours'][tables['tours']['HH_CBSA']==c]
     for m in [0,1,2, 3]:
@@ -139,7 +146,8 @@ for c in speeds:
 
 # with the trip table only
 tables['trips']['network_dist_km']=tables['trips'].apply(lambda row: row['TRPMILES']/1.62, axis=1)
-tables['trips']['mode']=tables['trips'].apply(lambda row: nhts_to_simple_mode[row['TRPTRANS']], axis=1) 
+tables['trips']['mode']=tables['trips'].apply(lambda row: mode_cat(row['TRPTRANS']), axis=1) 
+tables['trips']['purpose']=tables['trips'].apply(lambda row: trip_type_cat(row), axis=1)
 tables['trips']=tables['trips'].loc[tables['trips']['mode']>=0]
 tables['trips'].loc[tables['trips']['TRPMILES']<0, 'TRPMILES']=0 # -9 for work-from-home
 
@@ -153,7 +161,7 @@ mode_table['PT_time_minutes']=tables['trips'].apply(lambda row: row['network_dis
 mode_table['walk_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
 mode_table['drive_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
 
-for col in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 'bach_degree']:
+for col in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 'bach_degree', 'purpose']:
     new_dummys=pd.get_dummies(tables['trips'][col], prefix=col)
     mode_table=pd.concat([mode_table, new_dummys],  axis=1)
  
@@ -217,7 +225,7 @@ plt.figure(figsize=(16, 9))
 plt.title("Feature importances")
 plt.bar(range(len(features)), importances[indices],
        color="r", yerr=std[indices], align="center")
-plt.xticks(range(len(features)), [features[i] for i in indices], rotation=45, fontsize=15)
+plt.xticks(range(len(features)), [features[i] for i in indices], rotation=90, fontsize=15)
 plt.xlim([-1, len(features)])
 plt.show()
 

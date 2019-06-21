@@ -18,6 +18,7 @@ import numpy as np
 import networkx as nx
 from scipy import spatial
 import requests
+from time import sleep
 
 # =============================================================================
 # Functions
@@ -158,7 +159,10 @@ def predict_modes(persons):
     feature_df['drive_time_PT_minutes']=3 
     # TODO: change below if modelling housing sales as well
     feature_df['tenure_owned']=False
-    feature_df['tenure_other']=False  
+    feature_df['tenure_other']=False
+    feature_df['purpose_HBW']=1
+    feature_df['purpose_NHB']=0
+    feature_df['purpose_HBO']=0
     assert all([rff in feature_df.columns for rff in rf_features]
     ),"Features in table dont match features in RF model"
     feature_df=feature_df[rf_features]#reorder columns to match rf model
@@ -400,16 +404,16 @@ person_cols=['COW', 'bach_degree', 'age', 'sex']
 person_cols_hh=['income', 'children', 'workers', 'tenure', 'household_id', 'pop_per_sqmile_home']
 
 lastId=0
-if True:
+while True:
 #check if grid data changed
     try:
-        with urllib.request.urlopen(cityIO_grid_url+'/meta/id') as url:
+        with urllib.request.urlopen(cityIO_grid_url+'/meta/hashes/grid') as url:
             hash_id=json.loads(url.read().decode())
     except:
         print('Cant access cityIO')
         hash_id=1
     if hash_id==lastId:
-        pass
+        sleep(1)
     else:
         try:
             with urllib.request.urlopen(cityIO_grid_url+'/grid') as url:
@@ -423,11 +427,12 @@ if True:
             #    set mobile household to homeless
             base_houses[hh_id]['household_id']=None
             base_households[hh_id]['house_id']=None
+        lastId=hash_id
 # =============================================================================
 #         FAKE DATA FOR SCENAIO EXPLORATION
 #        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(cityIO_grid_data))] # all employment
 #        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(cityIO_grid_data))] # all housing
-        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(cityIO_grid_data))] # random mix
+#        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(cityIO_grid_data))] # random mix
 #        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(cityIO_grid_data))] # affordable + employment
 # =============================================================================
         grid_geo=get_grid_geojson(grid_points_ll, cityIO_grid_data, cityIO_spatial_data['ncols'])
@@ -480,12 +485,11 @@ if True:
         create_trips(viz_persons)
         post_trips_data(viz_persons, CITYIO_OUTPUT_PATH+'trips')
         post_grid_geojson(grid_geo, CITYIO_OUTPUT_PATH+'site_geojson')
-        for m in range(4):
-            print(100*sum([1 for p in viz_persons if p['mode']==m])/len(viz_persons))
-        print(np.mean([p['kgCO2']for p in viz_persons]))
-        # 0.005829237386919256 for all_employ
-        # 0.0034782411259221 for random mix
-        # TODO: make sure those who change locations, change their modes, routes, trips etc.
+    sleep(0.2)
+#    print('Done sleeping')
+#        for m in range(4):
+#            print(100*sum([1 for p in viz_persons if p['mode']==m])/len(viz_persons))
+#        print(np.mean([p['kgCO2']for p in viz_persons]))
 
     
 
