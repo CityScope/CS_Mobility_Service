@@ -485,11 +485,12 @@ while True:
         create_trips(viz_persons)
         post_trips_data(viz_persons, CITYIO_OUTPUT_PATH+'trips')
         post_grid_geojson(grid_geo, CITYIO_OUTPUT_PATH+'site_geojson')
+        for m in range(4):
+            print(100*sum([1 for p in viz_persons if p['mode']==m])/len(viz_persons))
+        print(np.mean([p['kgCO2']for p in viz_persons]))
     sleep(0.2)
 #    print('Done sleeping')
-#        for m in range(4):
-#            print(100*sum([1 for p in viz_persons if p['mode']==m])/len(viz_persons))
-#        print(np.mean([p['kgCO2']for p in viz_persons]))
+        
 
     
 
