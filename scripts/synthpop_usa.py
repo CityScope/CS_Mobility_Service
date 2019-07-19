@@ -287,7 +287,7 @@ all_persons.to_csv(ALL_SYNTH_PERSONS_PATH, index=False)
 # =============================================================================
 #  Combine with O-D data to create sample of people living/ working in Sim Area
 # =============================================================================
-
+set
 synth_hh_df=all_households
 synth_persons_df=all_persons
 
