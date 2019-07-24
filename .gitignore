@@ -1,11 +1,12 @@
-python/NHTS
-python/simulation/__pycache__/Agents.cpython-35.pyc
-python/Boston/raw/PUMS
-python/Hamburg/clean/synth_households.csv
-python/Hamburg/clean/synth_persons.csv
-python/Boston/clean/synth_households.csv
-python/Boston/clean/synth_persons.csv
-python/Boston/raw/ACS
-python/Boston/raw/LODES
-python/New York/raw/LODES
-ABM/models/snapshots
+scripts/NHTS
+scripts/simulation/__pycache__/Agents.cpython-35.pyc
+scripts/cities/Boston/raw/PUMS
+scripts/cities/Hamburg/clean/synth_households.csv
+scripts/cities/Hamburg/clean/synth_persons.csv
+scripts/cities/Boston/clean/synth_households.csv
+scripts/cities/Boston/clean/synth_persons.csv
+scripts/cities/Boston/raw/ACS
+scripts/cities/Boston/raw/LODES
+scripts/cities/Detroit/raw/LODES
+scripts/cities/Detroit/clean/all_synth_hh.csv
+scripts/cities/Detroit/clean/all_synth_persons.csv
