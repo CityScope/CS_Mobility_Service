@@ -9,7 +9,6 @@ Created on Mon Jul 15 12:48:13 2019
 from synthpop.census_helpers import Census
 from synthpop import categorizer as cat
 from synthpop import synthesizer
-from synthpop.recipes import starter
 import pandas as pd
 import numpy as np
 import json
@@ -84,6 +83,8 @@ OD_PATH='./cities/'+city+'/raw/LODES/'+state_code+'_od_main_JT00_2015.csv'
 ALL_SYNTH_HH_PATH='./cities/'+city+'/clean/all_synth_hh.csv'
 ALL_SYNTH_PERSONS_PATH='./cities/'+city+'/clean/all_synth_persons.csv'
 SIM_POP_PATH='./cities/'+city+'/clean/sim_pop.json'
+VACANT_PATH='./cities/'+city+'/clean/vacant.json'
+FLOATING_PATH='./cities/'+city+'/clean/floating.json'
 
 c = Census('7a25a7624075d46f112113d33106b6648f42686a')
 
@@ -287,7 +288,7 @@ all_persons.to_csv(ALL_SYNTH_PERSONS_PATH, index=False)
 # =============================================================================
 #  Combine with O-D data to create sample of people living/ working in Sim Area
 # =============================================================================
-set
+
 synth_hh_df=all_households
 synth_persons_df=all_persons
 
@@ -355,11 +356,29 @@ json.dump(sim_people, open(SIM_POP_PATH, 'w'))
 # a random sample of people and a random sample of housing units  
 # to be used for the vacant houses, people moving house and new population
 #take 1% sample of all HHs:
+vacant_houses, floating_people=[], []
+sample_HHs=synth_hh_df.sample(frac=0.001)
 #for each:
+for ind, row in sample_HHs.iterrows():
+    # sample a home location
+    house_obj={col: row[col] for col in house_cols}
 #    add housing info to housing stock object
+    vacant_houses.append(house_obj)
 #    get subset of people with this hh id
-#    spawn person and add their info to persons stock object
-            
-        
+    persons_in_house=synth_persons_df.loc[
+            synth_persons_df['serialno']==row['serialno']]
+    sample_persons=persons_in_house.sample(n=row['NP'])
+    sample_persons=sample_persons.merge(sample_HHs, on='serialno', how='left')
+    for p_ind, p_row in sample_persons.iterrows():
+        add_person={col: p_row[col] for col in person_cols}
+        add_person['pop_per_sqmile_home']=5000
+        od_bg_subset=od_bg.loc[od_bg['h_block_group']==str(row['home_geoid'])]
+        add_person['work_geoid']=np.random.choice(
+                od_bg_subset['w_block_group'].values,
+                p=od_bg_subset['S000'].values/sum(od_bg_subset['S000'].values))
+        floating_people.append(add_person)
+
+json.dump(vacant_houses, open(VACANT_PATH, 'w'))
+json.dump(floating_people, open(FLOATING_PATH, 'w'))                  
 
 

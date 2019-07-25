@@ -25,7 +25,7 @@ def rename_nodes(nodes_df, edges_df, node_id_name, to_name, from_name):
     edges_df['to_node_id']=edges_df.apply(lambda row: node_name_map[row[to_name]], axis=1)
     return nodes_df, edges_df, node_name_map
 
-def find_route_multi(start_nodes, end_nodes, graph):
+def find_route_multi(start_nodes, end_nodes, graph, weight):
     """
     tries to find paths between lists of possible start and end nodes
     Once a path is successfully found it is returned. Otherwise returns None
@@ -33,7 +33,7 @@ def find_route_multi(start_nodes, end_nodes, graph):
     for sn in start_nodes:
         for en in end_nodes:
             try:
-                node_path=nx.shortest_path(graph,sn,en)
+                node_path=nx.shortest_path(graph,sn,en, weight=weight)
                 return node_path
             except:
                 pass
@@ -54,12 +54,21 @@ pt_network_urls={
         'Hamburg': 'https://raw.githubusercontent.com/CityScope/CS_Accessibility/master/python/Hamburg/data/',
         'Detroit': None}
 
+SPEEDS_MET_S={'driving':30/3.6,
+        'cycling':15/3.6,
+        'walking':4.8/3.6}
+
+pandana_link_types={'osm to transit': 'waiting',
+                    'transit to osm': 'waiting',
+                    'walk': 'walking',
+                    'transit': 'PT'
+                    }
 # =============================================================================
 # Load network data
 # =============================================================================
 # get the area bounds
 all_zones_shp=json.load(open(ALL_ZONES_PATH))
-all_zones_geoid_order=[f['properties']['geoid'] for f in all_zones_shp['features']]
+all_zones_geoid_order=[f['properties']['GEO_ID'] for f in all_zones_shp['features']]
 sim_zones_shp=json.load(open(SIM_ZONES_PATH))
 portals=json.load(open(PORTALS_PATH))
 
@@ -78,6 +87,13 @@ drive_nodes,drive_edges=osmnet.load.network_from_bbox(lat_min=boundsAll[1], lng_
                               two_way=True, timeout=180, 
                               custom_osm_filter=None)
 
+walk_nodes,walk_edges=osmnet.load.network_from_bbox(lat_min=boundsAll[1], lng_min=boundsAll[0], lat_max=boundsAll[3], 
+                              lng_max=boundsAll[2], bbox=None, network_type='walk', 
+                              two_way=True, timeout=180, 
+                              custom_osm_filter=None)
+
+cycle_nodes,cycle_edges= drive_nodes.copy(),drive_edges.copy()
+
 # get the pt net as nodes and edges dfs
 pt_edges=pd.read_csv(pt_network_urls[city]+'combined_network_edges.csv')
 pt_nodes=pd.read_csv(pt_network_urls[city]+'combined_network_nodes.csv')
@@ -85,24 +101,32 @@ pt_nodes=pd.read_csv(pt_network_urls[city]+'combined_network_nodes.csv')
 # renumber nodes in both networks as 1 to N
 pt_nodes, pt_edges, _ =rename_nodes(pt_nodes, pt_edges, 'id_int', 'to_int', 'from_int')
 drive_nodes, drive_edges, _=rename_nodes(drive_nodes, drive_edges, 'id', 'to', 'from')
+walk_nodes, walk_edges, _=rename_nodes(walk_nodes, walk_edges, 'id', 'to', 'from')
+cycle_nodes, cycle_edges, _=rename_nodes(cycle_nodes, cycle_edges, 'id', 'to', 'from')
 
 network_dfs={'driving': {'edges':drive_edges, 'nodes': drive_nodes} ,
-              'pt': {'edges':pt_edges, 'nodes': pt_nodes}}
+              'pt': {'edges':pt_edges, 'nodes': pt_nodes},
+              'walking': {'edges':walk_edges, 'nodes': walk_nodes},
+              'cycling': {'edges':cycle_edges, 'nodes': cycle_nodes}}
 
 # =============================================================================
 # Create graphs and add portal links
 # =============================================================================
 #for each network, create a networkx graph and add the links to/from portals
-G_drive=nx.Graph()
-for i, row in network_dfs['driving']['edges'].iterrows():
-    G_drive.add_edge(row['from_node_id'], row['to_node_id'], attr_dict={'distance':row['distance']})
+
+for osm_mode in ['driving', 'walking', 'cycling']:
+    G=nx.Graph()
+    for i, row in network_dfs[osm_mode]['edges'].iterrows():
+        G.add_edge(row['from_node_id'], row['to_node_id'], attr_dict={
+                'weight_minutes':(row['distance']/SPEEDS_MET_S[osm_mode])/60,
+                'type': osm_mode})
+    network_dfs[osm_mode]['graph']=G
+    
 G_pt=nx.Graph()
 for i, row in network_dfs['pt']['edges'].iterrows():
     G_pt.add_edge(row['from_node_id'], row['to_node_id'], 
                      attr_dict={'weight_minutes':row['weight'],
-                                'net_type': row['net_type']})
-
-network_dfs['driving']['graph']=G_drive
+                                'type': pandana_link_types[row['net_type']]})
 network_dfs['pt']['graph']=G_pt
 
 #for each network
@@ -116,9 +140,9 @@ for net in network_dfs:
                        network_dfs[net]['nodes'].iloc[n]['y']]))]
         for ni in nodes_inside:
             network_dfs[net]['graph'].add_edge('p'+str(p), ni,
-                       attr_dict={'net_type': 'from_portal', 'weight_minutes':0, 'distance': 0})
+                       attr_dict={'type': 'from_portal', 'weight_minutes':0, 'distance': 0})
             network_dfs[net]['graph'].add_edge(ni, 'p'+str(p),
-                       attr_dict={'net_type': 'to_portal', 'weight_minutes':0, 'distance': 0})
+                       attr_dict={'type': 'to_portal', 'weight_minutes':0, 'distance': 0})
 
 #import matplotlib.pyplot as plt
 #colors={'driving': 'red', 'pt': 'green'}
@@ -139,75 +163,51 @@ for net in network_dfs:
 # =============================================================================
 ## get the N closest nodes to the centre of each zone
 lon_lat_list= [[shape(f['geometry']).centroid.x, shape(f['geometry']).centroid.y
-                ] for f in all_zones_shp['features']]   
-kdtree_drive_nodes=spatial.KDTree(np.array(network_dfs['driving']['nodes'][['x', 'y']]))
-kdtree_pt_nodes=spatial.KDTree(np.array(network_dfs['pt']['nodes'][['x', 'y']]))
-closest_nodes=[]
-for i in range(len(lon_lat_list)):
-    _, drive_c_nodes=kdtree_drive_nodes.query(lon_lat_list[i], 10)
-    _, pt_c_nodes=kdtree_pt_nodes.query(lon_lat_list[i], 10)
-    closest_nodes.append({'driving':list(drive_c_nodes), 'pt': list(pt_c_nodes)})
+                ] for f in all_zones_shp['features']]  
+closest_nodes={}
+for net in network_dfs:
+    closest_nodes[net]=[]
+    kdtree_nodes=spatial.KDTree(np.array(network_dfs[net]['nodes'][['x', 'y']]))
+    for i in range(len(lon_lat_list)):
+        _, c_nodes=kdtree_nodes.query(lon_lat_list[i], 10)
+        closest_nodes[net].append(list(c_nodes))
 
 #create empty route_costs object
 route_costs={}
 #for each zone and each portal:
 
-# TODO: DRY code for each network
-route_costs['driving']={}
-route_costs['pt']={}
-for z in range(len(all_zones_shp['features'])):
-    print(z)
-    route_costs['driving'][all_zones_geoid_order[z]]={}
-    route_costs['pt'][all_zones_geoid_order[z]]={}
-    for p in range(len(portals['features'])):
-        drive_node_route_z2p=find_route_multi(closest_nodes[z]['driving'], 
-                                              ['p'+str(p)], 
-                                              network_dfs['driving']['graph'])
-        drive_distance=sum([network_dfs['driving']['graph'][
-                drive_node_route_z2p[i]][
-                drive_node_route_z2p[i+1]
-                ]['attr_dict']['distance'
-                 ] for i in range(len(drive_node_route_z2p)-1)])
-        pt_node_route_z2p=find_route_multi(closest_nodes[z]['pt'], 
-                                              ['p'+str(p)], 
-                                              network_dfs['pt']['graph'])
-        if pt_node_route_z2p:
-            pt_route_net_types=[network_dfs['pt']['graph'][
-                    pt_node_route_z2p[i]][
-                    pt_node_route_z2p[i+1]
-                    ]['attr_dict']['net_type'
-                     ] for i in range(len(pt_node_route_z2p)-1)]
-            pt_route_weights=[network_dfs['pt']['graph'][
-                    pt_node_route_z2p[i]][
-                    pt_node_route_z2p[i+1]
-                    ]['attr_dict']['weight_minutes'
-                     ] for i in range(len(pt_node_route_z2p)-1)]
-#            pt_wait_time=sum([pt_route_weights[n] for n in range(len(pt_route_weights
-#                          ))  if pt_route_net_types[n] =='osm to transit'])
-            # Wait times are greatly overestimated so just use first wait
-            pt_wait_times=[pt_route_weights[n] for n in range(len(pt_route_weights
-                          ))  if pt_route_net_types[n] =='osm to transit']
-            if pt_wait_times:
-                pt_wait_time=pt_wait_times[0]
+for mode in network_dfs:
+    route_costs[mode]={}
+    for z in range(len(all_zones_shp['features'])):
+        print(z)
+        route_costs[mode][all_zones_geoid_order[z]]={}
+        for p in range(len(portals['features'])):
+            route_costs[mode][all_zones_geoid_order[z]][p]={}
+            node_route_z2p=find_route_multi(closest_nodes[mode][z], 
+                                                  ['p'+str(p)], 
+                                                  network_dfs[mode]['graph'],
+                                                  'weight_minutes')
+            if node_route_z2p:
+                route_net_types=[network_dfs[mode]['graph'][
+                        node_route_z2p[i]][
+                        node_route_z2p[i+1]
+                        ]['attr_dict']['type'
+                         ] for i in range(len(node_route_z2p)-1)]
+                route_weights=[network_dfs[mode]['graph'][
+                        node_route_z2p[i]][
+                        node_route_z2p[i+1]
+                        ]['attr_dict']['weight_minutes'
+                         ] for i in range(len(node_route_z2p)-1)]
+                for l_type in ['walking', 'cycling', 'driving', 'PT', 
+                               'waiting']:
+                    route_costs[mode][all_zones_geoid_order[z]][p][l_type]=sum(
+                            [route_weights[l] for l in range(len(route_weights)
+                            ) if route_net_types[l]==l_type])
             else:
-                pt_wait_time=0
-            pt_walk_time=sum([pt_route_weights[n] for n in range(len(pt_route_weights
-                  ))  if pt_route_net_types[n] =='walk'])
-            pt_pt_time=sum([pt_route_weights[n] for n in range(len(pt_route_weights
-                  ))  if pt_route_net_types[n] =='transit'])
-        else:
-            print('No PT route')
-            pt_wait_time, pt_walk_time, pt_pt_time=float('nan'), float('nan'), float('nan')
-        route_costs['pt'][all_zones_geoid_order[z]][p]={
-                'wait_time': pt_wait_time,
-                'walk_time': pt_walk_time,
-                'pt_time': pt_pt_time,
-                'total_time': pt_wait_time+pt_walk_time+pt_pt_time,
-#                'net_types': pt_route_net_types,
-#                'weights':pt_route_weights,
-#                'nodes': pt_node_route_z2p
-                }
-        route_costs['driving'][all_zones_geoid_order[z]][p]={'drive_distance': drive_distance}
+                for l_type in ['walking', 'cycling', 'driving', 'PT', 
+                               'waiting']:
+                    route_costs[mode][all_zones_geoid_order[z]][p][l_type]=1000
+
 
 ## plot routes
 #z=26
@@ -253,27 +253,31 @@ for net in network_dfs:
     sim_area_nodes_df, sim_area_edges_df, node_name_maps[net]= rename_nodes(sim_area_nodes_df, sim_area_edges_df, 
                                                    'node_id', 'to_node_id', 'from_node_id')
     sim_area_nets[net]={'nodes': sim_area_nodes_df, 'edges': sim_area_edges_df}
-    
-G_drive_sim=nx.Graph()
-for i, row in sim_area_nets['driving']['edges'].iterrows():
-    G_drive.add_edge(row['from_node_id'], row['to_node_id'], attr_dict={'distance':row['distance']})
-G_pt_sim=nx.Graph()
+
+for osm_mode in ['driving', 'walking', 'cycling']:   
+    G_sim=nx.Graph()
+    for i, row in sim_area_nets[osm_mode]['edges'].iterrows():
+        G_sim.add_edge(row['from_node_id'], row['to_node_id'], attr_dict={
+                'weight_minutes':(row['distance']/SPEEDS_MET_S[osm_mode])/60,
+                'type': osm_mode})
+    sim_area_nets[osm_mode]['graph']=G_sim
+
+# Using directional graph for transit only 
+G_pt_sim=nx.DiGraph()
 for i, row in sim_area_nets['pt']['edges'].iterrows():
-    G_pt.add_edge(row['from_node_id'], row['to_node_id'], 
+    G_pt_sim.add_edge(row['from_node_id'], row['to_node_id'], 
                      attr_dict={'weight_minutes':row['weight'],
-                                'net_type': row['net_type']})
+                                'type': pandana_link_types[row['net_type']]})
+sim_area_nets['pt']['graph']= G_pt_sim           
 
-sim_area_nets['pt']['graph']= G_pt_sim  
-sim_area_nets['driving']['graph']= G_drive_sim              
-
-#    go through neighbour list for each portal
+# go through neighbour list for each portal
 for net in sim_area_nets:
     for p in neighbours[net]:
         for nb in neighbours[net][p]:
             sim_area_nets[net]['graph'].add_edge('p'+str(p), node_name_maps[net][nb],
-                       attr_dict={'net_type': 'from_portal', 'weight_minutes':0, 'distance': 0})
+                       attr_dict={'type': 'from_portal', 'weight_minutes':0})
             sim_area_nets[net]['graph'].add_edge( node_name_maps[net][nb],'p'+str(p),
-                       attr_dict={'net_type': 'to_portal', 'weight_minutes':0, 'distance': 0})
+                       attr_dict={'type': 'to_portal', 'weight_minutes':0})
             
 # Plot
 #net='driving'
