@@ -52,23 +52,23 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
                 # if not at the end of a row, add h link
                 if not c==ncols-1:
                     graphs[mode]['graph'].add_edge('g'+str(r*ncols+c), 'g'+str(r*ncols+c+1), 
-                          attr_dict={'distance': cell_size, 'weight_minutes':(cell_size/1609)/(3*60)})
+                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
                     graphs[mode]['graph'].add_edge('g'+str(r*ncols+c+1), 'g'+str(r*ncols+c), 
-                          attr_dict={'distance': cell_size, 'weight_minutes':(cell_size/1609)/(3*60)})
+                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
                 # if not at the end of a column, add v link
                 if not r==nrows-1:
                     graphs[mode]['graph'].add_edge('g'+str(r*ncols+c), 'g'+str((r+1)*ncols+c), 
-                          attr_dict={'distance': cell_size, 'weight_minutes':(cell_size/1609)/(3*60)})
+                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
                     graphs[mode]['graph'].add_edge('g'+str((r+1)*ncols+c), 'g'+str(r*ncols+c), 
-                          attr_dict={'distance': cell_size, 'weight_minutes':(cell_size/1609)/(3*60)})
+                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
         # create links between the 4 corners of the grid and the road network
         kd_tree_nodes=spatial.KDTree(np.array(graphs[mode]['nodes'][['x', 'y']]))
         for n in [0, ncols-1, (nrows-1)*ncols, (nrows*ncols)-1]: 
             closest=kd_tree_nodes.query(grid_coords_ll[n], k=1)[1]
-            graphs[mode]['graph'].add_edge('g'+str(n), closest, attr_dict={'distance': cell_size, 
-                       'weight_minutes':(cell_size/1609)/(3*60)})
-            graphs[mode]['graph'].add_edge(closest, 'g'+str(n), attr_dict={'distance': cell_size, 
-                       'weight_minutes':(cell_size/1609)/(3*60)})
+            graphs[mode]['graph'].add_edge('g'+str(n), closest, attr_dict={'type': mode, 
+                       'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
+            graphs[mode]['graph'].add_edge(closest, 'g'+str(n), attr_dict={'type': mode, 
+                       'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
     return grid_coords_ll, graphs 
 
 def get_grid_geojson(grid_coords_ll, grid, ncols):
@@ -384,6 +384,12 @@ mode_graphs={0:'driving',
              1:'cycling',
              2:'walking',
              3:'pt'}
+
+SPEEDS_MET_S={'driving':30/3.6,
+        'cycling':15/3.6,
+        'walking':4.8/3.6,
+        'pt': 4.8/3.6 # only used for grid use walking speed for pt
+        }
 
 kgCO2PerMet={0: 0.45*0.8708/0.00162,
                     1: 0,
