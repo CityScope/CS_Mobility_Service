@@ -38,6 +38,29 @@ def find_route_multi(start_nodes, end_nodes, graph, weight):
             except:
                 pass
     return None
+
+def df_to_geojson(edges_df, nodes_df, net_type):
+    features=[]
+    for e_ind, e_row in edges_df.iterrows():
+        from_node=e_row['from_node_id']
+        to_node=e_row['to_node_id']
+        if net_type=='pt':
+            edge_type=pandana_link_types[e_row['net_type']]
+            weight_minutes= e_row['weight']
+        else:
+            edge_type=net_type
+            weight_minutes= e_row['distance']/SPEEDS_MET_S[net_type]
+        coordinates=[[nodes_df.iloc[from_node]['x'], nodes_df.iloc[from_node]['y']],
+                     [nodes_df.iloc[to_node]['x'], nodes_df.iloc[to_node]['y']]]
+        features.append({"type": "Feature",
+                         "properties": {'edge_type': edge_type,
+                                        'weight_minutes': weight_minutes},
+                         'geometry': {
+                                 "type": "LineString",
+                                 'coordinates':coordinates },
+                         })
+    return {"type": "FeatureCollection",
+            "features": features}
 # =============================================================================
 # Constants
 # =============================================================================
@@ -48,6 +71,7 @@ SIM_ZONES_PATH='./cities/'+city+'/clean/sim_area.geojson'
 PORTALS_PATH='./cities/'+city+'/clean/portals.geojson'
 ROUTE_COSTS_PATH='./cities/'+city+'/clean/route_costs.json'
 SIM_GRAPHS_PATH='./cities/'+city+'/clean/sim_area_nets.p'
+SIM_NET_GEOJSON_PATH='./cities/'+city+'/clean/'
 
 pt_network_urls={
         'Boston': None,
@@ -254,6 +278,16 @@ for net in network_dfs:
                                                    'node_id', 'to_node_id', 'from_node_id')
     sim_area_nets[net]={'nodes': sim_area_nodes_df, 'edges': sim_area_edges_df}
 
+# Create geojson for each network
+net_geojson={}
+for net in sim_area_nets:
+    net_geojson[net]=df_to_geojson(sim_area_nets[net]['edges'], 
+                                     sim_area_nets[net]['nodes'], 
+                                     net)
+    json.dump(net_geojson[net], 
+              open(SIM_NET_GEOJSON_PATH+str(net)+'_net.geojson', 'w'))
+          
+# Create networkx graphs for each
 for osm_mode in ['driving', 'walking', 'cycling']:   
     G_sim=nx.Graph()
     for i, row in sim_area_nets[osm_mode]['edges'].iterrows():
@@ -271,6 +305,7 @@ for i, row in sim_area_nets['pt']['edges'].iterrows():
 sim_area_nets['pt']['graph']= G_pt_sim           
 
 # go through neighbour list for each portal
+# and add the dummy links
 for net in sim_area_nets:
     for p in neighbours[net]:
         for nb in neighbours[net][p]:
