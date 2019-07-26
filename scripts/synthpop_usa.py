@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Mon Jul 15 12:48:13 2019
@@ -318,7 +318,7 @@ od_bg=od.groupby(['h_block_group', 'w_block_group'] , as_index=False)['S000'].ag
 # define the attributes we need for the person objects
 house_cols=['puma10','beds', 'rent', 'tenure','built_since_jan2010', 'home_geoid']
 person_cols=['COW', 'bach_degree', 'age', 'sex']
-person_cols_hh=['income', 'children', 'workers', 'tenure']
+person_cols_hh=['income', 'children', 'workers', 'tenure', 'HINCP']
 person_cols.extend(person_cols_hh)
 # create empty objects for sim_people
 sim_people=[]
@@ -352,16 +352,20 @@ for ind, row in od_bg.iterrows():
                 add_person['work_geoid']=row['w_block_group']
                 sim_people.append(add_person)
 
+# TODO: vacant houses median income and density should come from ACS
+
 json.dump(sim_people, open(SIM_POP_PATH, 'w'))
 # a random sample of people and a random sample of housing units  
 # to be used for the vacant houses, people moving house and new population
 #take 1% sample of all HHs:
 vacant_houses, floating_people=[], []
-sample_HHs=synth_hh_df.sample(frac=0.001)
+sample_HHs=synth_hh_df.sample(frac=0.0001)
 #for each:
 for ind, row in sample_HHs.iterrows():
     # sample a home location
     house_obj={col: row[col] for col in house_cols}
+    house_obj['puma_med_income']=60000
+    house_obj['puma_pop_per_sqmeter']= 0.000292
 #    add housing info to housing stock object
     vacant_houses.append(house_obj)
 #    get subset of people with this hh id

@@ -62,12 +62,14 @@ for ind, row in od.iterrows():
 # distribution of home locations for people working in 234
 # assign work locations based on 
 # distributions of work locations for people living in 234
-home_loc_dist=od.loc[od['Nach']==234, ['Von', 'Nr. 1007']]
+home_loc_dist=od.loc[((od['Nach']==234) & (od['Von'].isin(all_zone_nums))), 
+                      ['Von', 'Nr. 1007']]
 home_flows=[float(home_loc_dist.iloc[i]['Nr. 1007'].replace(
         ',', '.')) for i in range(len(home_loc_dist))]
 home_weights=[f/sum(home_flows) for f in home_flows]
 
-work_loc_dist=od.loc[od['Von']==234, ['Nach', 'Nr. 1007']]
+work_loc_dist=od.loc[((od['Von']==234) & (od['Nach'].isin(all_zone_nums))), 
+                     ['Nach', 'Nr. 1007']]
 work_flows=[float(work_loc_dist.iloc[i]['Nr. 1007'].replace(
         ',', '.')) for i in range(len(work_loc_dist))]
 work_weights=[f/sum(work_flows) for f in work_flows]

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+u#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jul 18 10:10:02 2019
@@ -85,7 +85,7 @@ SPEEDS_MET_S={'driving':30/3.6,
 pandana_link_types={'osm to transit': 'waiting',
                     'transit to osm': 'waiting',
                     'walk': 'walking',
-                    'transit': 'PT'
+                    'transit': 'pt'
                     }
 # =============================================================================
 # Load network data

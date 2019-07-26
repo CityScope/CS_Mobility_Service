@@ -112,8 +112,9 @@ def get_LLs(persons):
                 ll=grid_points_ll[int(geoid[1:])]
             else:
                 poly=shape(all_zones['features'][geoid_order_all.index(geoid)]['geometry'])
-                ll=random_points_within(poly,1)[0]
-            p[place+'_ll']=[ll.x, ll.y]
+                ll_obj=random_points_within(poly,1)[0]
+                ll=[ll_obj.x, ll_obj.y]
+            p[place+'_ll']=ll
 
 def find_route_multi(start_nodes, end_nodes, graph, weight):
     """
@@ -137,13 +138,15 @@ def get_route_costs(start_nodes, end_nodes, graph, weight):
             for i in range(len(node_route)-1)]
         types=[graph[node_route[i]][node_route[i+1]]['attr_dict']['type'] 
             for i in range(len(node_route)-1)]
-        route={'node_route': node_route}
+        route={'node_route': node_route,
+               'weights': weights}
         for c in ['driving', 'walking', 'waiting',
                   'cycling', 'PT']:
             route[c]=sum([weights[i] for i in range(len(weights)
             ) if types[i]==c])
     else:
-        route={'node_route': [start_nodes[0], end_nodes[0]]}
+        route={'node_route': [end_nodes[0], end_nodes[0]],
+               'weights': [0]}
         for c in ['driving', 'walking', 'waiting',
                   'cycling', 'PT']:
             route[c]=1000
@@ -270,29 +273,30 @@ def post_od_data(persons, destination_address):
         print('Couldnt send to cityio')
     
 #        
-#def create_trips(persons):
-#    """ returns a trip objects for each person
-#    each  trip object contains a list of [lon, lat, timestamp] coordinates
-#    this is the format required by the deckGL trips layer
-#    modifies in place
-#    """
-#    for p in persons:
-#        speed_met_s=SPEEDS_MET_S[p['mode']]
-#        p['kgCO2']=2* kgCO2PerMet[p['mode']]* (p['network_dist_km']/1000)
-#        route_coords=[node_coords[p['node_route'][n]] for n in range(len(p['node_route']))]
-#        p['trip']=[[int(1e5*route_coords[n][0])/1e5, # reduce precision
-#                    int(1e5*route_coords[n][1])/1e5,
-#                    int(p['start_time']+p['cum_dist_m'][n]/speed_met_s)] for n in range(len(p['node_route']))]
+def create_trips(persons):
+    """ returns a trip objects for each person
+    each  trip object contains a list of [lon, lat, timestamp] coordinates
+    this is the format required by the deckGL trips layer
+    modifies in place
+    """
+    for p in persons:
+        chosen_route=p['routes'][p['mode']]
+        route_nodes=chosen_route['node_route']
+        route_coords=[nodes_xy[p['mode']][n] for n in route_nodes]
+        route_time=[p['sim_start_time']]+[int(p['sim_start_time']+w*60) for w in chosen_route['weights']]
+        p['trip']=[[int(1e5*route_coords[n]['x'])/1e5, # reduce precision
+                    int(1e5*route_coords[n]['y'])/1e5,
+                    route_time[n]] for n in range(len(route_nodes))]
 # 
-#def post_trips_data(persons, destination_address):
-#    """ posts trip data json to cityIO
-#    """
-#    trips_str=json.dumps([{'mode': p['mode'], 'segments': p['trip']} for p in persons]) 
-#    try:
-#        r = requests.post(destination_address, data = trips_str)
-#        print(r)
-#    except requests.exceptions.RequestException as e:
-#        print('Couldnt send to cityio')
+def post_trips_data(persons, destination_address):
+    """ posts trip data json to cityIO
+    """
+    trips_str=json.dumps([{'mode': p['mode'], 'segments': p['trip']} for p in persons]) 
+    try:
+        r = requests.post(destination_address, data = trips_str)
+        print(r)
+    except requests.exceptions.RequestException as e:
+        print('Couldnt send to cityio')
 #        
 #def post_grid_geojson(grid_geo, destination_address):
 #    """ posts grid geojson to cityIO
@@ -303,57 +307,48 @@ def post_od_data(persons, destination_address):
 #    except requests.exceptions.RequestException as e:
 #        print('Couldnt send grid geojson to cityio')
 #        
-#def create_long_record(household, house, choice_id):
-#    """ takes a house object and a household object and 
-#    creates a row for the MNL long data frame 
-#    """
-#    beds=min(3, max(1, house['beds']))
-#    norm_rent=(house['rent']-rent_normalisation['mean'][str(int(beds))])/rent_normalisation['std'][str(int(beds))]
-#    return {'norm_rent': norm_rent,
-#            'puma_pop_per_sqmeter': house['puma_pop_per_sqmeter'],
-#            'income_disparity': np.abs(house['puma_med_income']-household['HINCP']),
-#            'built_since_jan2010': house['built_since_jan2010'],
-#            'custom_id': household['household_id'],
-#            'choice_id': choice_id,
-#            'actual_house_id':house['house_id']}  
+def create_long_record(person, house, choice_id):
+    """ takes a house object and a household object and 
+    creates a row for the MNL long data frame 
+    """
+    beds=min(3, max(1, house['beds']))
+    norm_rent=(house['rent']-rent_normalisation['mean'][str(int(beds))])/rent_normalisation['std'][str(int(beds))]
+    return {'norm_rent': norm_rent,
+            'puma_pop_per_sqmeter': house['puma_pop_per_sqmeter'],
+            'income_disparity': np.abs(house['puma_med_income']-person['HINCP']),
+            'built_since_jan2010': house['built_since_jan2010'],
+            'custom_id': person['person_id'],
+            'choice_id': choice_id,
+            'actual_house_id':house['house_id']}  
 #        
-#def home_location_choices(houses, households, persons):
-#    """ takes the house, household and person objects
-#    finds the vacant houses and homeless households
-#    chooses a housing unit for each household
-#    modifies the house, household and person objects in place
-#    """
-#    # identify vacant and homeless
-#    global moved_persons
-#    vacant_housing = [h for h in houses if h['household_id']==None]
-#    homeless_hhs= [hh for hh in households if hh['house_id']==None]
-#    # build long dataframe
-#    long_data=[]
-#    # for each household, sample N potential housing choices
-#    # and add them to the long data frame
-#    for hh in homeless_hhs:
-#        #choose N houses
-#        h_alts=random.sample(vacant_housing, 9)
-#        for hi, h in enumerate(h_alts):
-#            long_record=create_long_record(hh, h, hi+1)
-#            long_data.append(long_record)             
-##             long_data.append(h.long_data_record(hh.hh_income, hh.household_id, hi+1, rent_normalisation))
-#    long_df=pd.DataFrame(long_data)
-#    long_df['predictions']=home_loc_logit.predict(long_df)
-#    for hh_ind in set(long_df['custom_id']):
-#        # find maximum prob or sample from probs in subset of long_df
-#        house_id=np.random.choice(long_df.loc[long_df['custom_id']==hh_ind, 'actual_house_id'], p=long_df.loc[long_df['custom_id']==hh_ind, 'predictions'])
-##        house_id=int(long_df.loc[long_df[long_df['custom_id']==hh_ind]['predictions'].idxmax(), 'actual_house_id'])
-#        households[hh_ind]['house_id']=house_id 
-#        houses[house_id]['household_id']=hh_ind
-#        # update characterictics of persons in these households
-#    for p in persons: 
-##        print(p['household_id'])
-#        if p['household_id'] in set(long_df['custom_id']):
-##            print('yes')
-#            moved_persons+=[p['person_id']]
-#            for col in person_cols_hh:
-#                p[col]=households[p['household_id']][col]
+def home_location_choices(houses, persons):
+    """ takes the house and person objects
+    finds the vacant houses and homeless persons
+    chooses a housing unit for each person
+    modifies the house and person objects in place
+    """
+    long_data=[]
+    # for each household, sample N potential housing choices
+    # and add them to the long data frame
+    for p in persons:
+        #choose N houses
+        h_alts=random.sample(houses, 9)
+        for hi, h in enumerate(h_alts):
+            long_record=create_long_record(p, h, hi+1)
+            long_data.append(long_record)             
+#             long_data.append(h.long_data_record(hh.hh_income, hh.household_id, hi+1, rent_normalisation))
+    long_df=pd.DataFrame(long_data)
+    # TODO: why do some houses have nan for norm_rent
+    long_df.loc[long_df['norm_rent'].isnull(), 'norm_rent']=0
+    long_df['predictions']=home_loc_logit.predict(long_df)
+    for p_ind in set(long_df['custom_id']):
+        # find maximum prob or sample from probs in subset of long_df
+        house_id=np.random.choice(long_df.loc[long_df['custom_id']==p_ind, 'actual_house_id'], 
+                                  p=long_df.loc[long_df['custom_id']==p_ind, 'predictions'])
+        persons[p_ind]['house_id']=house_id
+        persons[p_ind]['home_geoid']=houses[house_id]['home_geoid']
+        # update characterictics of persons in these households
+
 # =============================================================================
 # Parameters
 # =============================================================================
@@ -520,21 +515,20 @@ for mode in mode_graphs:
 # load sim_persons
 base_sim_persons=json.load(open(SIM_POP_PATH))
 # load floaters
-floating_persons=json.load(open(FLOATING_PATH))
+base_floating_persons=json.load(open(FLOATING_PATH))
 # load vacant houses
-vacant_houses=json.load(open(VACANT_PATH))
+base_vacant_houses=json.load(open(VACANT_PATH))
     
 get_LLs(base_sim_persons)
 get_routes(base_sim_persons)
 predict_modes(base_sim_persons)
 post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
-
-
-    
+create_trips(base_sim_persons)
+post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
+   
 # =============================================================================
 # Handle Interactions
 # =============================================================================
-
 
 
 #house_cols=['puma10','beds', 'rent', 'tenure','built_since_jan2010', 'home_geoid']
@@ -543,31 +537,26 @@ post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
 #person_cols=['COW', 'bach_degree', 'age', 'sex']
 #person_cols_hh=['income', 'children', 'workers', 'tenure', 'household_id', 'pop_per_sqmile_home']
 #
-#lastId=0
-#while True:
-##check if grid data changed
-#    try:
-#        with urllib.request.urlopen(cityIO_grid_url+'/meta/hashes/grid') as url:
-#            hash_id=json.loads(url.read().decode())
-#    except:
-#        print('Cant access cityIO')
-#        hash_id=1
-#    if hash_id==lastId:
-#        sleep(1)
-#    else:
-#        try:
-#            with urllib.request.urlopen(cityIO_grid_url+'/grid') as url:
-#                cityIO_grid_data=json.loads(url.read().decode())
-#        except:
-#            print('Using static cityIO grid file')
-#            cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))  
-#            cityIO_grid_data=cityIO_data['grid']
-#        for hh_id in mobile_hh_ids:
-#            #    set houses of mobile HHs to vacant
-#            #    set mobile household to homeless
-#            base_houses[hh_id]['household_id']=None
-#            base_households[hh_id]['house_id']=None
-#        lastId=hash_id
+lastId=0
+while True:
+#check if grid data changed
+    try:
+        with urllib.request.urlopen(cityIO_grid_url+'/meta/hashes/grid') as url:
+            hash_id=json.loads(url.read().decode())
+    except:
+        print('Cant access cityIO')
+        hash_id=1
+    if hash_id==lastId:
+        sleep(1)
+    else:
+        try:
+            with urllib.request.urlopen(cityIO_grid_url+'/grid') as url:
+                cityIO_grid_data=json.loads(url.read().decode())
+        except:
+            print('Using static cityIO grid file')
+            cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))  
+            cityIO_grid_data=cityIO_data['grid']
+        lastId=hash_id
 ## =============================================================================
 ##         FAKE DATA FOR SCENAIO EXPLORATION
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(cityIO_grid_data))] # all employment
@@ -575,61 +564,45 @@ post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(cityIO_grid_data))] # random mix
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(cityIO_grid_data))] # affordable + employment
 ## =============================================================================
-#        grid_geo=get_grid_geojson(grid_points_ll, cityIO_grid_data, cityIO_spatial_data['ncols'])
-#        new_houses=[]
-#        new_persons=[]
+        grid_geo=get_grid_geojson(grid_points_ll, cityIO_grid_data, cityIO_spatial_data['ncols'])
+        new_houses=[]
+        new_persons=[]
 #        new_households=[]        
-#        for ht in housing_types:
-#            ht_locs=[i for i in range(len(cityIO_grid_data)) if cityIO_grid_data[i][0]==ht]
-#            for htl in ht_locs:
-#                add_house=housing_types[ht].copy()
-#                add_house['house_id']=len(base_houses)+len(new_houses)
-#                add_house['household_id']=None
-#                add_house['home_geoid']='g'+str(htl)
-#                new_houses.append(add_house)        
-#        # for each office unit, add a (homeless) household to new_hhs
-#        random.seed(0)
-#        for et in employment_types:
-#            et_locs=[i for i in range(len(cityIO_grid_data)) if cityIO_grid_data[i][0]==et]
-#            for etl in et_locs:
-#                sample_hh_row=random.choice(base_households).copy()
-#                household_id=len(base_households)+len(new_households)
-#                # TODO: get pop_per_sqmile from zone data
-#                pop_per_sq_mile=5000
-#                add_household={col: sample_hh_row[col] for col in household_cols}
-#                copied_from_hh_id=sample_hh_row['household_id']
-#                add_household['house_id']=None
-#                add_household['household_id']=household_id
-#                add_household['pop_per_sqmile_home']=pop_per_sq_mile
-#                new_households.append(add_household)
-#                person_copies=[p.copy() for p in base_persons if p['household_id']==copied_from_hh_id]
-##                person_rows=synth_persons_df[synth_persons_df['serialno']==add_household['serialno']].sample(n=add_household['NP'])
-#                for pc in person_copies:
-#                    add_person={col: pc[col] for col in person_cols}
-#                    for hh_col in person_cols_hh:
-#                        add_person[hh_col]=add_household[hh_col]
-#                    add_person['person_id']=len(base_persons)+len(new_persons)
-#                    # TODO, use O-D matrix for work locations
-#                    add_person['work_geoid']='g'+str(etl)
-#                    new_persons.append(add_person)
-#        houses=base_houses+new_houses
-#        households=base_households+new_households
-#        persons=base_persons+new_persons
-#        moved_persons=[]
-#        random.seed(0)
-#        home_location_choices(houses, households, persons)
-#        viz_persons=[persons[mp] for mp in moved_persons]
-#        get_LLs(viz_persons)
-#        get_routes(viz_persons)
-#        predict_modes(viz_persons)
-#        create_trips(viz_persons)
-#        post_trips_data(viz_persons, CITYIO_OUTPUT_PATH+'trips')
-#        post_grid_geojson(grid_geo, CITYIO_OUTPUT_PATH+'site_geojson')
-#        for m in range(4):
-#            print(100*sum([1 for p in viz_persons if p['mode']==m])/len(viz_persons))
-#        print(np.mean([p['kgCO2']for p in viz_persons]))
-#    sleep(0.2)
-##    print('Done sleeping')
+        for ht in housing_types:
+            ht_locs=[i for i in range(len(cityIO_grid_data)) if cityIO_grid_data[i][0]==ht]
+            for htl in ht_locs:
+                add_house=housing_types[ht].copy()
+                add_house['home_geoid']='g'+str(htl)
+                new_houses.append(add_house)        
+#        # for each office unit, add a (homeless) person
+        random.seed(0)
+        for et in employment_types:
+            et_locs=[i for i in range(len(cityIO_grid_data)) if cityIO_grid_data[i][0]==et]
+            for etl in et_locs:
+                add_person=random.choice(base_floating_persons).copy()
+                add_person['work_geoid']='g'+str(etl)
+                new_persons.append(add_person)
+                random.seed(0)
+        floating_persons=base_floating_persons+new_persons
+        vacant_houses=base_vacant_houses+new_houses
+        for ip, p in enumerate(floating_persons):
+            p['person_id']=ip
+        for ih, h in enumerate(vacant_houses):
+            h['house_id']=ih
+        home_location_choices(vacant_houses, floating_persons)
+        # new_sim_people = people living/working in simzone
+        new_sim_persons=[p for p in floating_persons if
+                         (p['home_geoid'] in sim_area_zone_list or
+                          p['work_geoid'] in sim_area_zone_list)]
+        get_LLs(new_sim_persons)
+        get_routes(new_sim_persons)
+        predict_modes(new_sim_persons)
+        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
+        create_trips(new_sim_persons)
+        post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')
+        sleep(0.2)
+                
+
         
 
     

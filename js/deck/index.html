@@ -39,13 +39,13 @@ class App
 
   animate() {
     
-    var loopLength = 5000; // unit corresponds to the timestamp in source data
-    var animationSpeed = 200; // unit time per second
+    var loopLength = 5*60*60; // unit corresponds to the timestamp in source data
+    var animationSpeed = 60; // unit time per second
 
     const timestamp = Date.now() / 1000;
     const loopTime = loopLength / animationSpeed;
 
-    var time = Math.round(((timestamp % loopTime) / loopTime) * loopLength);
+    var time = 6*60*60+ Math.round(((timestamp % loopTime) / loopTime) * loopLength);
     // console.log(time)
     var trips_layer = new deck.TripsLayer({
       // type: 'TripsLayer',
@@ -60,7 +60,7 @@ class App
       currentTime: time
     });
     // deckgl.setProps({layers: [trips_layer, arcsLayer]})
-    deckgl.setProps({layers: [trips_layer, geojsonLayer]})
+    deckgl.setProps({layers: [trips_layer]})
 
     window.requestAnimationFrame(this.animate.bind(this));
   }
@@ -76,7 +76,7 @@ var arcsLayer;
 var deckgl;
 var app;
 // const ARC_DATA_URL = 'http://localhost:7777/abm_service/Hamburg/arcs/0';
-const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/mocho/trips'
+const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/grasbrook/trips'
 const GRID_DATA_URL ='https://cityio.media.mit.edu/api/table/mocho/site_geojson'
 // 
 
@@ -106,15 +106,15 @@ var trips_layer = new deck.TripsLayer({
 });
 
 
-const geojsonLayer = new deck.GeoJsonLayer({
-  data:GRID_DATA_URL,
-  extruded:true,
-  wireframe:true,
-  getElevation: d => 100+100*((d.properties.usage-1)%2),
-  // getFillColor: d => getBldColor(d.properties.usage),
-  getFillColor: d => bld_fill_colors[d.properties.usage],
-  getLineColor: d => bld_line_colors[d.properties.usage],
-});
+// const geojsonLayer = new deck.GeoJsonLayer({
+//   data:GRID_DATA_URL,
+//   extruded:true,
+//   wireframe:true,
+//   getElevation: d => 100+100*((d.properties.usage-1)%2),
+//   // getFillColor: d => getBldColor(d.properties.usage),
+//   getFillColor: d => bld_fill_colors[d.properties.usage],
+//   getLineColor: d => bld_line_colors[d.properties.usage],
+// });
 
 
 
@@ -128,8 +128,10 @@ const geojsonLayer = new deck.GeoJsonLayer({
 // };
 
 const INITIAL_VIEW_STATE = {
-  longitude: -71.091681,
-  latitude: 42.354742, 
+  // longitude: -71.091681,
+  // latitude: 42.354742, 
+  longitude:10.023724,
+  latitude:53.529320, 
   zoom: 12,
   maxZoom: 19,
   pitch: 60,
@@ -145,7 +147,7 @@ deckgl = new deck.DeckGL({
   minZoom: INITIAL_VIEW_STATE.minZoom,
   maxZoom: INITIAL_VIEW_STATE.maxZoom,
   pitch: INITIAL_VIEW_STATE.pitch,
-  layers: [trips_layer, geojsonLayer]
+  layers: [trips_layer]
 });
 
 
