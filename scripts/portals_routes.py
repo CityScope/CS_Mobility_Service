@@ -60,6 +60,7 @@ def df_to_geojson(edges_df, nodes_df, net_type):
                                  'coordinates':coordinates },
                          })
     return {"type": "FeatureCollection",
+            "crs": { "type": "name", "properties": { "name": "epsg:4326" } },
             "features": features}
 # =============================================================================
 # Constants
