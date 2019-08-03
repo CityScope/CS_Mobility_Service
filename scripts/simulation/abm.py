@@ -23,6 +23,22 @@ from time import sleep
 # =============================================================================
 # Functions
 # =============================================================================
+
+def get_haversine_distance(point_1, point_2):
+    """
+    Calculate the distance between any 2 points on earth given as [lon, lat]
+    """
+    # convert decimal degrees to radians
+    lon1, lat1, lon2, lat2 = map(math.radians, [point_1[0], point_1[1], 
+                                                point_2[0], point_2[1]])
+    # haversine formula 
+    dlon = lon2 - lon1 
+    dlat = lat2 - lat1 
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a)) 
+    r = 6371000 # Radius of earth in kilometers. Use 3956 for miles
+    return c * r
+
 def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols, graphs):
     """
     takes the spatial information from cityIO and generates 
@@ -65,10 +81,11 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
         kd_tree_nodes=spatial.KDTree(np.array(graphs[mode]['nodes'][['x', 'y']]))
         for n in [0, ncols-1, (nrows-1)*ncols, (nrows*ncols)-1]: 
             closest=kd_tree_nodes.query(grid_coords_ll[n], k=1)[1]
+            distance_m=get_haversine_distance(grid_coords_ll[n], list(graphs[mode]['nodes'].iloc[closest][['x', 'y']]))
             graphs[mode]['graph'].add_edge('g'+str(n), closest, attr_dict={'type': mode, 
-                       'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
+                       'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
             graphs[mode]['graph'].add_edge(closest, 'g'+str(n), attr_dict={'type': mode, 
-                       'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
+                       'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
     return grid_coords_ll, graphs 
 
 def get_grid_geojson(grid_coords_ll, grid, ncols):
@@ -283,7 +300,8 @@ def create_trips(persons):
         chosen_route=p['routes'][p['mode']]
         route_nodes=chosen_route['node_route']
         route_coords=[nodes_xy[p['mode']][n] for n in route_nodes]
-        route_time=[p['sim_start_time']]+[int(p['sim_start_time']+w*60) for w in chosen_route['weights']]
+        route_time=[p['sim_start_time']]+[int(p['sim_start_time']+w*60
+                    ) for w in np.cumsum(chosen_route['weights'])]
         p['trip']=[[int(1e5*route_coords[n]['x'])/1e5, # reduce precision
                     int(1e5*route_coords[n]['y'])/1e5,
                     route_time[n]] for n in range(len(route_nodes))]
@@ -476,7 +494,9 @@ position={'Hamburg':{'topleft':{'lat':53.533681, 'lon':10.011585},
 topLeft_lonLat=position[city]['topleft']
 topEdge_lonLat=position[city]['topedge']
 
-grid_points_ll, graphs=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cityIO_spatial_data['cellSize'], cityIO_spatial_data['nrows'], cityIO_spatial_data['ncols'], graphs)
+grid_points_ll, graphs=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cityIO_spatial_data[
+        'cellSize'],cityIO_spatial_data['nrows'],cityIO_spatial_data[
+        'ncols'], graphs)
 
 sim_area_zone_list=geoid_order_sim.copy()+['g'+str(i) for i in range(len(grid_points_ll))]
 # =============================================================================
