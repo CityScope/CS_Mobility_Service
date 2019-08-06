@@ -177,8 +177,11 @@ neighbours={}
 for net in network_dfs:
     neighbours[net]={}
     for p in range(len(portals['features'])):
-        nb=[n for n in network_dfs[net]['graph'].neighbors('p'+str(p))]
-        neighbours[net][p]=nb       
+        if network_dfs[net]['graph'].has_node('p'+str(p)):
+            nb=[n for n in network_dfs[net]['graph'].neighbors('p'+str(p))]
+            neighbours[net][p]=nb 
+        else:
+            neighbours[net][p]=[]
 #xs=[network_dfs[net]['nodes'].iloc[n]['x'] for n in neighbours[net][0]]+[network_dfs[net]['nodes'].iloc[n]['x'] for n in neighbours[net][1]] +    [network_dfs[net]['nodes'].iloc[n]['x'] for n in neighbours[net][2]] + [network_dfs[net]['nodes'].iloc[n]['x'] for n in neighbours[net][3]] 
 #ys=[network_dfs[net]['nodes'].iloc[n]['y'] for n in neighbours[net][0]]+[network_dfs[net]['nodes'].iloc[n]['y'] for n in neighbours[net][1]] +    [network_dfs[net]['nodes'].iloc[n]['y'] for n in neighbours[net][2]] + [network_dfs[net]['nodes'].iloc[n]['y'] for n in neighbours[net][3]] 
 #plt.scatter(xs, ys)
@@ -253,6 +256,7 @@ json.dump(route_costs, open(ROUTE_COSTS_PATH, 'w'))
 # =============================================================================
 #  Make smaller graphs for the simulation area
 # =============================================================================
+sim_net_osm_ped_link_types=[]
 sim_area_nets={}
 node_name_maps={}
 for net in network_dfs:

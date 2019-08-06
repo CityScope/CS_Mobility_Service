@@ -178,6 +178,7 @@ def get_routes(persons):
         p['routes']={}
         start_time=7*60*60+random.choice(range(0,3*60*60))
         if p['home_geoid'] in sim_area_zone_list and p['work_geoid'] in sim_area_zone_list:
+            p['type']=0 # grasbrooker
             for m in range(4):
                 if 'g' in str(p['home_geoid']):
                     home_node_list=[p['home_geoid']]
@@ -191,6 +192,7 @@ def get_routes(persons):
                                             graphs[mode_graphs[m]]['graph'], 'weight_minutes')
                 p['routes'][m]['sim_start_time']=start_time
         elif p['work_geoid'] in sim_area_zone_list:
+            p['type']=1 # commute_in
             for m in range(4):
                 portal_routes={}
                 best_portal_route_time=float('inf')
@@ -214,6 +216,7 @@ def get_routes(persons):
                 p['routes'][m]=portal_routes[best_portal]
                 p['routes'][m]['sim_start_time']=int(start_time+best_portal_route_time*60)
         elif p['home_geoid'] in sim_area_zone_list:
+            p['type']=2 # commute_out
             for m in range(4):
                 portal_routes={}
                 best_portal_route_time=float('inf')
@@ -281,6 +284,7 @@ def predict_modes(persons):
 def post_od_data(persons, destination_address):
     od_str=json.dumps([{'home_ll': p['home_node_ll'],
                        'work_ll': p['work_node_ll'],
+                       'type': p['type'],
                        'mode': p['mode'],
                        'start_time': p['sim_start_time']} for p in persons])
     try:
@@ -437,7 +441,7 @@ table_name_map={'Boston':"mocho",
 host='https://cityio.media.mit.edu/'
 cityIO_grid_url=host+'api/table/'+table_name_map[city]
 UPDATE_FREQ=1 # seconds
-CITYIO_SAMPLE_PATH='../'+city+'/clean/sample_cityio_data.json' #cityIO backup data
+CITYIO_SAMPLE_PATH='../cities/'+city+'/clean/sample_cityio_data.json' #cityIO backup data
 
 # destination for output files
 CITYIO_OUTPUT_PATH=host+'api/table/update/'+table_name_map[city]+'/'
