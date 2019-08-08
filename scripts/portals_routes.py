@@ -303,8 +303,7 @@ for osm_mode in ['driving', 'walking', 'cycling']:
                 'type': osm_mode})
     sim_area_nets[osm_mode]['graph']=G_sim
 
-# Using directional graph for transit only 
-G_pt_sim=nx.DiGraph()
+G_pt_sim=nx.Graph()
 for i, row in sim_area_nets['pt']['edges'].iterrows():
     G_pt_sim.add_edge(row['from_node_id'], row['to_node_id'], 
                      attr_dict={'weight_minutes':row['weight'],
