@@ -1,4 +1,4 @@
-u#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jul 18 10:10:02 2019
@@ -70,14 +70,17 @@ city='Hamburg'
 ALL_ZONES_PATH='./cities/'+city+'/clean/model_area.geojson'
 SIM_ZONES_PATH='./cities/'+city+'/clean/sim_area.geojson'
 PORTALS_PATH='./cities/'+city+'/clean/portals.geojson'
+
+# networks from CS_Accessibility- placed in folder manually for now
+PT_NODES_PATH='./cities/'+city+'/clean/comb_network_nodes.csv'
+PT_EDGES_PATH='./cities/'+city+'/clean/comb_network_edges.csv'
+PED_NODES_PATH='./cities/'+city+'/clean/osm_ped_network_nodes.csv'
+PED_EDGES_PATH='./cities/'+city+'/clean/osm_ped_network_edges.csv'
+
+
 ROUTE_COSTS_PATH='./cities/'+city+'/clean/route_costs.json'
 SIM_GRAPHS_PATH='./cities/'+city+'/clean/sim_area_nets.p'
 SIM_NET_GEOJSON_PATH='./cities/'+city+'/clean/'
-
-pt_network_urls={
-        'Boston': None,
-        'Hamburg': 'https://raw.githubusercontent.com/CityScope/CS_Accessibility/master/python/Hamburg/data/',
-        'Detroit': None}
 
 SPEEDS_MET_S={'driving':30/3.6,
         'cycling':15/3.6,
@@ -112,16 +115,14 @@ drive_nodes,drive_edges=osmnet.load.network_from_bbox(lat_min=boundsAll[1], lng_
                               two_way=True, timeout=180, 
                               custom_osm_filter=None)
 
-walk_nodes,walk_edges=osmnet.load.network_from_bbox(lat_min=boundsAll[1], lng_min=boundsAll[0], lat_max=boundsAll[3], 
-                              lng_max=boundsAll[2], bbox=None, network_type='walk', 
-                              two_way=True, timeout=180, 
-                              custom_osm_filter=None)
-
 cycle_nodes,cycle_edges= drive_nodes.copy(),drive_edges.copy()
 
 # get the pt net as nodes and edges dfs
-pt_edges=pd.read_csv(pt_network_urls[city]+'combined_network_edges.csv')
-pt_nodes=pd.read_csv(pt_network_urls[city]+'combined_network_nodes.csv')
+pt_edges=pd.read_csv(PT_EDGES_PATH)
+pt_nodes=pd.read_csv(PT_NODES_PATH)
+
+walk_edges=pd.read_csv(PED_EDGES_PATH)
+walk_nodes=pd.read_csv(PED_NODES_PATH)
 
 # renumber nodes in both networks as 1 to N
 pt_nodes, pt_edges, _ =rename_nodes(pt_nodes, pt_edges, 'id_int', 'to_int', 'from_int')
@@ -226,13 +227,13 @@ for mode in network_dfs:
                         node_route_z2p[i+1]
                         ]['attr_dict']['weight_minutes'
                          ] for i in range(len(node_route_z2p)-1)]
-                for l_type in ['walking', 'cycling', 'driving', 'PT', 
+                for l_type in ['walking', 'cycling', 'driving', 'pt', 
                                'waiting']:
                     route_costs[mode][all_zones_geoid_order[z]][p][l_type]=sum(
                             [route_weights[l] for l in range(len(route_weights)
                             ) if route_net_types[l]==l_type])
             else:
-                for l_type in ['walking', 'cycling', 'driving', 'PT', 
+                for l_type in ['walking', 'cycling', 'driving', 'pt', 
                                'waiting']:
                     route_costs[mode][all_zones_geoid_order[z]][p][l_type]=1000
 
@@ -256,12 +257,12 @@ json.dump(route_costs, open(ROUTE_COSTS_PATH, 'w'))
 # =============================================================================
 #  Make smaller graphs for the simulation area
 # =============================================================================
-sim_net_osm_ped_link_types=[]
 sim_area_nets={}
 node_name_maps={}
 for net in network_dfs:
     sim_area_nodes=set()
 #    check if each node in any sim area, if so add to list
+#   TODO: stop checking when one is found
     for n in range(len(network_dfs[net]['nodes'])):
         for z in range(len(sim_zones_shp['features'])):
             if shape(sim_zones_shp['features'][z]['geometry']).contains(Point(
@@ -271,8 +272,9 @@ for net in network_dfs:
 #    add portals to list
 #    sim_area_nodes.add(['p'+str(p) for p in range(len(portals['features']))])
     sim_area_edges_df=network_dfs[net]['edges'].loc[
-            ((network_dfs[net]['edges']['from_node_id'].isin(sim_area_nodes)) | 
-            (network_dfs[net]['edges']['to_node_id'].isin(sim_area_nodes)))]
+            ((network_dfs[net]['edges']['from_node_id'].isin(sim_area_nodes)) | # either from or to node is in the sim area
+            (network_dfs[net]['edges']['to_node_id'].isin(sim_area_nodes)))] 
+    
     #    subset nodes df and edges df by nodes in list
     # update the node list to include other edges of partially contained links 
     sim_area_nodes=set(list(sim_area_edges_df['from_node_id'])+list(sim_area_edges_df['to_node_id']))
@@ -314,10 +316,14 @@ sim_area_nets['pt']['graph']= G_pt_sim
 for net in sim_area_nets:
     for p in neighbours[net]:
         for nb in neighbours[net][p]:
-            sim_area_nets[net]['graph'].add_edge('p'+str(p), node_name_maps[net][nb],
-                       attr_dict={'type': 'from_portal', 'weight_minutes':0})
-            sim_area_nets[net]['graph'].add_edge( node_name_maps[net][nb],'p'+str(p),
-                       attr_dict={'type': 'to_portal', 'weight_minutes':0})
+            if nb in node_name_maps[net]:
+                sim_area_nets[net]['graph'].add_edge('p'+str(p), node_name_maps[net][nb],
+                           attr_dict={'type': 'from_portal', 'weight_minutes':0})
+                sim_area_nets[net]['graph'].add_edge( node_name_maps[net][nb],'p'+str(p),
+                           attr_dict={'type': 'to_portal', 'weight_minutes':0})
+            else:
+                print(str(nb)+' not in sim area net for '+net+
+                      '. Node not on any  valid links')
             
 # Plot
 #net='driving'

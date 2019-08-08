@@ -158,14 +158,14 @@ def get_route_costs(start_nodes, end_nodes, graph, weight):
         route={'node_route': node_route,
                'weights': weights}
         for c in ['driving', 'walking', 'waiting',
-                  'cycling', 'PT']:
+                  'cycling', 'pt']:
             route[c]=sum([weights[i] for i in range(len(weights)
             ) if types[i]==c])
     else:
         route={'node_route': [end_nodes[0], end_nodes[0]],
                'weights': [0]}
         for c in ['driving', 'walking', 'waiting',
-                  'cycling', 'PT']:
+                  'cycling', 'pt']:
             route[c]=1000
     return route
         
@@ -206,10 +206,10 @@ def get_routes(persons):
                     portal_routes[portal]=get_route_costs(['p'+str(portal)], work_node_list, 
                                             graphs[mode_graphs[m]]['graph'], 'weight_minutes')
                     for c in ['driving', 'walking', 'waiting',
-                              'cycling', 'PT']:
+                              'cycling', 'pt']:
                         portal_routes[portal][c]+=route_to_portal[c]
                     total_time=sum([portal_routes[portal][c] for c in [
-                            'driving', 'walking', 'cycling', 'PT']])
+                            'driving', 'walking', 'cycling', 'pt']])
                     if total_time<best_portal_route_time:
                         best_portal=portal
                         best_portal_route_time=total_time
@@ -230,10 +230,10 @@ def get_routes(persons):
                     portal_routes[portal]=get_route_costs( home_node_list, ['p'+str(portal)],
                                             graphs[mode_graphs[m]]['graph'], 'weight_minutes')
                     for c in ['driving', 'walking', 'waiting',
-                              'cycling', 'PT']:
+                              'cycling', 'pt']:
                         portal_routes[portal][c]+=route_from_portal[c]
                     total_time=sum([portal_routes[portal][c] for c in [
-                            'driving', 'walking', 'cycling', 'PT']])
+                            'driving', 'walking', 'cycling', 'pt']])
                     if total_time<best_portal_route_time:
                         best_portal=portal
                         best_portal_route_time=total_time
@@ -255,7 +255,7 @@ def predict_modes(persons):
     feature_df['drive_time_minutes']=  feature_df.apply(lambda row: row['routes'][0]['driving'], axis=1)     
     feature_df['cycle_time_minutes']=  feature_df.apply(lambda row: row['routes'][1]['cycling'], axis=1)     
     feature_df['walk_time_minutes']=  feature_df.apply(lambda row: row['routes'][2]['walking'], axis=1)     
-    feature_df['PT_time_minutes']=  feature_df.apply(lambda row: row['routes'][3]['PT'], axis=1)
+    feature_df['PT_time_minutes']=  feature_df.apply(lambda row: row['routes'][3]['pt'], axis=1)
     feature_df['walk_time_PT_minutes']=feature_df.apply(lambda row: row['routes'][3]['walking'], axis=1)  
     feature_df['drive_time_PT_minutes']=0 
     # TODO: below should come directly from the path-finding
