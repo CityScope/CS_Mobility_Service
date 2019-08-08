@@ -19,6 +19,7 @@ import networkx as nx
 from scipy import spatial
 import requests
 from time import sleep
+import time
 
 # =============================================================================
 # Functions
@@ -586,6 +587,7 @@ while True:
             print('Using static cityIO grid file')
             cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))  
             cityIO_grid_data=cityIO_data['grid']
+        start_time=time.time()
         lastId=hash_id
 ## =============================================================================
 ##         FAKE DATA FOR SCENAIO EXPLORATION
@@ -630,6 +632,8 @@ while True:
         post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
         create_trips(new_sim_persons)
         post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')
+        finish_time=time.time()
+        print('Response time: '+ str(finish_time-start_time))
         sleep(0.2)
                 
 
