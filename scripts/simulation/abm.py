@@ -375,7 +375,7 @@ def home_location_choices(houses, persons):
 # =============================================================================
 # Parameters
 # =============================================================================
-city='Hamburg'
+city='Detroit'
 send_to_cityIO=True
 
 # =============================================================================
@@ -438,7 +438,8 @@ wgs=pyproj.Proj("+init=EPSG:4326")
 
 # #cityIO grid data
 table_name_map={'Boston':"mocho",
-     'Hamburg':"grasbrook"}
+     'Hamburg':"grasbrook",
+     'Detroit': "corktown"}
 host='https://cityio.media.mit.edu/'
 cityIO_grid_url=host+'api/table/'+table_name_map[city]
 UPDATE_FREQ=1 # seconds

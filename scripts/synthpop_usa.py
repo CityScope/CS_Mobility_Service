@@ -332,14 +332,17 @@ for ind, row in od_bg.iterrows():
     count+=1
     if count%1000==0: 
         print(count)
-    if ((row['h_block_group'] in all_sim_zones) or (row['w_block_group'] in all_sim_zones)):
+    if (((row['h_block_group'] in all_sim_zones) or 
+         (row['w_block_group'] in all_sim_zones)) and 
+         (row['w_block_group'] in all_zones) and 
+         (row['h_block_group'] in all_zones)):
         people_to_sample=row['S000']/sample_factor
 #        total_people+=people_to_sample
         people_to_sample_int=int(people_to_sample)
         if people_to_sample%1>random.uniform(0, 1):
             people_to_sample_int+=1
         if people_to_sample_int>0:
-            hh_same_home_bg=synth_hh_df.loc[synth_hh_df['home_geoid']==int(row['h_block_group'])]
+            hh_same_home_bg=synth_hh_df.loc[synth_hh_df['home_geoid']==row['h_block_group']]
             hh_same_home_bg=hh_same_home_bg.drop_duplicates()
             people_candidates=synth_persons_df.loc[synth_persons_df['serialno'].isin(
                     hh_same_home_bg['serialno'].values)]

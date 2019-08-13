@@ -65,7 +65,7 @@ def df_to_geojson(edges_df, nodes_df, net_type):
 # =============================================================================
 # Constants
 # =============================================================================
-city='Hamburg'
+city='Detroit'
 
 ALL_ZONES_PATH='./cities/'+city+'/clean/model_area.geojson'
 SIM_ZONES_PATH='./cities/'+city+'/clean/sim_area.geojson'
@@ -96,7 +96,12 @@ pandana_link_types={'osm to transit': 'waiting',
 # =============================================================================
 # get the area bounds
 all_zones_shp=json.load(open(ALL_ZONES_PATH))
-all_zones_geoid_order=[f['properties']['GEO_ID'] for f in all_zones_shp['features']]
+if city=='Hamburg':
+    all_zones_geoid_order=[f['properties']['GEO_ID'] for f in all_zones_shp['features']]
+else:
+    all_zones_geoid_order=[f['properties']['GEO_ID'].split('US')[1] for f in all_zones_shp['features']]
+
+#all_zones_geoid_order=[f['properties']['GEO_ID'] for f in all_zones_shp['features']]
 sim_zones_shp=json.load(open(SIM_ZONES_PATH))
 portals=json.load(open(PORTALS_PATH))
 
@@ -208,7 +213,7 @@ route_costs={}
 for mode in network_dfs:
     route_costs[mode]={}
     for z in range(len(all_zones_shp['features'])):
-        print(z)
+        print(mode+ ' ' + str(z))
         route_costs[mode][all_zones_geoid_order[z]]={}
         for p in range(len(portals['features'])):
             route_costs[mode][all_zones_geoid_order[z]][p]={}
