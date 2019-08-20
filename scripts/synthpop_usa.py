@@ -107,13 +107,13 @@ tract_columns = vehicle_columns + workers_columns
 #Persons
 population = ['B01001_001E']
 sex = ['B01001_002E', 'B01001_026E']
-# race = ['B02001_0%02dE'%i for i in range(1,11)]
+race = ['B02001_0%02dE'%i for i in range(1,11)]
 male_age_columns = ['B01001_0%02dE'%i for i in range(3,26)]
 female_age_columns = ['B01001_0%02dE'%i for i in range(27,50)]
 # worker_class_columns=['B08128_0%02dE'%i for i in range(1, 7)]
 worker_class_columns=['B24080_0%02dE'%i for i in [1,3,6,7,8,9,10,13,16,17,18,19,20]]
 # One more column needed for the 16 and under not incuded in the worker_class population
-all_columns = population + sex + male_age_columns + female_age_columns 
+all_columns = population + sex + male_age_columns + female_age_columns  + race
 # +worker_class_columns
 
 # =============================================================================
@@ -212,11 +212,11 @@ p_acs_cat = cat.categorize(p_acs, {
                          "B01001_043E + B01001_044E + B01001_045E + "
                          "B01001_046E + B01001_047E + B01001_048E + "
                          "B01001_049E", 
-#     ("race", "white"):   "B02001_002E",
-#     ("race", "black"):   "B02001_003E",
-#     ("race", "asian"):   "B02001_005E",
-#     ("race", "other"):   "B02001_004E + B02001_006E + B02001_007E + "
-#                          "B02001_008E",
+     ("race", "white"):   "B02001_002E",
+     ("race", "black"):   "B02001_003E",
+     ("race", "asian"):   "B02001_005E",
+     ("race", "other"):   "B02001_004E + B02001_006E + B02001_007E + "
+                          "B02001_008E",
     ("sex", "male"):     "B01001_002E",
     ("sex", "female"):   "B01001_026E",
 #     ("worker_class", "private_for_profit"): "B24080_003E+ B24080_013E",
@@ -264,7 +264,7 @@ for puma in all_pumas:
     p_pums, jd_persons = cat.joint_distribution(
         p_pums,
         cat.category_combinations(p_acs_cat.columns),
-        {"age": age_cat, "sex": sex_cat}
+        {"age": age_cat, "sex": sex_cat, "race": race_cat}
     )
     # simulate households and persons for each person in each block-group of this PUMA
     for bg_ind in this_puma_ind:
@@ -317,8 +317,8 @@ od_bg=od.groupby(['h_block_group', 'w_block_group'] , as_index=False)['S000'].ag
 
 # define the attributes we need for the person objects
 house_cols=['puma10','beds', 'rent', 'tenure','built_since_jan2010', 'home_geoid']
-person_cols=['COW', 'bach_degree', 'age', 'sex']
-person_cols_hh=['income', 'children', 'workers', 'tenure', 'HINCP']
+person_cols=['COW', 'bach_degree', 'age', 'sex', 'race']
+person_cols_hh=['income', 'children', 'workers', 'tenure', 'HINCP', 'cars']
 person_cols.extend(person_cols_hh)
 # create empty objects for sim_people
 sim_people=[]

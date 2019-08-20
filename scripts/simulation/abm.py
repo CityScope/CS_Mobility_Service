@@ -389,8 +389,8 @@ SIM_POP_PATH='../cities/'+city+'/clean/sim_pop.json'
 VACANT_PATH='../cities/'+city+'/clean/vacant.json'
 FLOATING_PATH='../cities/'+city+'/clean/floating.json'
 # Mode choice model
-FITTED_MODE_MODEL_PATH='../models/trip_mode_rf.p'
-RF_FEATURES_LIST_PATH='../models/rf_features.json'
+FITTED_MODE_MODEL_PATH='../scripts/cities/'+city+'/models/trip_mode_rf.p'
+RF_FEATURES_LIST_PATH='../scripts/cities/'+city+'/models/rf_features.json'
 # Home location choice model
 FITTED_HOME_LOC_MODEL_PATH='../models/home_loc_logit.p'
 RENT_NORM_PATH='../models/rent_norm.json'
