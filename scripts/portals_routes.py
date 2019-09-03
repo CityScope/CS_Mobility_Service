@@ -67,20 +67,20 @@ def df_to_geojson(edges_df, nodes_df, net_type):
 # =============================================================================
 city='Detroit'
 
-ALL_ZONES_PATH='./cities/'+city+'/clean/model_area.geojson'
-SIM_ZONES_PATH='./cities/'+city+'/clean/sim_area.geojson'
-PORTALS_PATH='./cities/'+city+'/clean/portals.geojson'
+ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
+SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
+PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
 
 # networks from CS_Accessibility- placed in folder manually for now
-PT_NODES_PATH='./cities/'+city+'/clean/comb_network_nodes.csv'
-PT_EDGES_PATH='./cities/'+city+'/clean/comb_network_edges.csv'
-PED_NODES_PATH='./cities/'+city+'/clean/osm_ped_network_nodes.csv'
-PED_EDGES_PATH='./cities/'+city+'/clean/osm_ped_network_edges.csv'
+PT_NODES_PATH='./scripts/cities/'+city+'/clean/comb_network_nodes.csv'
+PT_EDGES_PATH='./scripts/cities/'+city+'/clean/comb_network_edges.csv'
+PED_NODES_PATH='./scripts/cities/'+city+'/clean/osm_ped_network_nodes.csv'
+PED_EDGES_PATH='./scripts/cities/'+city+'/clean/osm_ped_network_edges.csv'
 
 
-ROUTE_COSTS_PATH='./cities/'+city+'/clean/route_costs.json'
-SIM_GRAPHS_PATH='./cities/'+city+'/clean/sim_area_nets.p'
-SIM_NET_GEOJSON_PATH='./cities/'+city+'/clean/'
+ROUTE_COSTS_PATH='./scripts/cities/'+city+'/clean/route_costs.json'
+SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
+SIM_NET_GEOJSON_PATH='./scripts/cities/'+city+'/clean/'
 
 SPEEDS_MET_S={'driving':30/3.6,
         'cycling':15/3.6,

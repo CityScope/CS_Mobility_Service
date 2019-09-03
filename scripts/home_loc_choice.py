@@ -40,13 +40,13 @@ NUM_ALTS=8
 sample_size=5000
 
 #PUMAS_INCLUDED_PATH='./'+city+'/raw/PUMS/pumas_included.json'
-FITTED_HOME_LOC_MODEL_PATH='./cities/'+city+'/models/home_loc_logit.p'
-PUMA_POP_PATH='./cities/'+city+'/raw/ACS/ACS_17_5YR_B01003/population.csv'
-PUMS_HH_PATH='./cities/'+city+'/raw/PUMS/csv_h'+state_codes[city]+'/ss16h'+state_codes[city]+'.csv'
-PUMS_POP_PATH='./cities/'+city+'/raw/PUMS/csv_p'+state_codes[city]+'/ss16p'+state_codes[city]+'.csv'
-PUMA_SHAPE_PATH='./cities/'+city+'/raw/PUMS/pumas.geojson'
-PUMA_TO_POW_PUMA_PATH='./puma_to_pow_puma.csv'
-RENT_NORM_PATH='./cities/'+city+'/models/rent_norm.json'
+FITTED_HOME_LOC_MODEL_PATH='./scripts/cities/'+city+'/models/home_loc_logit.p'
+PUMA_POP_PATH='./scripts/cities/'+city+'/raw/ACS/ACS_17_5YR_B01003/population.csv'
+PUMS_HH_PATH='./scripts/cities/'+city+'/raw/PUMS/csv_h'+state_codes[city]+'/ss16h'+state_codes[city]+'.csv'
+PUMS_POP_PATH='./scripts/cities/'+city+'/raw/PUMS/csv_p'+state_codes[city]+'/ss16p'+state_codes[city]+'.csv'
+PUMA_SHAPE_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas.geojson'
+PUMA_TO_POW_PUMA_PATH='./scripts/puma_to_pow_puma.csv'
+RENT_NORM_PATH='./scripts/cities/'+city+'/models/rent_norm.json'
 
 hh=pd.read_csv(PUMS_HH_PATH)
 pop = pd.read_csv(PUMS_POP_PATH)

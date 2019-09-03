@@ -20,6 +20,7 @@ from scipy import spatial
 import requests
 from time import sleep
 import time
+from grid_geojson.grid_geojson import *
 
 # =============================================================================
 # Functions
@@ -40,27 +41,10 @@ def get_haversine_distance(point_1, point_2):
     r = 6371000 # Radius of earth in kilometers. Use 3956 for miles
     return c * r
 
-def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols, graphs):
+def createGridGraphs(grid_coords_ll, graphs, nrows, ncols, cell_size):
     """
-    takes the spatial information from cityIO and generates 
-    grid_coords_ll: the coordinates of ach grid cell left to right, top to bottom
-    G: a network of roads around the cells
+    returns new networks including roads around the cells
     """
-    topLeftXY=pyproj.transform(wgs, utm,topLeft_lonLat['lon'], topLeft_lonLat['lat'])
-    topEdgeXY=pyproj.transform(wgs, utm,topEdge_lonLat['lon'], topEdge_lonLat['lat'])
-    dydx=(topEdgeXY[1]-topLeftXY[1])/(topEdgeXY[0]-topLeftXY[0])
-    theta=math.atan((dydx))
-    cosTheta=math.cos(theta)
-    sinTheta=math.sin(theta)
-    x_unRot=[j*cell_size for i in range(nrows) for j in range(ncols)]
-    y_unRot=[-i*cell_size for i in range(nrows) for j in range(ncols)]
-    # use the rotation matrix to rotate around the origin
-    x_rot=[x_unRot[i]*cosTheta -y_unRot[i]*sinTheta for i in range(len(x_unRot))]
-    y_rot=[x_unRot[i]*sinTheta +y_unRot[i]*cosTheta for i in range(len(x_unRot))]
-    x_rot_trans=[topLeftXY[0]+x_rot[i] for i in range(len(x_rot))]
-    y_rot_trans=[topLeftXY[1]+y_rot[i] for i in range(len(x_rot))]
-    lon_grid, lat_grid=pyproj.transform(utm,wgs,x_rot_trans, y_rot_trans)
-    grid_coords_ll=[[lon_grid[i], lat_grid[i]] for i in range(len(lon_grid))]
     for mode in graphs:
 #    create graph internal to the grid
         graphs[mode]['graph'].add_nodes_from('g'+str(n) for n in range(len(grid_coords_ll)))
@@ -87,24 +71,7 @@ def createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cell_size, nrows, ncols
                        'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
             graphs[mode]['graph'].add_edge(closest, 'g'+str(n), attr_dict={'type': mode, 
                        'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
-    return grid_coords_ll, graphs 
-
-def get_grid_geojson(grid_coords_ll, grid, ncols):
-    delta_ll_across=[grid_coords_ll[1][0]-grid_coords_ll[0][0], grid_coords_ll[1][1]-grid_coords_ll[0][1]]
-    delta_ll_down=[grid_coords_ll[ncols][0]-grid_coords_ll[0][0], grid_coords_ll[ncols][1]-grid_coords_ll[0][1]]
-    features=[]
-    for i, g in enumerate(grid_coords_ll):
-        coords=[g, 
-                [g[0]+delta_ll_down[0], g[1]+delta_ll_down[1]],
-                [g[0]+delta_ll_across[0]+delta_ll_down[0], g[1]+delta_ll_across[1]+delta_ll_down[1]],
-                [g[0]+delta_ll_across[0],g[1]+delta_ll_across[1]], 
-                g]
-        features.append({'type': 'Feature',
-                         'geometry':{'type': 'Polygon', 'coordinates': [coords]},
-                         'properties': {'usage': grid[i][0]}})
-    geojson_object={'type': 'FeatureCollection',
-                    'features': features}
-    return geojson_object
+    return graphs 
 
 def random_points_within(poly, num_points):
     """ takes a polygon such as an admin boundary or building and selects 
@@ -118,13 +85,13 @@ def random_points_within(poly, num_points):
             points.append(random_point)
     return points
 
-def get_LLs(persons):
+def get_LLs(persons, places):
     """ takes a list of person objects and 
     finds home and work coordinates for them
     modifies in place
     """
     for p in persons:  
-        for place in ['home', 'work']:
+        for place in places:
             geoid=p[place+'_geoid']
             if 'g' in str(geoid):
                 ll=grid_points_ll[int(geoid[1:])]
@@ -248,7 +215,8 @@ def predict_modes(persons):
     feature_df=pd.DataFrame(persons)  
 #    feature_df['bach_degree_yes']=feature_df['SCHL']>20
 #    feature_df['bach_degree_no']=~feature_df['bach_degree_yes']
-    for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 'bach_degree']:
+    for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
+                 'bach_degree', 'race', 'cars']:
         new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
         feature_df=pd.concat([feature_df, new_dummys],  axis=1)
     # TODO: better method of predicting travel times
@@ -267,8 +235,12 @@ def predict_modes(persons):
     feature_df['purpose_HBW']=1
     feature_df['purpose_NHB']=0
     feature_df['purpose_HBO']=0
-    assert all([rff in feature_df.columns for rff in rf_features]
-    ),"Features in table dont match features in RF model"
+    feature_df['race_asian']=0
+    for rff in rf_features:
+        # feature_df[']
+        assert rff in feature_df.columns, str(rff) +' not in data.'
+#    assert all([rff in feature_df.columns for rff in rf_features]
+#    ),"Features in table dont match features in RF model"   
     feature_df=feature_df[rf_features]#reorder columns to match rf model
     mode_probs=mode_rf.predict_proba(feature_df)
     for i,p in enumerate(persons): 
@@ -337,6 +309,7 @@ def create_long_record(person, house, choice_id):
     beds=min(3, max(1, house['beds']))
     norm_rent=(house['rent']-rent_normalisation['mean'][str(int(beds))])/rent_normalisation['std'][str(int(beds))]
     return {'norm_rent': norm_rent,
+            'work_dist': get_haversine_distance(p['work_ll'], h['centroid']),
             'puma_pop_per_sqmeter': house['puma_pop_per_sqmeter'],
             'income_disparity': np.abs(house['puma_med_income']-person['HINCP']),
             'built_since_jan2010': house['built_since_jan2010'],
@@ -375,30 +348,30 @@ def home_location_choices(houses, persons):
 # =============================================================================
 # Parameters
 # =============================================================================
-city='Detroit'
+city='Hamburg'
 send_to_cityIO=True
 
 # =============================================================================
 # Constants
 # =============================================================================
 
-ALL_ZONES_PATH='../cities/'+city+'/clean/model_area.geojson'
-SIM_ZONES_PATH='../cities/'+city+'/clean/sim_area.geojson'
+ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
+SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
 # Synthpop results
-SIM_POP_PATH='../cities/'+city+'/clean/sim_pop.json'
-VACANT_PATH='../cities/'+city+'/clean/vacant.json'
-FLOATING_PATH='../cities/'+city+'/clean/floating.json'
+SIM_POP_PATH='./scripts/cities/'+city+'/clean/sim_pop.json'
+VACANT_PATH='./scripts/cities/'+city+'/clean/vacant.json'
+FLOATING_PATH='./scripts/cities/'+city+'/clean/floating.json'
 # Mode choice model
-FITTED_MODE_MODEL_PATH='../scripts/cities/'+city+'/models/trip_mode_rf.p'
-RF_FEATURES_LIST_PATH='../scripts/cities/'+city+'/models/rf_features.json'
+FITTED_MODE_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_rf.p'
+RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
 # Home location choice model
-FITTED_HOME_LOC_MODEL_PATH='../models/home_loc_logit.p'
-RENT_NORM_PATH='../models/rent_norm.json'
+FITTED_HOME_LOC_MODEL_PATH='./scripts/cities/'+city+'/models/home_loc_logit.p'
+RENT_NORM_PATH='./scripts/cities/'+city+'/models/rent_norm.json'
 
 #Road network graph
-PORTALS_PATH='../cities/'+city+'/clean/portals.geojson'
-ROUTE_COSTS_PATH='../cities/'+city+'/clean/route_costs.json'
-SIM_GRAPHS_PATH='../cities/'+city+'/clean/sim_area_nets.p'
+PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
+ROUTE_COSTS_PATH='./scripts/cities/'+city+'/clean/route_costs.json'
+SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
 
 
 
@@ -428,13 +401,6 @@ housing_types={1:{'rent': 800, 'beds': 2, 'built_since_jan2010': True,
                   'pop_per_sqmile': 5000, 'tenure': 'rented'}}
 # TODO: number of each employment sector for each building type
 employment_types= {3:{},4:{}}
-
-# Projection systems
-UTM_MAP={'Boston':pyproj.Proj("+init=EPSG:32619"),
-     'Hamburg':pyproj.Proj("+init=EPSG:32632")}
-utm=UTM_MAP[city]
-wgs=pyproj.Proj("+init=EPSG:4326")
-
 
 # #cityIO grid data
 table_name_map={'Boston':"mocho",
@@ -472,6 +438,7 @@ all_zones=json.load(open(ALL_ZONES_PATH))
 sim_zones=json.load(open(SIM_ZONES_PATH))
 portals=json.load(open(PORTALS_PATH))
 
+
 if city=='Hamburg':
     geoid_order_all=[f['properties']['GEO_ID'] for f in all_zones['features']]
     geoid_order_sim=[f['properties']['GEO_ID'] for f in sim_zones['features']]
@@ -479,6 +446,10 @@ else:
     geoid_order_all=[f['properties']['GEO_ID'].split('US')[1] for f in all_zones['features']]
     geoid_order_sim=[f['properties']['GEO_ID'].split('US')[1] for f in sim_zones['features']]
 
+all_geoid_centroids={}
+for ind, geo_id in enumerate(geoid_order_all):
+    centroid=shape(all_zones['features'][ind]['geometry']).centroid
+    all_geoid_centroids[geo_id]=[centroid.x, centroid.y]
 
 # =============================================================================
 # Processing of spatial grid data
@@ -491,19 +462,17 @@ except:
     print('Using static cityIO grid file')
     cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
     cityIO_spatial_data=cityIO_data['header']['spatial']
+    
+grid=Grid(cityIO_spatial_data['longitude'], cityIO_spatial_data['latitude'], 
+          cityIO_spatial_data['rotation'],  cityIO_spatial_data['cellSize'], 
+          cityIO_spatial_data['nrows'], cityIO_spatial_data['ncols'])
 
-# TODO calculate this from cityIO spatial 
-position={'Hamburg':{'topleft':{'lat':53.533681, 'lon':10.011585},
-                    'topedge':{'lat':53.533433, 'lon':10.012213}},
-        'Boston': {'topleft':{'lat':42.365980,    'lon': -71.085560},
-                  'topedge': {'lat':42.3649,   'lon':  -71.082947}}}
-topLeft_lonLat=position[city]['topleft']
-topEdge_lonLat=position[city]['topedge']
+grid_points=grid.all_cells_top_left
+grid_points_ll = [[g['lon'] , g['lat']] for g in grid_points]
 
-grid_points_ll, graphs=createGrid(topLeft_lonLat, topEdge_lonLat, utm, wgs, cityIO_spatial_data[
-        'cellSize'],cityIO_spatial_data['nrows'],cityIO_spatial_data[
-        'ncols'], graphs)
-
+graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
+                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
+#
 sim_area_zone_list=geoid_order_sim.copy()+['g'+str(i) for i in range(len(grid_points_ll))]
 # =============================================================================
 # Locations
@@ -523,22 +492,6 @@ for mode in mode_graphs:
         p_centroid=shape(portals['features'][p]['geometry']).centroid
         nodes_xy[mode]['p'+str(p)]={'x':p_centroid.x,
              'y':p_centroid.y}
-## create a list of locations with a list of the associated nodes for each mode
-#locations={}
-#for i in range(len(geoid_order_sim)):
-#    locations[geoid_order_sim[i]]={}
-#    zone_shape=shape(sim_zones['features'][i]['geometry'])
-#    for mode in mode_graphs:
-#        locations[geoid_order_sim[i]][mode]={'nodes':[]}
-#        for ni in range(len(graphs[mode_graphs[mode]]['nodes'])):
-#            if zone_shape.contains(Point(
-#                    [graphs[mode_graphs[mode]]['nodes'].iloc[ni]['x'], 
-#                     graphs[mode_graphs[mode]]['nodes'].iloc[ni]['y']])):
-#                locations[geoid_order_sim[i]][mode]['nodes'].extend([ni])
-#for i in range(len(grid_points_ll)):
-#    locations['g'+str(i)]={}
-#    for mode in mode_graphs:
-#        locations['g'+str(i)][mode]={'nodes':['g'+str(i)]}
                    
 # =============================================================================
 # Population
@@ -550,25 +503,20 @@ base_sim_persons=json.load(open(SIM_POP_PATH))
 base_floating_persons=json.load(open(FLOATING_PATH))
 # load vacant houses
 base_vacant_houses=json.load(open(VACANT_PATH))
+for h in base_vacant_houses:
+    h['centroid']=all_geoid_centroids[h['home_geoid']]
     
-get_LLs(base_sim_persons)
+get_LLs(base_sim_persons, ['home', 'work'])
 get_routes(base_sim_persons)
 predict_modes(base_sim_persons)
 post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
 create_trips(base_sim_persons)
 post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
-   
+
 # =============================================================================
 # Handle Interactions
 # =============================================================================
 
-
-#house_cols=['puma10','beds', 'rent', 'tenure','built_since_jan2010', 'home_geoid']
-#household_cols=['HINCP', 'cars','NP',
-#       'workers', 'tenure', 'children', 'income', 'serialno']
-#person_cols=['COW', 'bach_degree', 'age', 'sex']
-#person_cols_hh=['income', 'children', 'workers', 'tenure', 'household_id', 'pop_per_sqmile_home']
-#
 lastId=0
 while True:
 #check if grid data changed
@@ -597,7 +545,7 @@ while True:
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(cityIO_grid_data))] # random mix
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(cityIO_grid_data))] # affordable + employment
 ## =============================================================================
-        grid_geo=get_grid_geojson(grid_points_ll, cityIO_grid_data, cityIO_spatial_data['ncols'])
+        grid_geo=grid.get_grid_geojson({'usage': [gd[0] for gd in cityIO_grid_data]})
         new_houses=[]
         new_persons=[]
 #        new_households=[]        
@@ -606,6 +554,7 @@ while True:
             for htl in ht_locs:
                 add_house=housing_types[ht].copy()
                 add_house['home_geoid']='g'+str(htl)
+                add_house['centroid']=grid_points_ll[htl]
                 new_houses.append(add_house)        
 #        # for each office unit, add a (homeless) person
         random.seed(0)
@@ -616,6 +565,7 @@ while True:
                 add_person['work_geoid']='g'+str(etl)
                 new_persons.append(add_person)
                 random.seed(0)
+        get_LLs(new_persons, ['work'])
         floating_persons=base_floating_persons+new_persons
         vacant_houses=base_vacant_houses+new_houses
         for ip, p in enumerate(floating_persons):
@@ -627,7 +577,7 @@ while True:
         new_sim_persons=[p for p in floating_persons if
                          (p['home_geoid'] in sim_area_zone_list or
                           p['work_geoid'] in sim_area_zone_list)]
-        get_LLs(new_sim_persons)
+        get_LLs(new_sim_persons, ['home', 'work'])
         get_routes(new_sim_persons)
         predict_modes(new_sim_persons)
         post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')

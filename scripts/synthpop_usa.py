@@ -77,14 +77,14 @@ elif city=='Detroit':
     state='26'
     state_code='mi'
     
-ALL_ZONES_PATH='./cities/'+city+'/clean/model_area.geojson'
-SIM_ZONES_PATH='./cities/'+city+'/clean/sim_area.geojson'
-OD_PATH='./cities/'+city+'/raw/LODES/'+state_code+'_od_main_JT00_2015.csv'
-ALL_SYNTH_HH_PATH='./cities/'+city+'/clean/all_synth_hh.csv'
-ALL_SYNTH_PERSONS_PATH='./cities/'+city+'/clean/all_synth_persons.csv'
-SIM_POP_PATH='./cities/'+city+'/clean/sim_pop.json'
-VACANT_PATH='./cities/'+city+'/clean/vacant.json'
-FLOATING_PATH='./cities/'+city+'/clean/floating.json'
+ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
+SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
+OD_PATH='./scripts/cities/'+city+'/raw/LODES/'+state_code+'_od_main_JT00_2015.csv'
+ALL_SYNTH_HH_PATH='./scripts/cities/'+city+'/clean/all_synth_hh.csv'
+ALL_SYNTH_PERSONS_PATH='./scripts/cities/'+city+'/clean/all_synth_persons.csv'
+SIM_POP_PATH='./scripts/cities/'+city+'/clean/sim_pop.json'
+VACANT_PATH='./scripts/cities/'+city+'/clean/vacant.json'
+FLOATING_PATH='./scripts/cities/'+city+'/clean/floating.json'
 
 c = Census('7a25a7624075d46f112113d33106b6648f42686a')
 

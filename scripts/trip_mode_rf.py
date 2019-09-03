@@ -28,12 +28,12 @@ region_cdivsmars=REGION_CDIVMSARS_BY_CITY[city]
 # MSAs in New England and N Atlantic with 1mil+ pop and heavy rail
 # using New England only results in toos small a sample
 
-NHTS_PATH='NHTS/perpub.csv'
-NHTS_TOUR_PATH='NHTS/tour17.csv'
-NHTS_TRIP_PATH='NHTS/trippub.csv'
+NHTS_PATH='scripts/NHTS/perpub.csv'
+NHTS_TOUR_PATH='scripts/NHTS/tour17.csv'
+NHTS_TRIP_PATH='scripts/NHTS/trippub.csv'
 #MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
-PICKLED_MODEL_PATH='./cities/'+city+'/models/trip_mode_rf.p'
-RF_FEATURES_LIST_PATH='./cities/'+city+'/models/rf_features.json'
+PICKLED_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_rf.p'
+RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
 
 # =============================================================================
 # Functions
@@ -154,21 +154,6 @@ for t in ['trips', 'persons']:
 #global_avg_speeds={}
 speeds={area:{} for area in set(tables['persons']['HH_CBSA'])}
 tables['tours']['main_mode']=tables['tours'].apply(lambda row: mode_cat(row['MODE_D']), axis=1)
-
-#for m in [0,1,2, 3]:
-#    all_speeds=tables['tours'].loc[((tables['tours']['main_mode']==m) 
-#                                    & (tables['tours']['TIME_M']>0))
-#                                    ].apply(lambda row: 
-#                                    row['DIST_M']/row['TIME_M'], axis=1)
-#    if len(all_speeds)>0:
-#        global_avg_speeds['km_per_minute_'+str(m)]=1.62* all_speeds.mean()
-#    else:
-#        global_avg_speeds['km_per_minute_'+str(m)]=float('nan')
-#global_avg_speeds['walk_km_'+str(m)]=1.62*tables['tours'].loc[
-#        tables['tours']['main_mode']==3,'PMT_WALK'].mean()
-#global_avg_speeds['drive_km_'+str(m)]=1.62*tables['tours'].loc[
-#        tables['tours']['main_mode']==3,'PMT_POV'].mean()
-
 
 for area in speeds:
     this_cbsa=tables['tours'][tables['tours']['HH_CBSA']==area]
