@@ -68,8 +68,8 @@ def df_to_geojson(edges_df, nodes_df, net_type):
 city='Detroit'
 
 ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
-SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
+TABLE_AREA_PATH='./scripts/cities/'+city+'/clean/table_area.geojson'
 
 # networks from CS_Accessibility- placed in folder manually for now
 PT_NODES_PATH='./scripts/cities/'+city+'/clean/comb_network_nodes.csv'
@@ -101,9 +101,8 @@ if city=='Hamburg':
 else:
     all_zones_geoid_order=[f['properties']['GEO_ID'].split('US')[1] for f in all_zones_shp['features']]
 
-#all_zones_geoid_order=[f['properties']['GEO_ID'] for f in all_zones_shp['features']]
-sim_zones_shp=json.load(open(SIM_ZONES_PATH))
 portals=json.load(open(PORTALS_PATH))
+table_area=json.load(open(TABLE_AREA_PATH))
 
 
 largeArea=[shape(f['geometry']) for f in all_zones_shp['features']]
@@ -240,7 +239,7 @@ for mode in network_dfs:
             else:
                 for l_type in ['walking', 'cycling', 'driving', 'pt', 
                                'waiting']:
-                    route_costs[mode][all_zones_geoid_order[z]][p][l_type]=1000
+                    route_costs[mode][all_zones_geoid_order[z]][p][l_type]=10000
 
 
 ## plot routes
@@ -269,11 +268,10 @@ for net in network_dfs:
 #    check if each node in any sim area, if so add to list
 #   TODO: stop checking when one is found
     for n in range(len(network_dfs[net]['nodes'])):
-        for z in range(len(sim_zones_shp['features'])):
-            if shape(sim_zones_shp['features'][z]['geometry']).contains(Point(
-                    network_dfs[net]['nodes'].iloc[n]['x'], 
-                    network_dfs[net]['nodes'].iloc[n]['y'])):
-                sim_area_nodes.add(n)
+        if shape(table_area['features'][0]['geometry']).contains(Point(
+                network_dfs[net]['nodes'].iloc[n]['x'], 
+                network_dfs[net]['nodes'].iloc[n]['y'])):
+            sim_area_nodes.add(n)
 #    add portals to list
 #    sim_area_nodes.add(['p'+str(p) for p in range(len(portals['features']))])
     sim_area_edges_df=network_dfs[net]['edges'].loc[

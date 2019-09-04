@@ -40,13 +40,13 @@ class App
 
   animate() {
     
-    var loopLength = 5*60*60; // unit corresponds to the timestamp in source data
+    var loopLength = 4*60*60; // unit corresponds to the timestamp in source data
     var animationSpeed = 60; // unit time per second
 
     const timestamp = Date.now() / 1000;
     const loopTime = loopLength / animationSpeed;
 
-    var time = 6*60*60+ Math.round(((timestamp % loopTime) / loopTime) * loopLength);
+    var time = 7*60*60+ Math.round(((timestamp % loopTime) / loopTime) * loopLength);
     // console.log(time)
     var trips_layer = new deck.TripsLayer({
       // type: 'TripsLayer',
@@ -76,8 +76,9 @@ var map;
 var arcsLayer;
 var deckgl;
 var app;
+const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/grasbrook/trips'
 // const ARC_DATA_URL = 'http://localhost:7777/abm_service/Hamburg/arcs/0';
-const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/corktown/trips'
+// const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/corktown/trips'
 const GRID_DATA_URL ='https://cityio.media.mit.edu/api/table/mocho/site_geojson'
 // 
 
@@ -89,7 +90,7 @@ var WIDTH_SCALE = d3.scaleLinear().domain([0, 100]).range([3, 10]);
 
 const PROPS ={
     opacity: 1,
-    widthMinPixels: 3,
+    widthMinPixels: 1,
     rounded:true,
     trailLength: 100}
 
@@ -129,12 +130,15 @@ var trips_layer = new deck.TripsLayer({
 // };
 
 const INITIAL_VIEW_STATE = {
-  // longitude: -71.091681,
-  // latitude: 42.354742, 
-  longitude:10.023724,
-  latitude:53.529320, 
-  zoom: 12,
-  maxZoom: 19,
+
+  longitude: -71.091681,
+  latitude: 42.354742, 
+  // longitude:10.023724,
+  // latitude:53.529320, 
+  // longitude: -83.06,
+  // latitude: 42.33, 
+  zoom: 13,
+  maxZoom: 25,
   pitch: 60,
   bearing: 0
 };

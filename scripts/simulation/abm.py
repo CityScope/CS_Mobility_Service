@@ -441,10 +441,10 @@ portals=json.load(open(PORTALS_PATH))
 
 if city=='Hamburg':
     geoid_order_all=[f['properties']['GEO_ID'] for f in all_zones['features']]
-    geoid_order_sim=[f['properties']['GEO_ID'] for f in sim_zones['features']]
+    sim_area_zone_list=[f['properties']['GEO_ID'] for f in sim_zones['features']]
 else:
     geoid_order_all=[f['properties']['GEO_ID'].split('US')[1] for f in all_zones['features']]
-    geoid_order_sim=[f['properties']['GEO_ID'].split('US')[1] for f in sim_zones['features']]
+    sim_area_zone_list=[f['properties']['GEO_ID'].split('US')[1] for f in sim_zones['features']]
 
 all_geoid_centroids={}
 for ind, geo_id in enumerate(geoid_order_all):
@@ -472,8 +472,9 @@ grid_points_ll = [[g['lon'] , g['lat']] for g in grid_points]
 
 graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
                         cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
+
+sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
 #
-sim_area_zone_list=geoid_order_sim.copy()+['g'+str(i) for i in range(len(grid_points_ll))]
 # =============================================================================
 # Locations
 # =============================================================================
@@ -505,13 +506,14 @@ base_floating_persons=json.load(open(FLOATING_PATH))
 base_vacant_houses=json.load(open(VACANT_PATH))
 for h in base_vacant_houses:
     h['centroid']=all_geoid_centroids[h['home_geoid']]
-    
-get_LLs(base_sim_persons, ['home', 'work'])
-get_routes(base_sim_persons)
-predict_modes(base_sim_persons)
-post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
-create_trips(base_sim_persons)
-post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
+
+if base_sim_persons:    
+    get_LLs(base_sim_persons, ['home', 'work'])
+    get_routes(base_sim_persons)
+    predict_modes(base_sim_persons)
+    post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
+    create_trips(base_sim_persons)
+    post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
 
 # =============================================================================
 # Handle Interactions
