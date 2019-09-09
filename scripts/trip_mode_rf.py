@@ -11,9 +11,8 @@ Created on Wed Feb 13 12:24:53 2019
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, RandomizedSearchCV, GridSearchCV
-from sklearn.metrics import confusion_matrix, make_scorer, classification_report
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 import pickle
 import json
@@ -21,17 +20,20 @@ import json
 #********************************************
 #      Constants
 #********************************************
-city='Boston'
-REGION_CDIVMSARS=[11,21] 
+city='Detroit'
+REGION_CDIVMSARS_BY_CITY={"Boston": [11,21] ,
+                           "Detroit": [31, 32]
+                           }
+region_cdivsmars=REGION_CDIVMSARS_BY_CITY[city]
 # MSAs in New England and N Atlantic with 1mil+ pop and heavy rail
 # using New England only results in toos small a sample
 
-NHTS_PATH='NHTS/perpub.csv'
-NHTS_TOUR_PATH='NHTS/tour17.csv'
-NHTS_TRIP_PATH='NHTS/trippub.csv'
+NHTS_PATH='scripts/NHTS/perpub.csv'
+NHTS_TOUR_PATH='scripts/NHTS/tour17.csv'
+NHTS_TRIP_PATH='scripts/NHTS/trippub.csv'
 #MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
-PICKLED_MODEL_PATH='./models/trip_mode_rf.p'
-RF_FEATURES_LIST_PATH='./models/rf_features.json'
+PICKLED_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_rf.p'
+RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
 
 # =============================================================================
 # Functions
@@ -72,6 +74,17 @@ def bach_degree_cat_nhts(row):
     if row['EDUC'] >=4: return "yes"
     return "no" 
 
+def cars_cat_nhts(row):
+    if row['HHVEHCNT'] == 0: return "none"
+    elif row['HHVEHCNT'] == 1: return "one"
+    return "two or more"
+
+def race_cat_nhts(row):
+    if row['R_RACE'] == 1: return "white"
+    elif row['R_RACE'] == 2: return "black"
+    elif row['R_RACE'] == 3: return "asian"
+    return "other"
+
 # Functions to simplify some NHTS categories
 def trip_type_cat(row):
     if row['TRIPPURP']=='HBW': # includes to work and back to home trips
@@ -93,7 +106,7 @@ def mode_cat(nhts_mode):
         return 3 # PT
     else:
         return -99
-    
+
 
 #********************************************
 #      Data
@@ -109,13 +122,16 @@ nhts_trip['uniquePersonId']=nhts_trip.apply(lambda row: str(row['HOUSEID'])+'_'+
 nhts_per['uniquePersonId']=nhts_per.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
 nhts_tour['uniquePersonId']=nhts_tour.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
 
+# Some lookups
 nhts_tour=nhts_tour.merge(nhts_per[['HOUSEID', 'HH_CBSA']], on='HOUSEID', how='left')
+nhts_trip=nhts_trip.merge(nhts_per[['uniquePersonId', 'R_RACE']], on='uniquePersonId', how='left')
+
 
 tables={'trips': nhts_trip, 'persons': nhts_per, 'tours': nhts_tour}
 # put tables in a dict so we can use a loop to avoid repetition
 for t in ['trips', 'persons']:
 # remove some records
-    tables[t]=tables[t].loc[((tables[t]['CDIVMSAR'].isin(REGION_CDIVMSARS))&
+    tables[t]=tables[t].loc[((tables[t]['CDIVMSAR'].isin(region_cdivsmars))&
                              (tables[t]['URBAN']==1))]
     tables[t]=tables[t].loc[tables[t]['R_AGE_IMP']>15]
     tables[t]['income']=tables[t].apply(lambda row: income_cat_nhts(row), axis=1)
@@ -125,24 +141,41 @@ for t in ['trips', 'persons']:
     tables[t]['tenure']=tables[t].apply(lambda row: tenure_cat_nhts(row), axis=1)
     tables[t]['sex']=tables[t].apply(lambda row: sex_cat_nhts(row), axis=1)
     tables[t]['bach_degree']=tables[t].apply(lambda row: bach_degree_cat_nhts(row), axis=1)
+    tables[t]['cars']=tables[t].apply(lambda row: cars_cat_nhts(row), axis=1)
+    tables[t]['race']=tables[t].apply(lambda row: race_cat_nhts(row), axis=1)
     tables[t]=tables[t].rename(columns= {'HTPPOPDN': 'pop_per_sqmile_home'})
+
+
 
 #with the tour file:
 #    get the speed for each mode and the distance to walk/drive to transit for each CBSA
 #    we can use this to estimate the travel time for each potential mode in the trip file
-speeds={c:{} for c in set(tables['persons']['HH_CBSA'])}
-tables['tours']['main_mode']=tables['tours'].apply(lambda row: mode_cat(row['MODE_D']), axis=1)
-for c in speeds:
-    this_cbsa=tables['tours'][tables['tours']['HH_CBSA']==c]
-    for m in [0,1,2, 3]:
-        all_speeds=this_cbsa.loc[((this_cbsa['main_mode']==m) & (this_cbsa['TIME_M']>0))].apply(lambda row: row['DIST_M']/row['TIME_M'], axis=1)
-        if len(all_speeds)>0:
-            speeds[c]['km_per_minute_'+str(m)]=1.62* all_speeds.mean()
-        else:
-            speeds[c]['km_per_minute_'+str(m)]=float('nan')
-    speeds[c]['walk_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_WALK'].mean()
-    speeds[c]['drive_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_POV'].mean()
 
+#global_avg_speeds={}
+speeds={area:{} for area in set(tables['persons']['HH_CBSA'])}
+tables['tours']['main_mode']=tables['tours'].apply(lambda row: mode_cat(row['MODE_D']), axis=1)
+
+for area in speeds:
+    this_cbsa=tables['tours'][tables['tours']['HH_CBSA']==area]
+    for m in [0,1,2, 3]:
+        all_speeds=this_cbsa.loc[((this_cbsa['main_mode']==m) & 
+                                  (this_cbsa['TIME_M']>0))].apply(
+                                    lambda row: row['DIST_M']/row['TIME_M'], axis=1)
+        if len(all_speeds)>0:
+            speeds[area]['km_per_minute_'+str(m)]=1.62* all_speeds.mean()
+        else:
+            speeds[area]['km_per_minute_'+str(m)]=float('nan')
+    speeds[area]['walk_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_WALK'].mean()
+    speeds[area]['drive_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_POV'].mean()
+
+# for any region where a mode is not observed at all, 
+# assume the speed of that mode is
+# that of the slowest region
+for area in speeds:
+    for mode_speed in speeds[area]:
+        if not float(speeds[area][mode_speed]) == float(speeds[area][mode_speed]):
+            print('Using lowest speed')
+            speeds[area][mode_speed] = np.nanmin([speeds[other_area][mode_speed] for other_area in speeds])
 
 # with the trip table only
 tables['trips']['network_dist_km']=tables['trips'].apply(lambda row: row['TRPMILES']/1.62, axis=1)
@@ -161,7 +194,8 @@ mode_table['PT_time_minutes']=tables['trips'].apply(lambda row: row['network_dis
 mode_table['walk_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
 mode_table['drive_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
 
-for col in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 'bach_degree', 'purpose']:
+for col in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
+            'bach_degree', 'purpose', 'cars', 'race']:
     new_dummys=pd.get_dummies(tables['trips'][col], prefix=col)
     mode_table=pd.concat([mode_table, new_dummys],  axis=1)
  

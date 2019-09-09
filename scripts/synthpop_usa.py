@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Mon Jul 15 12:48:13 2019
@@ -9,7 +9,6 @@ Created on Mon Jul 15 12:48:13 2019
 from synthpop.census_helpers import Census
 from synthpop import categorizer as cat
 from synthpop import synthesizer
-from synthpop.recipes import starter
 import pandas as pd
 import numpy as np
 import json
@@ -78,12 +77,14 @@ elif city=='Detroit':
     state='26'
     state_code='mi'
     
-ALL_ZONES_PATH='./cities/'+city+'/clean/model_area.geojson'
-SIM_ZONES_PATH='./cities/'+city+'/clean/sim_area.geojson'
-OD_PATH='./cities/'+city+'/raw/LODES/'+state_code+'_od_main_JT00_2015.csv'
-ALL_SYNTH_HH_PATH='./cities/'+city+'/clean/all_synth_hh.csv'
-ALL_SYNTH_PERSONS_PATH='./cities/'+city+'/clean/all_synth_persons.csv'
-SIM_POP_PATH='./cities/'+city+'/clean/sim_pop.json'
+ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
+SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
+OD_PATH='./scripts/cities/'+city+'/raw/LODES/'+state_code+'_od_main_JT00_2015.csv'
+ALL_SYNTH_HH_PATH='./scripts/cities/'+city+'/clean/all_synth_hh.csv'
+ALL_SYNTH_PERSONS_PATH='./scripts/cities/'+city+'/clean/all_synth_persons.csv'
+SIM_POP_PATH='./scripts/cities/'+city+'/clean/sim_pop.json'
+VACANT_PATH='./scripts/cities/'+city+'/clean/vacant.json'
+FLOATING_PATH='./scripts/cities/'+city+'/clean/floating.json'
 
 c = Census('7a25a7624075d46f112113d33106b6648f42686a')
 
@@ -106,13 +107,13 @@ tract_columns = vehicle_columns + workers_columns
 #Persons
 population = ['B01001_001E']
 sex = ['B01001_002E', 'B01001_026E']
-# race = ['B02001_0%02dE'%i for i in range(1,11)]
+race = ['B02001_0%02dE'%i for i in range(1,11)]
 male_age_columns = ['B01001_0%02dE'%i for i in range(3,26)]
 female_age_columns = ['B01001_0%02dE'%i for i in range(27,50)]
 # worker_class_columns=['B08128_0%02dE'%i for i in range(1, 7)]
 worker_class_columns=['B24080_0%02dE'%i for i in [1,3,6,7,8,9,10,13,16,17,18,19,20]]
 # One more column needed for the 16 and under not incuded in the worker_class population
-all_columns = population + sex + male_age_columns + female_age_columns 
+all_columns = population + sex + male_age_columns + female_age_columns  + race
 # +worker_class_columns
 
 # =============================================================================
@@ -211,11 +212,11 @@ p_acs_cat = cat.categorize(p_acs, {
                          "B01001_043E + B01001_044E + B01001_045E + "
                          "B01001_046E + B01001_047E + B01001_048E + "
                          "B01001_049E", 
-#     ("race", "white"):   "B02001_002E",
-#     ("race", "black"):   "B02001_003E",
-#     ("race", "asian"):   "B02001_005E",
-#     ("race", "other"):   "B02001_004E + B02001_006E + B02001_007E + "
-#                          "B02001_008E",
+     ("race", "white"):   "B02001_002E",
+     ("race", "black"):   "B02001_003E",
+     ("race", "asian"):   "B02001_005E",
+     ("race", "other"):   "B02001_004E + B02001_006E + B02001_007E + "
+                          "B02001_008E",
     ("sex", "male"):     "B01001_002E",
     ("sex", "female"):   "B01001_026E",
 #     ("worker_class", "private_for_profit"): "B24080_003E+ B24080_013E",
@@ -263,7 +264,7 @@ for puma in all_pumas:
     p_pums, jd_persons = cat.joint_distribution(
         p_pums,
         cat.category_combinations(p_acs_cat.columns),
-        {"age": age_cat, "sex": sex_cat}
+        {"age": age_cat, "sex": sex_cat, "race": race_cat}
     )
     # simulate households and persons for each person in each block-group of this PUMA
     for bg_ind in this_puma_ind:
@@ -287,7 +288,7 @@ all_persons.to_csv(ALL_SYNTH_PERSONS_PATH, index=False)
 # =============================================================================
 #  Combine with O-D data to create sample of people living/ working in Sim Area
 # =============================================================================
-set
+
 synth_hh_df=all_households
 synth_persons_df=all_persons
 
@@ -316,8 +317,8 @@ od_bg=od.groupby(['h_block_group', 'w_block_group'] , as_index=False)['S000'].ag
 
 # define the attributes we need for the person objects
 house_cols=['puma10','beds', 'rent', 'tenure','built_since_jan2010', 'home_geoid']
-person_cols=['COW', 'bach_degree', 'age', 'sex']
-person_cols_hh=['income', 'children', 'workers', 'tenure']
+person_cols=['COW', 'bach_degree', 'age', 'sex', 'race']
+person_cols_hh=['income', 'children', 'workers', 'tenure', 'HINCP', 'cars']
 person_cols.extend(person_cols_hh)
 # create empty objects for sim_people
 sim_people=[]
@@ -331,14 +332,17 @@ for ind, row in od_bg.iterrows():
     count+=1
     if count%1000==0: 
         print(count)
-    if ((row['h_block_group'] in all_sim_zones) or (row['w_block_group'] in all_sim_zones)):
+    if (((row['h_block_group'] in all_sim_zones) or 
+         (row['w_block_group'] in all_sim_zones)) and 
+         (row['w_block_group'] in all_zones) and 
+         (row['h_block_group'] in all_zones)):
         people_to_sample=row['S000']/sample_factor
 #        total_people+=people_to_sample
         people_to_sample_int=int(people_to_sample)
         if people_to_sample%1>random.uniform(0, 1):
             people_to_sample_int+=1
         if people_to_sample_int>0:
-            hh_same_home_bg=synth_hh_df.loc[synth_hh_df['home_geoid']==int(row['h_block_group'])]
+            hh_same_home_bg=synth_hh_df.loc[synth_hh_df['home_geoid']==row['h_block_group']]
             hh_same_home_bg=hh_same_home_bg.drop_duplicates()
             people_candidates=synth_persons_df.loc[synth_persons_df['serialno'].isin(
                     hh_same_home_bg['serialno'].values)]
@@ -351,15 +355,37 @@ for ind, row in od_bg.iterrows():
                 add_person['work_geoid']=row['w_block_group']
                 sim_people.append(add_person)
 
+# TODO: vacant houses median income and density should come from ACS
+
 json.dump(sim_people, open(SIM_POP_PATH, 'w'))
 # a random sample of people and a random sample of housing units  
 # to be used for the vacant houses, people moving house and new population
 #take 1% sample of all HHs:
+vacant_houses, floating_people=[], []
+sample_HHs=synth_hh_df.sample(frac=0.0001)
 #for each:
+for ind, row in sample_HHs.iterrows():
+    # sample a home location
+    house_obj={col: row[col] for col in house_cols}
+    house_obj['puma_med_income']=60000
+    house_obj['puma_pop_per_sqmeter']= 0.000292
 #    add housing info to housing stock object
+    vacant_houses.append(house_obj)
 #    get subset of people with this hh id
-#    spawn person and add their info to persons stock object
-            
-        
+    persons_in_house=synth_persons_df.loc[
+            synth_persons_df['serialno']==row['serialno']]
+    sample_persons=persons_in_house.sample(n=row['NP'])
+    sample_persons=sample_persons.merge(sample_HHs, on='serialno', how='left')
+    for p_ind, p_row in sample_persons.iterrows():
+        add_person={col: p_row[col] for col in person_cols}
+        add_person['pop_per_sqmile_home']=5000
+        od_bg_subset=od_bg.loc[od_bg['h_block_group']==str(row['home_geoid'])]
+        add_person['work_geoid']=np.random.choice(
+                od_bg_subset['w_block_group'].values,
+                p=od_bg_subset['S000'].values/sum(od_bg_subset['S000'].values))
+        floating_people.append(add_person)
+
+json.dump(vacant_houses, open(VACANT_PATH, 'w'))
+json.dump(floating_people, open(FLOATING_PATH, 'w'))                  
 
 
