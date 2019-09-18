@@ -20,7 +20,7 @@ from scipy import spatial
 import requests
 from time import sleep
 import time
-from grid_geojson.grid_geojson import *
+
 
 # =============================================================================
 # Functions
@@ -73,17 +73,18 @@ def createGridGraphs(grid_coords_ll, graphs, nrows, ncols, cell_size):
                        'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
     return graphs 
 
-def random_points_within(poly, num_points):
-    """ takes a polygon such as an admin boundary or building and selects 
-    a random point inside using rejection sampling
-    """
-    min_x, min_y, max_x, max_y = poly.bounds
-    points = []
-    while len(points) < num_points:
-        random_point = Point([random.uniform(min_x, max_x), random.uniform(min_y, max_y)])
-        if (random_point.within(poly)):
-            points.append(random_point)
-    return points
+#def random_points_within(poly, num_points):
+#    """ takes a polygon such as an admin boundary or building and selects 
+#    a random point inside using rejection sampling
+#    """
+#    min_x, min_y, max_x, max_y = poly.bounds
+#    points = []
+#    while len(points) < num_points:
+#        random_point = Point([random.uniform(min_x, max_x), random.uniform(min_y, max_y)])
+#        if (random_point.within(poly)):
+#            points.append(random_point)
+#    return points
+    
 
 def get_LLs(persons, places):
     """ takes a list of person objects and 
@@ -96,9 +97,15 @@ def get_LLs(persons, places):
             if 'g' in str(geoid):
                 ll=grid_points_ll[int(geoid[1:])]
             else:
-                poly=shape(all_zones['features'][geoid_order_all.index(geoid)]['geometry'])
-                ll_obj=random_points_within(poly,1)[0]
-                ll=[ll_obj.x, ll_obj.y]
+#                poly=shape(all_zones['features'][geoid_order_all.index(geoid)]['geometry'])
+#                ll_obj=random_points_within(poly,1)[0]
+#                ll=[ll_obj.x, ll_obj.y]
+                all_points=all_zones['features'][geoid_order_all.index(geoid)]['geometry']['coordinates'][0][0]
+                min_x=min([px[0] for px in all_points])
+                max_x=min([px[0] for px in all_points])
+                min_y=min([px[1] for px in all_points])
+                max_y=min([px[1] for px in all_points])
+                ll=[random.uniform(min_x, max_x), random.uniform(min_y, max_y)]
             p[place+'_ll']=ll
 
 def find_route_multi(start_nodes, end_nodes, graph, weight):
@@ -279,14 +286,16 @@ def create_trips(persons):
         route_coords=[nodes_xy[p['mode']][n] for n in route_nodes]
         route_time=[p['sim_start_time']]+[int(p['sim_start_time']+w*60
                     ) for w in np.cumsum(chosen_route['weights'])]
-        p['trip']=[[int(1e5*route_coords[n]['x'])/1e5, # reduce precision
-                    int(1e5*route_coords[n]['y'])/1e5,
-                    route_time[n]] for n in range(len(route_nodes))]
+        p['path']=[[int(1e5*route_coords[n]['x'])/1e5, # reduce precision
+                    int(1e5*route_coords[n]['y'])/1e5
+                    ]for n in range(len(route_nodes))]
+        p['timestamps']=route_time
 # 
 def post_trips_data(persons, destination_address):
     """ posts trip data json to cityIO
     """
-    trips_str=json.dumps([{'mode': p['mode'], 'segments': p['trip']} for p in persons]) 
+    trips_str=json.dumps([{'mode': p['mode'], 'path': p['path'], 
+                           'timestamps': p['timestamps']} for p in persons]) 
     try:
         r = requests.post(destination_address, data = trips_str)
         print(r)
@@ -373,6 +382,9 @@ PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
 ROUTE_COSTS_PATH='./scripts/cities/'+city+'/clean/route_costs.json'
 SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
 
+GRID_FULL_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_full.geojson'
+GRID_INT_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
+
 
 
 # the graph used by each mode
@@ -409,7 +421,7 @@ table_name_map={'Boston':"mocho",
 host='https://cityio.media.mit.edu/'
 cityIO_grid_url=host+'api/table/'+table_name_map[city]
 UPDATE_FREQ=1 # seconds
-CITYIO_SAMPLE_PATH='../cities/'+city+'/clean/sample_cityio_data.json' #cityIO backup data
+CITYIO_SAMPLE_PATH='scripts/cities/'+city+'/clean/sample_cityio_data.json' #cityIO backup data
 
 # destination for output files
 CITYIO_OUTPUT_PATH=host+'api/table/update/'+table_name_map[city]+'/'
@@ -448,12 +460,16 @@ else:
 
 all_geoid_centroids={}
 for ind, geo_id in enumerate(geoid_order_all):
-    centroid=shape(all_zones['features'][ind]['geometry']).centroid
-    all_geoid_centroids[geo_id]=[centroid.x, centroid.y]
+#    centroid=shape(all_zones['features'][ind]['geometry']).centroid
+    centroid=np.mean(all_zones['features'][ind]['geometry']['coordinates'][0][0], axis=0)
+#    all_geoid_centroids[geo_id]=[centroid.x, centroid.y]
+    all_geoid_centroids[geo_id]=list(centroid)
 
 # =============================================================================
 # Processing of spatial grid data
 # =============================================================================
+# Get the grid data
+# Interactive grid parameters
 try:
     with urllib.request.urlopen(cityIO_grid_url+'/header/spatial') as url:
     #get the latest grid data
@@ -462,13 +478,28 @@ except:
     print('Using static cityIO grid file')
     cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
     cityIO_spatial_data=cityIO_data['header']['spatial']
-    
-grid=Grid(cityIO_spatial_data['longitude'], cityIO_spatial_data['latitude'], 
-          cityIO_spatial_data['rotation'],  cityIO_spatial_data['cellSize'], 
-          cityIO_spatial_data['nrows'], cityIO_spatial_data['ncols'])
 
-grid_points=grid.all_cells_top_left
-grid_points_ll = [[g['lon'] , g['lat']] for g in grid_points]
+# Interactive grid geojson    
+try:
+    with urllib.request.urlopen(cityIO_grid_url+'/grid_interactive_area') as url:
+    #get the latest grid data
+        grid_interactive=json.loads(url.read().decode())
+except:
+    print('Using static cityIO grid file')
+    grid_interactive=json.load(open(GRID_INT_SAMPLE_PATH))
+    
+# Full table grid geojson      
+try:
+    with urllib.request.urlopen(cityIO_grid_url+'/grid_full_table') as url:
+    #get the latest grid data
+        grid_full_table=json.loads(url.read().decode())
+except:
+    print('Using static cityIO grid file')
+    grid_full_table=json.load(open(GRID_FULL_SAMPLE_PATH))
+    
+
+grid_points_ll=[f['geometry']['coordinates'][0][0] for f in grid_interactive['features']]
+
 
 graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
                         cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
@@ -490,9 +521,12 @@ for mode in mode_graphs:
         nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
              'y':grid_points_ll[i][1]}
     for p in range(len(portals['features'])):
-        p_centroid=shape(portals['features'][p]['geometry']).centroid
-        nodes_xy[mode]['p'+str(p)]={'x':p_centroid.x,
-             'y':p_centroid.y}
+#        p_centroid=shape(portals['features'][p]['geometry']).centroid
+        p_centroid=np.mean(portals['features'][p]['geometry']['coordinates'][0], axis=0)
+#        nodes_xy[mode]['p'+str(p)]={'x':p_centroid.x,
+#             'y':p_centroid.y}
+        nodes_xy[mode]['p'+str(p)]={'x':p_centroid[0],
+             'y':p_centroid[1]}
                    
 # =============================================================================
 # Population
@@ -547,7 +581,6 @@ while True:
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(cityIO_grid_data))] # random mix
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(cityIO_grid_data))] # affordable + employment
 ## =============================================================================
-        grid_geo=grid.get_grid_geojson({'usage': [gd[0] for gd in cityIO_grid_data]})
         new_houses=[]
         new_persons=[]
 #        new_households=[]        

@@ -76,9 +76,9 @@ var map;
 var arcsLayer;
 var deckgl;
 var app;
-const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/grasbrook/trips'
+// const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/grasbrook/trips'
 // const ARC_DATA_URL = 'http://localhost:7777/abm_service/Hamburg/arcs/0';
-// const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/corktown/trips'
+const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/corktown/trips'
 const GRID_DATA_URL ='https://cityio.media.mit.edu/api/table/mocho/site_geojson'
 // 
 
@@ -131,12 +131,12 @@ var trips_layer = new deck.TripsLayer({
 
 const INITIAL_VIEW_STATE = {
 
-  longitude: -71.091681,
-  latitude: 42.354742, 
+  // longitude: -71.091681,
+  // latitude: 42.354742, 
   // longitude:10.023724,
   // latitude:53.529320, 
-  // longitude: -83.06,
-  // latitude: 42.33, 
+  longitude: -83.06,
+  latitude: 42.33, 
   zoom: 13,
   maxZoom: 25,
   pitch: 60,
