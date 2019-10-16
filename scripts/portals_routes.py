@@ -72,7 +72,7 @@ city='Detroit'
 
 ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
-SIM_AREA_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
+SIM_AREA_PATH='./scripts/cities/'+city+'/clean/table_area.geojson'
 
 # networks from CS_Accessibility- placed in folder manually for now
 PT_NODES_PATH='./scripts/cities/'+city+'/clean/comb_network_nodes.csv'

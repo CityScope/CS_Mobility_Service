@@ -194,8 +194,8 @@ def get_routes(persons):
                         np.array(meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']), 5)[1]
                 work_node_list=graphs[mode_graphs[m]]['kdtree'].query(
                         np.array(meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']), 5)[1]
-                p['routes'][m]=get_route_costs(home_node_list, work_node_list, 
-                                            graphs[mode_graphs[m]]['graph'], 'weight_minutes')
+                p['routes'][m]={'route':get_route_costs(home_node_list, work_node_list, 
+                                            graphs[mode_graphs[m]]['graph'], 'weight_minutes')}
                 p['routes'][m]['sim_start_time']=start_time
         elif p['work_sim']['type']=='meta_grid':
             p['type']=1 # commute_in
@@ -217,9 +217,8 @@ def get_routes(persons):
                     if total_time<best_portal_route_time:
                         best_portal=portal
                         best_portal_route_time=total_time
-                p['routes'][m]=portal_routes[best_portal]
+                p['routes'][m]={'portal': best_portal, 'route': portal_routes[best_portal]}
                 p['routes'][m]['sim_start_time']=int(start_time+best_portal_route_time*60)
-                p['home_sim']['ind']=best_portal
         elif p['home_sim']['type']=='meta_grid':
             p['type']=2 # commute_out
             for m in range(4):
@@ -240,9 +239,8 @@ def get_routes(persons):
                     if total_time<best_portal_route_time:
                         best_portal=portal
                         best_portal_route_time=total_time
-                p['routes'][m]=portal_routes[best_portal]
+                p['routes'][m]={'portal': best_portal, 'route': portal_routes[best_portal]}
                 p['routes'][m]['sim_start_time']=start_time
-                p['work_sim']['ind']=best_portal
 def predict_modes(persons):
     """ takes list of person objects and 
     predicts transport modes for each person's commute
@@ -257,11 +255,11 @@ def predict_modes(persons):
         feature_df=pd.concat([feature_df, new_dummys],  axis=1)
     # TODO: better method of predicting travel times
     # routing engine or feedback from simulation
-    feature_df['drive_time_minutes']=  feature_df.apply(lambda row: row['routes'][0]['driving'], axis=1)     
-    feature_df['cycle_time_minutes']=  feature_df.apply(lambda row: row['routes'][1]['cycling'], axis=1)     
-    feature_df['walk_time_minutes']=  feature_df.apply(lambda row: row['routes'][2]['walking'], axis=1)     
-    feature_df['PT_time_minutes']=  feature_df.apply(lambda row: row['routes'][3]['pt'], axis=1)
-    feature_df['walk_time_PT_minutes']=feature_df.apply(lambda row: row['routes'][3]['walking'], axis=1)  
+    feature_df['drive_time_minutes']=  feature_df.apply(lambda row: row['routes'][0]['route']['driving'], axis=1)     
+    feature_df['cycle_time_minutes']=  feature_df.apply(lambda row: row['routes'][1]['route']['cycling'], axis=1)     
+    feature_df['walk_time_minutes']=  feature_df.apply(lambda row: row['routes'][2]['route']['walking'], axis=1)     
+    feature_df['PT_time_minutes']=  feature_df.apply(lambda row: row['routes'][3]['route']['pt'], axis=1)
+    feature_df['walk_time_PT_minutes']=feature_df.apply(lambda row: row['routes'][3]['route']['walking'], axis=1)  
     feature_df['drive_time_PT_minutes']=0 
     # TODO: below should come directly from the path-finding
     feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1) 
@@ -282,8 +280,10 @@ def predict_modes(persons):
     for i,p in enumerate(persons): 
         chosen_mode=int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0])
         p['mode']=chosen_mode
-        home_node=p['routes'][chosen_mode]['node_route'][0]
-        work_node=p['routes'][chosen_mode]['node_route'][-1]
+        if p['home_sim']['type']=='portal': p['home_sim']['ind']=p['routes'][chosen_mode]['portal']
+        elif p['work_sim']['type']=='portal': p['work_sim']['ind']=p['routes'][chosen_mode]['portal']
+        home_node=p['routes'][chosen_mode]['route']['node_route'][0]
+        work_node=p['routes'][chosen_mode]['route']['node_route'][-1]
         p['home_node_ll']=[nodes_xy[chosen_mode][home_node]['x'], 
                            nodes_xy[chosen_mode][home_node]['y']]
         p['work_node_ll']=[nodes_xy[chosen_mode][work_node]['x'], 
@@ -293,6 +293,8 @@ def predict_modes(persons):
 def post_od_data(persons, destination_address):
     od_str=json.dumps([{'home_ll': p['home_node_ll'],
                        'work_ll': p['work_node_ll'],
+                       'home_sim': p['home_sim'],
+                       'work_sim': p['work_sim'],
                        'type': p['type'],
                        'mode': p['mode'],
                        'start_time': p['sim_start_time']} for p in persons])
