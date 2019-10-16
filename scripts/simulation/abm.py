@@ -6,18 +6,9 @@ Created on Thu Aug 16 14:50:11 2018
 @author: doorleyr
 """
 
-# onsite locations are always grid ids
-# offsite locations are always zone ids
-# home_geoid and work_geoid are zones
-# create new attribute: sim_home and sim_work which are grid cells or portals
-# in o-d end-point, only give sim_home and sim_work
-# get requests for one meta grid instead of 2
+
 # eventually may not need home and work LLs- just get the closest node to every grid cell
 # Later: separate script to create future roads (GB only)
-
-
-# give each agent a simulation home (type, index) and workplace
-# give them home_ll and work_ll based on these
 
 import pickle
 import json

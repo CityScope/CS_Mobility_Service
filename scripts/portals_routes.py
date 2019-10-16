@@ -7,7 +7,6 @@ Created on Thu Jul 18 10:10:02 2019
 """
 # shapely and osmnet dont work on anaconda default
 
-
 import osmnet
 import json
 from shapely.geometry import Point, shape

@@ -6,8 +6,6 @@ Created on Mon Jul 15 12:48:13 2019
 @author: doorleyr
 """
 
-# delete sim_zones, use list of zones instead
-
 from synthpop.census_helpers import Census
 from synthpop import categorizer as cat
 from synthpop import synthesizer
