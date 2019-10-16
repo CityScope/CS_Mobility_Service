@@ -15,6 +15,10 @@ Created on Thu Aug 16 14:50:11 2018
 # eventually may not need home and work LLs- just get the closest node to every grid cell
 # Later: separate script to create future roads (GB only)
 
+
+# give each agent a simulation home (type, index) and workplace
+# give them home_ll and work_ll based on these
+
 import pickle
 import json
 import random
@@ -103,6 +107,26 @@ def approx_shape_centroid(geometry):
     else:
         print('Unknown geometry type')
     
+def get_simulation_locations(persons):
+    """
+    For each agent, based on their actual home and work zones (geoids or int grid cells)
+    a "simulation" home and a workplace are assigned which may be metagrid cells or portals
+    """
+    for p in persons:  
+        for place in ['home', 'work']:
+            geoid=p[place+'_geoid']
+            if 'g' in str(geoid):
+                p[place+'_sim']={'type': 'meta_grid', 
+                                 'ind': int_to_meta_grid(int(geoid[1:]))}
+            elif p[place+'_geoid'] in sim_area_zone_list:
+                relevant_land_use_codes=land_use_codes[place]
+                possible_locations=[static_land_uses[rlu] for rlu in relevant_land_use_codes]
+                possible_locations=[item for sublist in possible_locations for item in sublist]
+                p[place+'_sim']={'type': 'meta_grid', 
+                                 'ind': random.choice(possible_locations)}
+            else:
+                p[place+'_sim']={'type': 'portal'}
+
 
 def get_LLs(persons, places):
     """ takes a list of person objects and 
@@ -115,17 +139,8 @@ def get_LLs(persons, places):
             if 'g' in str(geoid):
                 ll=grid_points_ll[int(geoid[1:])]
             else:
-#                poly=shape(all_zones['features'][geoid_order_all.index(geoid)]['geometry'])
-#                ll_obj=random_points_within(poly,1)[0]
-#                ll=[ll_obj.x, ll_obj.y]
                 ll=[all_geoid_centroids[geoid][0]+np.random.normal(0, 0.002, 1)[0], 
                     all_geoid_centroids[geoid][1]+np.random.normal(0, 0.002, 1)[0]]
-#                all_points=all_zones['features'][geoid_order_all.index(geoid)]['geometry']['coordinates'][0][0]
-#                min_x=min([px[0] for px in all_points])
-#                max_x=min([px[0] for px in all_points])
-#                min_y=min([px[1] for px in all_points])
-#                max_y=min([px[1] for px in all_points])
-#                ll=[random.uniform(min_x, max_x), random.uniform(min_y, max_y)]
             p[place+'_ll']=ll
 
 def find_route_multi(start_nodes, end_nodes, graph, weight):
@@ -172,31 +187,23 @@ def get_routes(persons):
     for p in persons:
         p['routes']={}
         start_time=7*60*60+random.choice(range(0,3*60*60))
-        # TODO: if both are grid cells
-        if p['home_geoid'] in sim_area_zone_list and p['work_geoid'] in sim_area_zone_list:
-            p['type']=0 # grasbrooker
+        if ((p['home_sim']['type']=='meta_grid') and  (p['work_sim']['type']=='meta_grid')):
+            p['type']=0 # lives and works on site
             for m in range(4):
-                if 'g' in str(p['home_geoid']):
-                    home_node_list=[p['home_geoid']]
-                else:
-                    home_node_list=graphs[mode_graphs[m]]['kdtree'].query(np.array(p['home_ll']), 5)[1]
-                if 'g' in str(p['work_geoid']):
-                    work_node_list=[p['work_geoid']]
-                else:
-                    work_node_list=graphs[mode_graphs[m]]['kdtree'].query(np.array(p['work_ll']), 5)[1]
+                home_node_list=graphs[mode_graphs[m]]['kdtree'].query(
+                        np.array(meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']), 5)[1]
+                work_node_list=graphs[mode_graphs[m]]['kdtree'].query(
+                        np.array(meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']), 5)[1]
                 p['routes'][m]=get_route_costs(home_node_list, work_node_list, 
                                             graphs[mode_graphs[m]]['graph'], 'weight_minutes')
                 p['routes'][m]['sim_start_time']=start_time
-        elif p['work_geoid'] in sim_area_zone_list:
-            # TODO: if work location is a grid cell
+        elif p['work_sim']['type']=='meta_grid':
             p['type']=1 # commute_in
             for m in range(4):
                 portal_routes={}
                 best_portal_route_time=float('inf')
-                if 'g' in str(p['work_geoid']):
-                    work_node_list=[p['work_geoid']]
-                else:
-                    work_node_list=graphs[mode_graphs[m]]['kdtree'].query(np.array(p['work_ll']), 5)[1]
+                work_node_list=graphs[mode_graphs[m]]['kdtree'].query(
+                        np.array(meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']), 5)[1]
                 for portal in range(len(ext_route_costs[mode_graphs[m]][str(p['home_geoid'])])):
                     # get route from home zone to portal by this mode
                     route_to_portal=ext_route_costs[mode_graphs[m]][str(p['home_geoid'])][str(portal)] 
@@ -212,16 +219,14 @@ def get_routes(persons):
                         best_portal_route_time=total_time
                 p['routes'][m]=portal_routes[best_portal]
                 p['routes'][m]['sim_start_time']=int(start_time+best_portal_route_time*60)
-        elif p['home_geoid'] in sim_area_zone_list:
-            # TODO: if home location is a grid cell
+                p['home_sim']['ind']=best_portal
+        elif p['home_sim']['type']=='meta_grid':
             p['type']=2 # commute_out
             for m in range(4):
                 portal_routes={}
                 best_portal_route_time=float('inf')
-                if 'g' in str(p['home_geoid']):
-                    home_node_list=[p['home_geoid']]
-                else:
-                    home_node_list=graphs[mode_graphs[m]]['kdtree'].query(np.array(p['home_ll']), 5)[1]
+                home_node_list=graphs[mode_graphs[m]]['kdtree'].query(
+                        np.array(meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']), 5)[1]
                 for portal in range(len(ext_route_costs[mode_graphs[m]][str(p['work_geoid'])])):
                     # get route from home zone to portal by this mode
                     route_from_portal=ext_route_costs[mode_graphs[m]][str(p['work_geoid'])][str(portal)] 
@@ -236,7 +241,8 @@ def get_routes(persons):
                         best_portal=portal
                         best_portal_route_time=total_time
                 p['routes'][m]=portal_routes[best_portal]
-                p['routes'][m]['sim_start_time']=start_time   
+                p['routes'][m]['sim_start_time']=start_time
+                p['work_sim']['ind']=best_portal
 def predict_modes(persons):
     """ takes list of person objects and 
     predicts transport modes for each person's commute
@@ -405,7 +411,7 @@ PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
 ROUTE_COSTS_PATH='./scripts/cities/'+city+'/clean/route_costs.json'
 SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
 
-GRID_FULL_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_full.geojson'
+META_GRID_SAMPLE_PATH='./scripts/cities/'+city+'/clean/meta_grid.geojson'
 GRID_INT_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
 
 
@@ -436,6 +442,8 @@ housing_types={1:{'rent': 800, 'beds': 2, 'built_since_jan2010': True,
                   'pop_per_sqmile': 5000, 'tenure': 'rented'}}
 # TODO: number of each employment sector for each building type
 employment_types= {3:{},4:{}}
+
+land_use_codes={'home': ['R'], 'work': ['M', 'B']}
 
 # #cityIO grid data
 table_name_map={'Boston':"mocho",
@@ -472,6 +480,10 @@ for graph in graphs:
 all_zones=json.load(open(ALL_ZONES_PATH))
 sim_zones=json.load(open(SIM_ZONES_PATH))
 portals=json.load(open(PORTALS_PATH))
+
+# add centroids to portals
+for p in portals['features']:
+    p['properties']['centroid']=approx_shape_centroid(p['geometry'])
 
 
 if city=='Hamburg':
@@ -511,14 +523,35 @@ except:
     print('Using static cityIO grid file')
     grid_interactive=json.load(open(GRID_INT_SAMPLE_PATH))
     
-# Full table grid geojson      
+# Full meta grid geojson      
 try:
-    with urllib.request.urlopen(cityIO_grid_url+'/grid_full_table') as url:
+    with urllib.request.urlopen(cityIO_grid_url+'/meta_grid') as url:
     #get the latest grid data
-        grid_full_table=json.loads(url.read().decode())
+        meta_grid=json.loads(url.read().decode())
 except:
     print('Using static cityIO grid file')
-    grid_full_table=json.load(open(GRID_FULL_SAMPLE_PATH))
+    meta_grid=json.load(open(META_GRID_SAMPLE_PATH))
+    
+# create a lookup from interactive grid to meta_grid
+# and a dict of statuc land uses to their locations in the meta_grid
+int_to_meta_grid={}
+static_land_uses={}
+for fi, f in enumerate(meta_grid['features']):
+    if f['properties']['interactive']:
+        int_to_meta_grid[int(f['properties']['interactive_id'])]=fi
+    else:
+        this_land_use=f['properties']['land_use']
+        if not this_land_use:
+            this_land_use='None'
+        this_land_use_simple=this_land_use[0]
+        if this_land_use_simple in static_land_uses:
+            static_land_uses[this_land_use_simple].append(fi)
+        else:
+            static_land_uses[this_land_use_simple]=[fi]
+
+# add centroids to meta_grid_cells
+for cell in meta_grid['features']:
+    cell['properties']['centroid']=approx_shape_centroid(cell['geometry'])
     
 
 grid_points_ll=[f['geometry']['coordinates'][0][0] for f in grid_interactive['features']]
@@ -530,7 +563,7 @@ graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'],
 sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
 #
 # =============================================================================
-# Locations
+# Node Locations
 # =============================================================================
 
 # create a list of nodes with their coords for each mode
@@ -540,9 +573,9 @@ for mode in mode_graphs:
     for i in range(len(graphs[mode_graphs[mode]]['nodes'])):
         nodes_xy[mode][i]={'x':graphs[mode_graphs[mode]]['nodes'].iloc[i]['x'],
              'y':graphs[mode_graphs[mode]]['nodes'].iloc[i]['y']}
-    for i in range(len(grid_points_ll)):
-        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
-             'y':grid_points_ll[i][1]}
+#    for i in range(len(grid_points_ll)):
+#        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
+#             'y':grid_points_ll[i][1]}
     for p in range(len(portals['features'])):
 #        p_centroid=shape(portals['features'][p]['geometry']).centroid
         p_centroid=approx_shape_centroid(portals['features'][p]['geometry'])
@@ -564,7 +597,8 @@ base_vacant_houses=json.load(open(VACANT_PATH))
 for h in base_vacant_houses:
     h['centroid']=all_geoid_centroids[h['home_geoid']]
 
-if base_sim_persons:    
+if base_sim_persons: 
+    get_simulation_locations(base_sim_persons)
     get_LLs(base_sim_persons, ['home', 'work'])
     get_routes(base_sim_persons)
     predict_modes(base_sim_persons)
