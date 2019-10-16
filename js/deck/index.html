@@ -41,7 +41,7 @@ class App
   animate() {
     
     var loopLength = 4*60*60; // unit corresponds to the timestamp in source data
-    var animationSpeed = 60; // unit time per second
+    var animationSpeed = 240; // unit time per second
 
     const timestamp = Date.now() / 1000;
     const loopTime = loopLength / animationSpeed;
@@ -90,7 +90,7 @@ var WIDTH_SCALE = d3.scaleLinear().domain([0, 100]).range([3, 10]);
 
 const PROPS ={
     opacity: 1,
-    widthMinPixels: 1,
+    widthMinPixels: 3,
     rounded:true,
     trailLength: 100}
 

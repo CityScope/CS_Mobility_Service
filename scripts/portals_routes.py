@@ -5,6 +5,9 @@ Created on Thu Jul 18 10:10:02 2019
 
 @author: doorleyr
 """
+# shapely and osmnet dont work on anaconda default
+
+
 import osmnet
 import json
 from shapely.geometry import Point, shape
@@ -69,7 +72,7 @@ city='Detroit'
 
 ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
-TABLE_AREA_PATH='./scripts/cities/'+city+'/clean/table_area.geojson'
+SIM_AREA_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
 
 # networks from CS_Accessibility- placed in folder manually for now
 PT_NODES_PATH='./scripts/cities/'+city+'/clean/comb_network_nodes.csv'
@@ -102,7 +105,7 @@ else:
     all_zones_geoid_order=[f['properties']['GEO_ID'].split('US')[1] for f in all_zones_shp['features']]
 
 portals=json.load(open(PORTALS_PATH))
-table_area=json.load(open(TABLE_AREA_PATH))
+sim_area=json.load(open(SIM_AREA_PATH))
 
 
 largeArea=[shape(f['geometry']) for f in all_zones_shp['features']]
@@ -268,7 +271,7 @@ for net in network_dfs:
 #    check if each node in any sim area, if so add to list
 #   TODO: stop checking when one is found
     for n in range(len(network_dfs[net]['nodes'])):
-        if shape(table_area['features'][0]['geometry']).contains(Point(
+        if shape(sim_area['features'][0]['geometry']).contains(Point(
                 network_dfs[net]['nodes'].iloc[n]['x'], 
                 network_dfs[net]['nodes'].iloc[n]['y'])):
             sim_area_nodes.add(n)

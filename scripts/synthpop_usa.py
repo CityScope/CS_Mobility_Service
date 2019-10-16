@@ -6,6 +6,8 @@ Created on Mon Jul 15 12:48:13 2019
 @author: doorleyr
 """
 
+# delete sim_zones, use list of zones instead
+
 from synthpop.census_helpers import Census
 from synthpop import categorizer as cat
 from synthpop import synthesizer
@@ -78,7 +80,7 @@ elif city=='Detroit':
     state_code='mi'
     
 ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
-SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
+SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_zones.json'
 OD_PATH='./scripts/cities/'+city+'/raw/LODES/'+state_code+'_od_main_JT00_2015.csv'
 ALL_SYNTH_HH_PATH='./scripts/cities/'+city+'/clean/all_synth_hh.csv'
 ALL_SYNTH_PERSONS_PATH='./scripts/cities/'+city+'/clean/all_synth_persons.csv'
@@ -306,8 +308,8 @@ synth_persons_df['bach_degree']=synth_persons_df.apply(lambda row:
 
 # get lists of zones in the total area and the simulation area        
 all_zones=[str(geo) for geo in list(set(synth_hh_df['home_geoid']))]
-all_sim_zones=list(set([f['properties']['GEO_ID'].split('US')[1] for 
-                        f in sim_zones['features']]))
+all_sim_zones=list(set([z.split('US')[1] for 
+                        z in sim_zones]))
 
 # get and process the LODES O-D data
 od=pd.read_csv(OD_PATH)

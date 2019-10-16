@@ -6,6 +6,15 @@ Created on Thu Aug 16 14:50:11 2018
 @author: doorleyr
 """
 
+# onsite locations are always grid ids
+# offsite locations are always zone ids
+# home_geoid and work_geoid are zones
+# create new attribute: sim_home and sim_work which are grid cells or portals
+# in o-d end-point, only give sim_home and sim_work
+# get requests for one meta grid instead of 2
+# eventually may not need home and work LLs- just get the closest node to every grid cell
+# Later: separate script to create future roads (GB only)
+
 import pickle
 import json
 import random
@@ -13,7 +22,6 @@ import urllib
 import pyproj
 import math
 import pandas as pd
-from shapely.geometry import Point,shape
 import numpy as np
 import networkx as nx
 from scipy import spatial
@@ -84,6 +92,16 @@ def createGridGraphs(grid_coords_ll, graphs, nrows, ncols, cell_size):
 #        if (random_point.within(poly)):
 #            points.append(random_point)
 #    return points
+
+def approx_shape_centroid(geometry):
+    if geometry['type']=='Polygon':
+        centroid=list(np.mean(geometry['coordinates'][0], axis=0))
+        return centroid
+    elif geometry['type']=='MultiPolygon':
+        centroid=list(np.mean(geometry['coordinates'][0][0], axis=0))
+        return centroid
+    else:
+        print('Unknown geometry type')
     
 
 def get_LLs(persons, places):
@@ -100,12 +118,14 @@ def get_LLs(persons, places):
 #                poly=shape(all_zones['features'][geoid_order_all.index(geoid)]['geometry'])
 #                ll_obj=random_points_within(poly,1)[0]
 #                ll=[ll_obj.x, ll_obj.y]
-                all_points=all_zones['features'][geoid_order_all.index(geoid)]['geometry']['coordinates'][0][0]
-                min_x=min([px[0] for px in all_points])
-                max_x=min([px[0] for px in all_points])
-                min_y=min([px[1] for px in all_points])
-                max_y=min([px[1] for px in all_points])
-                ll=[random.uniform(min_x, max_x), random.uniform(min_y, max_y)]
+                ll=[all_geoid_centroids[geoid][0]+np.random.normal(0, 0.002, 1)[0], 
+                    all_geoid_centroids[geoid][1]+np.random.normal(0, 0.002, 1)[0]]
+#                all_points=all_zones['features'][geoid_order_all.index(geoid)]['geometry']['coordinates'][0][0]
+#                min_x=min([px[0] for px in all_points])
+#                max_x=min([px[0] for px in all_points])
+#                min_y=min([px[1] for px in all_points])
+#                max_y=min([px[1] for px in all_points])
+#                ll=[random.uniform(min_x, max_x), random.uniform(min_y, max_y)]
             p[place+'_ll']=ll
 
 def find_route_multi(start_nodes, end_nodes, graph, weight):
@@ -152,6 +172,7 @@ def get_routes(persons):
     for p in persons:
         p['routes']={}
         start_time=7*60*60+random.choice(range(0,3*60*60))
+        # TODO: if both are grid cells
         if p['home_geoid'] in sim_area_zone_list and p['work_geoid'] in sim_area_zone_list:
             p['type']=0 # grasbrooker
             for m in range(4):
@@ -167,6 +188,7 @@ def get_routes(persons):
                                             graphs[mode_graphs[m]]['graph'], 'weight_minutes')
                 p['routes'][m]['sim_start_time']=start_time
         elif p['work_geoid'] in sim_area_zone_list:
+            # TODO: if work location is a grid cell
             p['type']=1 # commute_in
             for m in range(4):
                 portal_routes={}
@@ -191,6 +213,7 @@ def get_routes(persons):
                 p['routes'][m]=portal_routes[best_portal]
                 p['routes'][m]['sim_start_time']=int(start_time+best_portal_route_time*60)
         elif p['home_geoid'] in sim_area_zone_list:
+            # TODO: if home location is a grid cell
             p['type']=2 # commute_out
             for m in range(4):
                 portal_routes={}
@@ -357,7 +380,7 @@ def home_location_choices(houses, persons):
 # =============================================================================
 # Parameters
 # =============================================================================
-city='Hamburg'
+city='Detroit'
 send_to_cityIO=True
 
 # =============================================================================
@@ -365,7 +388,7 @@ send_to_cityIO=True
 # =============================================================================
 
 ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
-SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_area.geojson'
+SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_zones.json'
 # Synthpop results
 SIM_POP_PATH='./scripts/cities/'+city+'/clean/sim_pop.json'
 VACANT_PATH='./scripts/cities/'+city+'/clean/vacant.json'
@@ -453,15 +476,15 @@ portals=json.load(open(PORTALS_PATH))
 
 if city=='Hamburg':
     geoid_order_all=[f['properties']['GEO_ID'] for f in all_zones['features']]
-    sim_area_zone_list=[f['properties']['GEO_ID'] for f in sim_zones['features']]
+    sim_area_zone_list=sim_zones
 else:
     geoid_order_all=[f['properties']['GEO_ID'].split('US')[1] for f in all_zones['features']]
-    sim_area_zone_list=[f['properties']['GEO_ID'].split('US')[1] for f in sim_zones['features']]
+    sim_area_zone_list=[z.split('US')[1] for z in sim_zones]
 
 all_geoid_centroids={}
 for ind, geo_id in enumerate(geoid_order_all):
 #    centroid=shape(all_zones['features'][ind]['geometry']).centroid
-    centroid=np.mean(all_zones['features'][ind]['geometry']['coordinates'][0][0], axis=0)
+    centroid=approx_shape_centroid(all_zones['features'][ind]['geometry'])
 #    all_geoid_centroids[geo_id]=[centroid.x, centroid.y]
     all_geoid_centroids[geo_id]=list(centroid)
 
@@ -522,7 +545,7 @@ for mode in mode_graphs:
              'y':grid_points_ll[i][1]}
     for p in range(len(portals['features'])):
 #        p_centroid=shape(portals['features'][p]['geometry']).centroid
-        p_centroid=np.mean(portals['features'][p]['geometry']['coordinates'][0], axis=0)
+        p_centroid=approx_shape_centroid(portals['features'][p]['geometry'])
 #        nodes_xy[mode]['p'+str(p)]={'x':p_centroid.x,
 #             'y':p_centroid.y}
         nodes_xy[mode]['p'+str(p)]={'x':p_centroid[0],
@@ -546,8 +569,8 @@ if base_sim_persons:
     get_routes(base_sim_persons)
     predict_modes(base_sim_persons)
     post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
-    create_trips(base_sim_persons)
-    post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
+#    create_trips(base_sim_persons)
+#    post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
 
 # =============================================================================
 # Handle Interactions
@@ -616,8 +639,8 @@ while True:
         get_routes(new_sim_persons)
         predict_modes(new_sim_persons)
         post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
-        create_trips(new_sim_persons)
-        post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')
+#        create_trips(new_sim_persons)
+#        post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')
         finish_time=time.time()
         print('Response time: '+ str(finish_time-start_time))
         sleep(0.2)
