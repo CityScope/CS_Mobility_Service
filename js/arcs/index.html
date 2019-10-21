@@ -1,0 +1,191 @@
+<html>
+
+<head>
+    <title>Arcs</title>
+    <script src="https://unpkg.com/deck.gl@^6.2.0-beta.3/deckgl.min.js"></script>
+    <script src='./token.js' type='text/javascript'></script>
+    <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v0.50.0/mapbox-gl.js"></script>
+    <link rel="stylesheet" type="text/css" href="https://api.tiles.mapbox.com/mapbox-gl-js/v0.50.0/mapbox-gl.css">
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <style type="text/css">
+    body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+    }
+    #treemap{width: 100%; height:100%}
+    #map { width:100%; height:800px; }
+    .map-overlay-container {
+        position: absolute;
+        width: 15%;
+        top: 0;
+        left: 0;
+        padding: 0px;
+        z-index: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <div id='map' ></div>
+    <div class='map-overlay-container'>
+        <div id='treemap' class="row"></div>
+    </div>
+</body>
+<script type="text/javascript">
+// Layers and functionsI need from deck.gl Mapbox class
+var { MapboxLayer, ArcLayer, ScatterplotLayer } = deck;
+
+// Data for arcs
+var ARC_DATA_URL = './arcs.json';
+var GRID_DATA_URL ='https://cityio.media.mit.edu/api/table/corktown/meta_grid'
+var PORTAL_DATA_URL ='./portal_centroids_detroit.geojson'
+
+// drive red, cycle blue, walk green, PT yellow
+var colors = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 0]];
+// var name, fill_color
+
+//Create the Mapbox map
+mapboxgl.accessToken =MAPBOX_TOKEN
+var map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/dark-v9',
+    center: [  -83.077602, 42.328276],
+    zoom: 12,
+    pitch: 35
+});
+
+var arcsLayer;
+var grid_data, portal_data;
+
+// Load the data and layers once Mapbox map style loads
+map.on('style.load', () => {
+    d3.json(ARC_DATA_URL,loadArcData);
+});
+
+//Enable arc brushing on mousemove event from Mapbox
+map.on('mousemove', ({ point }) => {
+    if (arcsLayer) {
+        arcsLayer.setProps({ mousePosition: [point.x, point.y] });
+    }
+});
+
+
+function renderArcLayer({ arcs}) {
+
+    arcsLayer = new MapboxLayer({
+        type: ArcBrushingLayer,
+        id: 'arcs',
+        data: arcs,
+        brushRadius: 200,
+        getStrokeWidth: d => 1,
+        opacity: 0.3,
+        getSourcePosition: d => d.start_latlon,
+        getTargetPosition: d => d.end_latlon,
+        getSourceColor: d => colors[d.mode],
+        getTargetColor: d => colors[d.mode]
+    });
+
+    // map.addLayer(countiesLayer, 'waterway-label');
+    map.addLayer(arcsLayer, 'waterway-label');
+}
+
+function loadArcData(data){
+    arcs=data;
+    d3.json(GRID_DATA_URL,loadGridData)
+    renderArcLayer({arcs})   
+}
+
+function loadGridData(data){
+    grid_data=data
+    renderPolygonLayer(grid_data, 'grid', '#BC544B')
+    map.on('click', 'grid', function (e) {
+                console.log('click');                
+                new mapboxgl.Popup()
+                  .setLngLat(e.lngLat)
+                  .setHTML(e.features[0].properties.land_use)
+                  .addTo(map);
+    });
+    d3.json(PORTAL_DATA_URL,loadPortalData)}
+
+function loadPortalData(data){
+    portal_data=data
+    renderCircleLayer(portal_data, 'portals', '#F8DE7E')}
+
+
+function renderPolygonLayer(data, name, fill_color){
+
+    map.addLayer({
+        "id": name,
+        "type": "fill",
+        "source": {
+            "type": "geojson",
+            "data": data},
+        "layout": {},
+        "paint": {  
+            'fill-color': fill_color,
+            'fill-opacity': 0.5} 
+    });
+    
+} 
+
+function renderCircleLayer(data, name, fill_color){
+
+    map.addLayer({
+        "id": name,
+        "type": "circle",
+        "source": {
+            "type": "geojson",
+            "data": data},
+        "layout": {},
+        "paint": {  
+            "circle-radius": 10,
+            "circle-color": fill_color,
+            'circle-opacity': 0.8} 
+    });
+}
+
+class ArcBrushingLayer extends ArcLayer {
+    getShaders() {
+        // use customized shaders
+        return Object.assign({}, super.getShaders(), {
+            inject: {
+                'vs:#decl': `
+  uniform vec2 mousePosition;
+  uniform float brushRadius;
+              `,
+                'vs:#main-end': `
+  float brushRadiusPixels = project_scale(brushRadius);
+
+  vec2 sourcePosition = project_position(instancePositions.xy);
+  bool isSourceInBrush = distance(sourcePosition, mousePosition) <= brushRadiusPixels;
+
+  vec2 targetPosition = project_position(instancePositions.zw);
+  bool isTargetInBrush = distance(targetPosition, mousePosition) <= brushRadiusPixels;
+
+  if (!isSourceInBrush && !isTargetInBrush) {
+    vColor.a = 0.0;
+  }
+              `,
+                'fs:#main-start': `
+  if (vColor.a == 0.0) discard;
+              `
+            }
+        });
+    }
+
+    draw(opts) {
+        var { brushRadius = 1e6, mousePosition } = this.props;
+        // add uniforms
+        var uniforms = Object.assign({}, opts.uniforms, {
+            brushRadius: brushRadius,
+            mousePosition: mousePosition ?
+                this.projectPosition(this.unproject(mousePosition)).slice(0, 2) : [0, 0]
+        });
+        super.draw(Object.assign({}, opts, { uniforms }));
+    }
+}
+  
+</script>
+
+</html>

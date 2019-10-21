@@ -108,7 +108,7 @@ def get_simulation_locations(persons):
             geoid=p[place+'_geoid']
             if 'g' in str(geoid):
                 p[place+'_sim']={'type': 'meta_grid', 
-                                 'ind': int_to_meta_grid(int(geoid[1:]))}
+                                 'ind': int_to_meta_grid[int(geoid[1:])]}
             elif p[place+'_geoid'] in sim_area_zone_list:
                 relevant_land_use_codes=land_use_codes[place]
                 possible_locations=[static_land_uses[rlu] for rlu in relevant_land_use_codes]
@@ -232,6 +232,7 @@ def get_routes(persons):
                         best_portal_route_time=total_time
                 p['routes'][m]={'portal': best_portal, 'route': portal_routes[best_portal]}
                 p['routes'][m]['sim_start_time']=start_time
+                
 def predict_modes(persons):
     """ takes list of person objects and 
     predicts transport modes for each person's commute
@@ -273,8 +274,15 @@ def predict_modes(persons):
         p['mode']=chosen_mode
         if p['home_sim']['type']=='portal': p['home_sim']['ind']=p['routes'][chosen_mode]['portal']
         elif p['work_sim']['type']=='portal': p['work_sim']['ind']=p['routes'][chosen_mode]['portal']
-        home_node=p['routes'][chosen_mode]['route']['node_route'][0]
-        work_node=p['routes'][chosen_mode]['route']['node_route'][-1]
+        # TODO: temporary hack below. Don't need home node if only sending sim_home and sim_work to /od 
+        if 'g' in str(p['home_geoid']):
+            home_node=p['home_geoid']
+        else:
+            home_node=p['routes'][chosen_mode]['route']['node_route'][0]
+        if 'g' in str(p['work_geoid']):
+            work_node=p['work_geoid']
+        else: 
+            work_node=p['routes'][chosen_mode]['route']['node_route'][-1]
         p['home_node_ll']=[nodes_xy[chosen_mode][home_node]['x'], 
                            nodes_xy[chosen_mode][home_node]['y']]
         p['work_node_ll']=[nodes_xy[chosen_mode][work_node]['x'], 
@@ -294,8 +302,27 @@ def post_od_data(persons, destination_address):
         print(r)
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
-    
-#        
+        
+def post_arc_data(persons, destination_address):
+    persons_df=pd.DataFrame(persons)
+#    if type==1, arc is from actual home (geoid) to sim_home (portal)
+#    if type==2, arc is from sim_work (portal) to actual work (geoid)
+    arcs=[]
+    for ind, row in persons_df.iterrows():
+        if row['type']==1:
+            arcs.append({'start_latlon': row['home_ll'],
+                         'end_latlon': row['home_node_ll'],
+                         'mode': row['mode']})
+        elif row['type']==2:
+            arcs.append({'start_latlon': row['work_node_ll'],
+                         'end_latlon': row['work_ll'],
+                         'mode': row['mode']}) 
+    try:
+        r = requests.post(destination_address, data = json.dumps(arcs))
+        print(r)
+    except requests.exceptions.RequestException as e:
+        print('Couldnt send to cityio')
+          
 def create_trips(persons):
     """ returns a trip objects for each person
     each  trip object contains a list of [lon, lat, timestamp] coordinates
@@ -438,6 +465,8 @@ employment_types= {3:{},4:{}}
 
 land_use_codes={'home': ['R'], 'work': ['M', 'B']}
 
+NEW_PERSONS_PER_BLD=10
+
 # #cityIO grid data
 table_name_map={'Boston':"mocho",
      'Hamburg':"grasbrook",
@@ -566,9 +595,9 @@ for mode in mode_graphs:
     for i in range(len(graphs[mode_graphs[mode]]['nodes'])):
         nodes_xy[mode][i]={'x':graphs[mode_graphs[mode]]['nodes'].iloc[i]['x'],
              'y':graphs[mode_graphs[mode]]['nodes'].iloc[i]['y']}
-#    for i in range(len(grid_points_ll)):
-#        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
-#             'y':grid_points_ll[i][1]}
+    for i in range(len(grid_points_ll)):
+        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
+             'y':grid_points_ll[i][1]}
     for p in range(len(portals['features'])):
 #        p_centroid=shape(portals['features'][p]['geometry']).centroid
         p_centroid=approx_shape_centroid(portals['features'][p]['geometry'])
@@ -646,10 +675,10 @@ while True:
         for et in employment_types:
             et_locs=[i for i in range(len(cityIO_grid_data)) if cityIO_grid_data[i][0]==et]
             for etl in et_locs:
-                add_person=random.choice(base_floating_persons).copy()
-                add_person['work_geoid']='g'+str(etl)
-                new_persons.append(add_person)
-                random.seed(0)
+                for i in range(NEW_PERSONS_PER_BLD):
+                    add_person=random.choice(base_floating_persons).copy()
+                    add_person['work_geoid']='g'+str(etl)
+                    new_persons.append(add_person)
         get_LLs(new_persons, ['work'])
         floating_persons=base_floating_persons+new_persons
         vacant_houses=base_vacant_houses+new_houses
@@ -663,6 +692,7 @@ while True:
                          (p['home_geoid'] in sim_area_zone_list or
                           p['work_geoid'] in sim_area_zone_list)]
         get_LLs(new_sim_persons, ['home', 'work'])
+        get_simulation_locations(new_sim_persons)
         get_routes(new_sim_persons)
         predict_modes(new_sim_persons)
         post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
@@ -671,10 +701,3 @@ while True:
         finish_time=time.time()
         print('Response time: '+ str(finish_time-start_time))
         sleep(0.2)
-                
-
-        
-
-    
-
-
