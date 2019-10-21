@@ -43,7 +43,7 @@ def df_to_geojson(edges_df, nodes_df, net_type):
             "crs": { "type": "name", "properties": { "name": "epsg:4326" } },
             "features": features}
 
-city='Hamburg'
+city='Detroit'
 NEIGHBOURS_PATH='./scripts/cities/'+city+'/clean/neighbours.json'
 SIM_AREA_PATH='./scripts/cities/'+city+'/clean/table_area.geojson'
 SIM_NETWORK_PATH_ROOT='./scripts/cities/'+city+'/clean/'
