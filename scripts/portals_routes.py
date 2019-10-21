@@ -22,10 +22,11 @@ import pandas as pd
 def rename_nodes(nodes_df, edges_df, node_id_name, to_name, from_name):
     nodes_df['old_node_id']=nodes_df[node_id_name].copy()
     nodes_df['node_id']=range(len(nodes_df))
-    node_name_map={nodes_df.iloc[i]['old_node_id']: i for i in range(len(nodes_df))}
+    node_name_map={nodes_df.iloc[i]['old_node_id']:i for i in range(len(nodes_df))}
+    rev_node_name_map={v:str(k) for k,v in node_name_map.items()}
     edges_df['from_node_id']=edges_df.apply(lambda row: node_name_map[row[from_name]], axis=1)
     edges_df['to_node_id']=edges_df.apply(lambda row: node_name_map[row[to_name]], axis=1)
-    return nodes_df, edges_df, node_name_map
+    return nodes_df, edges_df, rev_node_name_map
 
 def find_route_multi(start_nodes, end_nodes, graph, weight):
     """
@@ -67,7 +68,7 @@ def df_to_geojson(edges_df, nodes_df, net_type):
 # =============================================================================
 # Constants
 # =============================================================================
-city='Detroit'
+city='Hamburg'
 
 ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
@@ -83,6 +84,7 @@ PED_EDGES_PATH='./scripts/cities/'+city+'/clean/osm_ped_network_edges.csv'
 ROUTE_COSTS_PATH='./scripts/cities/'+city+'/clean/route_costs.json'
 SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
 SIM_NET_GEOJSON_PATH='./scripts/cities/'+city+'/clean/'
+NEIGHBOURS_PATH='./scripts/cities/'+city+'/clean/neighbours.json'
 
 SPEEDS_MET_S={'driving':30/3.6,
         'cycling':15/3.6,
@@ -131,15 +133,15 @@ walk_edges=pd.read_csv(PED_EDGES_PATH)
 walk_nodes=pd.read_csv(PED_NODES_PATH)
 
 # renumber nodes in both networks as 1 to N
-pt_nodes, pt_edges, _ =rename_nodes(pt_nodes, pt_edges, 'id_int', 'to_int', 'from_int')
-drive_nodes, drive_edges, _=rename_nodes(drive_nodes, drive_edges, 'id', 'to', 'from')
-walk_nodes, walk_edges, _=rename_nodes(walk_nodes, walk_edges, 'id', 'to', 'from')
-cycle_nodes, cycle_edges, _=rename_nodes(cycle_nodes, cycle_edges, 'id', 'to', 'from')
+pt_nodes, pt_edges, pt_node_name_map =rename_nodes(pt_nodes, pt_edges, 'id_int', 'to_int', 'from_int')
+drive_nodes, drive_edges, drive_node_name_map=rename_nodes(drive_nodes, drive_edges, 'id', 'to', 'from')
+walk_nodes, walk_edges, walk_node_name_map=rename_nodes(walk_nodes, walk_edges, 'id', 'to', 'from')
+cycle_nodes, cycle_edges, cycle_node_name_map=rename_nodes(cycle_nodes, cycle_edges, 'id', 'to', 'from')
 
-network_dfs={'driving': {'edges':drive_edges, 'nodes': drive_nodes} ,
-              'pt': {'edges':pt_edges, 'nodes': pt_nodes},
-              'walking': {'edges':walk_edges, 'nodes': walk_nodes},
-              'cycling': {'edges':cycle_edges, 'nodes': cycle_nodes}}
+network_dfs={'driving': {'edges':drive_edges, 'nodes': drive_nodes, 'node_name_map': drive_node_name_map} ,
+              'pt': {'edges':pt_edges, 'nodes': pt_nodes, 'node_name_map': pt_node_name_map},
+              'walking': {'edges':walk_edges, 'nodes': walk_nodes, 'node_name_map': walk_node_name_map},
+              'cycling': {'edges':cycle_edges, 'nodes': cycle_nodes, 'node_name_map': cycle_node_name_map}}
 
 # =============================================================================
 # Create graphs and add portal links
@@ -185,10 +187,12 @@ for net in network_dfs:
     neighbours[net]={}
     for p in range(len(portals['features'])):
         if network_dfs[net]['graph'].has_node('p'+str(p)):
-            nb=[n for n in network_dfs[net]['graph'].neighbors('p'+str(p))]
+            nb=[network_dfs[net]['node_name_map'][n] for n in network_dfs[net]['graph'].neighbors('p'+str(p))]
             neighbours[net][p]=nb 
         else:
             neighbours[net][p]=[]
+            
+json.dump(neighbours, open(NEIGHBOURS_PATH, 'w'))
 #xs=[network_dfs[net]['nodes'].iloc[n]['x'] for n in neighbours[net][0]]+[network_dfs[net]['nodes'].iloc[n]['x'] for n in neighbours[net][1]] +    [network_dfs[net]['nodes'].iloc[n]['x'] for n in neighbours[net][2]] + [network_dfs[net]['nodes'].iloc[n]['x'] for n in neighbours[net][3]] 
 #ys=[network_dfs[net]['nodes'].iloc[n]['y'] for n in neighbours[net][0]]+[network_dfs[net]['nodes'].iloc[n]['y'] for n in neighbours[net][1]] +    [network_dfs[net]['nodes'].iloc[n]['y'] for n in neighbours[net][2]] + [network_dfs[net]['nodes'].iloc[n]['y'] for n in neighbours[net][3]] 
 #plt.scatter(xs, ys)
@@ -263,81 +267,82 @@ json.dump(route_costs, open(ROUTE_COSTS_PATH, 'w'))
 # =============================================================================
 #  Make smaller graphs for the simulation area
 # =============================================================================
-sim_area_nets={}
-node_name_maps={}
-for net in network_dfs:
-    sim_area_nodes=set()
-#    check if each node in any sim area, if so add to list
-#   TODO: stop checking when one is found
-    for n in range(len(network_dfs[net]['nodes'])):
-        if shape(sim_area['features'][0]['geometry']).contains(Point(
-                network_dfs[net]['nodes'].iloc[n]['x'], 
-                network_dfs[net]['nodes'].iloc[n]['y'])):
-            sim_area_nodes.add(n)
-#    add portals to list
-#    sim_area_nodes.add(['p'+str(p) for p in range(len(portals['features']))])
-    sim_area_edges_df=network_dfs[net]['edges'].loc[
-            ((network_dfs[net]['edges']['from_node_id'].isin(sim_area_nodes)) | # either from or to node is in the sim area
-            (network_dfs[net]['edges']['to_node_id'].isin(sim_area_nodes)))] 
-    
-    #    subset nodes df and edges df by nodes in list
-    # update the node list to include other edges of partially contained links 
-    sim_area_nodes=set(list(sim_area_edges_df['from_node_id'])+list(sim_area_edges_df['to_node_id']))
-    sim_area_nodes_df=network_dfs[net]['nodes'].loc[
-            network_dfs[net]['nodes']['node_id'].isin(sim_area_nodes)]
-    #    rename nodes
-    sim_area_nodes_df, sim_area_edges_df, node_name_maps[net]= rename_nodes(sim_area_nodes_df, sim_area_edges_df, 
-                                                   'node_id', 'to_node_id', 'from_node_id')
-    sim_area_nets[net]={'nodes': sim_area_nodes_df, 'edges': sim_area_edges_df}
-
-# Create geojson for each network
-net_geojson={}
-for net in sim_area_nets:
-    net_geojson[net]=df_to_geojson(sim_area_nets[net]['edges'], 
-                                     sim_area_nets[net]['nodes'], 
-                                     net)
-    json.dump(net_geojson[net], 
-              open(SIM_NET_GEOJSON_PATH+str(net)+'_net.geojson', 'w'))
-          
-# Create networkx graphs for each
-for osm_mode in ['driving', 'walking', 'cycling']:   
-    G_sim=nx.Graph()
-    for i, row in sim_area_nets[osm_mode]['edges'].iterrows():
-        G_sim.add_edge(row['from_node_id'], row['to_node_id'], attr_dict={
-                'weight_minutes':(row['distance']/SPEEDS_MET_S[osm_mode])/60,
-                'type': osm_mode})
-    sim_area_nets[osm_mode]['graph']=G_sim
-
-G_pt_sim=nx.Graph()
-for i, row in sim_area_nets['pt']['edges'].iterrows():
-    G_pt_sim.add_edge(row['from_node_id'], row['to_node_id'], 
-                     attr_dict={'weight_minutes':row['weight'],
-                                'type': pandana_link_types[row['net_type']]})
-sim_area_nets['pt']['graph']= G_pt_sim           
-
-# go through neighbour list for each portal
-# and add the dummy links
-for net in sim_area_nets:
-    for p in neighbours[net]:
-        for nb in neighbours[net][p]:
-            if nb in node_name_maps[net]:
-                sim_area_nets[net]['graph'].add_edge('p'+str(p), node_name_maps[net][nb],
-                           attr_dict={'type': 'from_portal', 'weight_minutes':0})
-                sim_area_nets[net]['graph'].add_edge( node_name_maps[net][nb],'p'+str(p),
-                           attr_dict={'type': 'to_portal', 'weight_minutes':0})
-            else:
-                print(str(nb)+' not in sim area net for '+net+
-                      '. Node not on any  valid links')
-            
-# Plot
-#net='driving'
-#gmap=gmplot.GoogleMapPlotter(0,0,1)
-#for i, row in sim_area_nets[net]['edges'].iterrows(): 
-#    from_node=row['from_node_id']
-#    to_node=row['to_node_id']
-#    xs=[sim_area_nets[net]['nodes'].iloc[from_node]['x'], sim_area_nets[net]['nodes'].iloc[to_node]['x']]
-#    ys=[sim_area_nets[net]['nodes'].iloc[from_node]['y'], sim_area_nets[net]['nodes'].iloc[to_node]['y']]
-#    gmap.plot(ys, xs,  
-#               'cornflowerblue', edge_width = 1)
-#gmap.draw( '/Users/doorleyr/Desktop/map_'+net+'.html' )
-pickle.dump(sim_area_nets, open(SIM_GRAPHS_PATH, 'wb'))
+#sim_area_nets={}
+#node_name_maps={}
+#for net in network_dfs:
+#    sim_area_nodes=set()
+##    check if each node in any sim area, if so add to list
+##   TODO: stop checking when one is found
+#    for n in range(len(network_dfs[net]['nodes'])):
+#        if shape(sim_area['features'][0]['geometry']).contains(Point(
+#                network_dfs[net]['nodes'].iloc[n]['x'], 
+#                network_dfs[net]['nodes'].iloc[n]['y'])):
+#            sim_area_nodes.add(n)
+##    add portals to list
+##    sim_area_nodes.add(['p'+str(p) for p in range(len(portals['features']))])
+#    sim_area_edges_df=network_dfs[net]['edges'].loc[
+#            ((network_dfs[net]['edges']['from_node_id'].isin(sim_area_nodes)) | # either from or to node is in the sim area
+#            (network_dfs[net]['edges']['to_node_id'].isin(sim_area_nodes)))] 
+#    
+#    #    subset nodes df and edges df by nodes in list
+#    # update the node list to include other edges of partially contained links 
+#    sim_area_nodes=set(list(sim_area_edges_df['from_node_id'])+list(sim_area_edges_df['to_node_id']))
+#    sim_area_nodes_df=network_dfs[net]['nodes'].loc[
+#            network_dfs[net]['nodes']['node_id'].isin(sim_area_nodes)]
+#    #    rename nodes
+#    sim_area_nodes_df, sim_area_edges_df, node_name_maps[net]= rename_nodes(sim_area_nodes_df, sim_area_edges_df, 
+#                                                   'node_id', 'to_node_id', 'from_node_id')
+#    sim_area_nets[net]={'nodes': sim_area_nodes_df, 'edges': sim_area_edges_df}
+#
+## Create geojson for each network
+#net_geojson={}
+#for net in sim_area_nets:
+#    net_geojson[net]=df_to_geojson(sim_area_nets[net]['edges'], 
+#                                     sim_area_nets[net]['nodes'], 
+#                                     net)
+#    json.dump(net_geojson[net], 
+#              open(SIM_NET_GEOJSON_PATH+str(net)+'_net.geojson', 'w'))
+#          
+## Create networkx graphs for each
+#for osm_mode in ['driving', 'walking', 'cycling']:   
+#    G_sim=nx.Graph()
+#    for i, row in sim_area_nets[osm_mode]['edges'].iterrows():
+#        G_sim.add_edge(row['from_node_id'], row['to_node_id'], attr_dict={
+#                'weight_minutes':(row['distance']/SPEEDS_MET_S[osm_mode])/60,
+#                'type': osm_mode})
+#    sim_area_nets[osm_mode]['graph']=G_sim
+#
+#G_pt_sim=nx.Graph()
+#for i, row in sim_area_nets['pt']['edges'].iterrows():
+#    G_pt_sim.add_edge(row['from_node_id'], row['to_node_id'], 
+#                     attr_dict={'weight_minutes':row['weight'],
+#                                'type': pandana_link_types[row['net_type']]})
+#sim_area_nets['pt']['graph']= G_pt_sim           
+#
+## go through neighbour list for each portal
+## and add the dummy links
+#for net in sim_area_nets:
+#    for p in neighbours[net]:
+#        for nb in neighbours[net][p]:
+#            if nb in node_name_maps[net]:
+#                sim_area_nets[net]['graph'].add_edge('p'+str(p), node_name_maps[net][nb],
+#                           attr_dict={'type': 'from_portal', 'weight_minutes':0})
+#                sim_area_nets[net]['graph'].add_edge( node_name_maps[net][nb],'p'+str(p),
+#                           attr_dict={'type': 'to_portal', 'weight_minutes':0})
+#            else:
+#                print(str(nb)+' not in sim area net for '+net+
+#                      '. Node not on any  valid links')
+#            
+## Plot
+##net='driving'
+##gmap=gmplot.GoogleMapPlotter(0,0,1)
+##for i, row in sim_area_nets[net]['edges'].iterrows(): 
+##    from_node=row['from_node_id']
+##    to_node=row['to_node_id']
+##    xs=[sim_area_nets[net]['nodes'].iloc[from_node]['x'], sim_area_nets[net]['nodes'].iloc[to_node]['x']]
+##    ys=[sim_area_nets[net]['nodes'].iloc[from_node]['y'], sim_area_nets[net]['nodes'].iloc[to_node]['y']]
+##    gmap.plot(ys, xs,  
+##               'cornflowerblue', edge_width = 1)
+##gmap.draw( '/Users/doorleyr/Desktop/map_'+net+'.html' )
+#                
+#pickle.dump(sim_area_nets, open(SIM_GRAPHS_PATH, 'wb'))
