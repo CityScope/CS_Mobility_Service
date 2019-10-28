@@ -34,6 +34,7 @@ NHTS_TRIP_PATH='scripts/NHTS/trippub.csv'
 #MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
 PICKLED_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_rf.p'
 RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
+PERSON_SCHED_TABLE_PATH='./scripts/cities/'+city+'/clean/person_sched.csv'
 
 # =============================================================================
 # Functions
@@ -85,14 +86,14 @@ def race_cat_nhts(row):
     elif row['R_RACE'] == 3: return "asian"
     return "other"
 
-# Functions to simplify some NHTS categories
-def trip_type_cat(row):
-    if row['TRIPPURP']=='HBW': # includes to work and back to home trips
-        return 'HBW'
-    elif row['TRIPPURP']=='NHB':
-        return 'NHB'
-    else:
-        return 'HBO'
+## Functions to simplify some NHTS categories
+#def trip_type_cat(row):
+#    if row['TRIPPURP']=='HBW': # includes to work and back to home trips
+#        return 'HBW'
+#    elif row['TRIPPURP']=='NHB':
+#        return 'NHB'
+#    else:
+#        return 'HBO'
     
 def mode_cat(nhts_mode):
     # map NHTS modes to a simpler list of modes
@@ -107,7 +108,68 @@ def mode_cat(nhts_mode):
     else:
         return -99
 
+def get_main_mode(row):
+    if row['WRKTRANS']>0:
+        return mode_cat(row['WRKTRANS'])
+    elif row['SCHTRN1']>0:
+        return mode_cat(row['SCHTRN1'])
+    elif row['SCHTRN2']>0:
+        return mode_cat(row['SCHTRN2'])
+    else: return -99
+    
+def get_main_dist_km(row):
+    if row['WRKTRANS']>0:
+        return row['DISTTOWK17']/1.62
+    elif row['SCHTRN1']>0:
+        return row['DISTTOSC17']/1.62
+    elif row['SCHTRN2']>0:
+        return row['DISTTOSC17']/1.62
+    else: return -99
+    
+why_dict={
+  1: "h",
+  2: "h",
+  3: "w",
+  4: "w",
+  5: "w",
+  6: "dp",
+  7: None,
+  8: "sch",
+  9: None,
+  10: None,
+  11: "bg",
+  12: "bs",
+  13: "r",
+  14: "bs",
+  15: "rec",
+  16: "ex",
+  17: "v",
+  18: "hos",
+  19: "rel",
+  97: None,
+  -7: None,
+  -8: None,
+  -9: None
+}
 
+def activity_schedule(unique_id):
+    this_person_trips=tables['trips'].loc[tables['trips']['uniquePersonId']==unique_id]
+    if len(this_person_trips)==0:
+        return ['h']
+    else:
+        sched=[this_person_trips['why_from_mapped'].iloc[0]]
+        if not sched[0]=='h':
+            sched=['h']+sched
+        sched.extend(this_person_trips['why_to_mapped'].tolist())
+        # remove adjacent dulicates
+        sched_no_dup=sched[0:1]
+        for act in sched[1:]:
+            if not act ==sched_no_dup[-1]:
+                sched_no_dup.append(act)
+        # remove None
+        sched_no_dup=[act for act in sched_no_dup if act]
+        return sched_no_dup
+           
 #********************************************
 #      Data
 #********************************************
@@ -177,30 +239,46 @@ for area in speeds:
             print('Using lowest speed')
             speeds[area][mode_speed] = np.nanmin([speeds[other_area][mode_speed] for other_area in speeds])
 
-# with the trip table only
-tables['trips']['network_dist_km']=tables['trips'].apply(lambda row: row['TRPMILES']/1.62, axis=1)
-tables['trips']['mode']=tables['trips'].apply(lambda row: mode_cat(row['TRPTRANS']), axis=1) 
-tables['trips']['purpose']=tables['trips'].apply(lambda row: trip_type_cat(row), axis=1)
-tables['trips']=tables['trips'].loc[tables['trips']['mode']>=0]
-tables['trips'].loc[tables['trips']['TRPMILES']<0, 'TRPMILES']=0 # -9 for work-from-home
+# with the trip table only, map 'why' codes to a simpler list of activities
+tables['trips']['why_to_mapped']=tables['trips'].apply(lambda row: why_dict[row['WHYTO']], axis=1)
+tables['trips']['why_from_mapped']=tables['trips'].apply(lambda row: why_dict[row['WHYFROM']], axis=1)
+
+
+# with the person table only
+tables['persons']['network_dist_km']=tables['persons'].apply(lambda row: get_main_dist_km(row), axis=1)
+tables['persons']['mode']=tables['persons'].apply(lambda row: get_main_mode(row), axis=1) 
+#tables['persons']['purpose']=tables['persons'].apply(lambda row: trip_type_cat(row), axis=1)
+tables['persons']=tables['persons'].loc[((tables['persons']['mode']>=0) & (
+        (tables['persons']['network_dist_km']>=0)))]
+            
+# get the full sequence of activities for each person
+tables['persons']['activity_sched']=tables['persons'].apply(lambda row: 
+    activity_schedule(row['uniquePersonId']), axis=1)
+    
+# output the persons data with subset of columns for sampling activity schedules
+# in the simulation
+tables['persons'][['income', 'age', 'children', 
+          'sex', 'bach_degree', 'cars','activity_sched']].to_csv(
+      PERSON_SCHED_TABLE_PATH, index=False)
+
 
 # create the mode choice table
 mode_table=pd.DataFrame()
 #    add the trip stats for each potential mode
-mode_table['drive_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
-mode_table['cycle_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
-mode_table['walk_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
-mode_table['PT_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(3)], axis=1)
-mode_table['walk_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
-mode_table['drive_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
+mode_table['drive_time_minutes']=tables['persons'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
+mode_table['cycle_time_minutes']=tables['persons'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
+mode_table['walk_time_minutes']=tables['persons'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
+mode_table['PT_time_minutes']=tables['persons'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(3)], axis=1)
+mode_table['walk_time_PT_minutes']=tables['persons'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
+mode_table['drive_time_PT_minutes']=tables['persons'].apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
 
 for col in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
-            'bach_degree', 'purpose', 'cars', 'race']:
-    new_dummys=pd.get_dummies(tables['trips'][col], prefix=col)
+            'bach_degree',  'cars', 'race']:
+    new_dummys=pd.get_dummies(tables['persons'][col], prefix=col)
     mode_table=pd.concat([mode_table, new_dummys],  axis=1)
  
 for col in [ 'pop_per_sqmile_home', 'network_dist_km', 'mode']:
-    mode_table[col]=tables['trips'][col]
+    mode_table[col]=tables['persons'][col]
 
 
 # =============================================================================
@@ -275,5 +353,9 @@ for i in range(len(conf_mat)):
     print('Total Predicted for Class '+str(i)+': '+str(sum([p[i] for p in conf_mat])))
 pickle.dump( rfWinner, open( PICKLED_MODEL_PATH, "wb" ) )
 json.dump(features,open(RF_FEATURES_LIST_PATH, 'w' ))
+
+
+
+
        
                 
