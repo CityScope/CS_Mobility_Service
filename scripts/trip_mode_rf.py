@@ -127,49 +127,60 @@ def get_main_dist_km(row):
     else: return -99
     
 why_dict={
-  1: "h",
-  2: "h",
-  3: "w",
-  4: "w",
-  5: "w",
-  6: "dp",
+  1: "H",
+  2: "H",
+  3: "W",
+  4: "W",
+  5: "W",
+  6: "D", #drop-off, pick-up
   7: None,
-  8: "sch",
+  8: "C", # school or college
   9: None,
   10: None,
-  11: "bg",
-  12: "bs",
-  13: "r",
-  14: "bs",
-  15: "rec",
-  16: "ex",
-  17: "v",
-  18: "hos",
-  19: "rel",
+  11: "G", # groceries
+  12: "S", # buy services
+  13: "E", # eat
+  14: "S", # buy services
+  15: "R", # recreation
+  16: "X", # exercise
+  17: "V", # visit friends
+  18: "P", # hoepital or health center
+  19: "Z", # religion
   97: None,
   -7: None,
   -8: None,
   -9: None
-}
-
-def activity_schedule(unique_id):
+}        
+            
+def activity_schedule(person_row):
+    unique_id=person_row['uniquePersonId']
     this_person_trips=tables['trips'].loc[tables['trips']['uniquePersonId']==unique_id]
     if len(this_person_trips)==0:
-        return ['h']
+        person_row['activities']='H'
+        person_row['start_times']=''
+        return person_row
     else:
         sched=[this_person_trips['why_from_mapped'].iloc[0]]
-        if not sched[0]=='h':
-            sched=['h']+sched
-        sched.extend(this_person_trips['why_to_mapped'].tolist())
-        # remove adjacent dulicates
-        sched_no_dup=sched[0:1]
-        for act in sched[1:]:
-            if not act ==sched_no_dup[-1]:
-                sched_no_dup.append(act)
-        # remove None
-        sched_no_dup=[act for act in sched_no_dup if act]
-        return sched_no_dup
-           
+        if sched[0] is None:
+            sched=['H']
+        strt_times=[]
+        activities, start_times=[list(this_person_trips['why_to_mapped']),
+                                 list(this_person_trips['STRTTIME'])]
+        start_times_padded=[str(st).zfill(4) for st in start_times]
+        start_times_s=[int(st[:2])*3600+int(st[2:3])*60 for st in start_times_padded]
+        for actInd in range(len(activities)):
+            if ((activities[actInd] is not None) and 
+                (not activities[actInd] == sched[-1])):
+                sched.extend([activities[actInd]])
+                strt_times.extend([start_times_s[actInd]])
+        if len(sched)==1:
+            sched=['H']
+        if not sched[0]=='H':
+            sched=['H']+sched
+            strt_times=[strt_times[0]-3600]+strt_times                
+        person_row['activities']=  '_'.join(sched) 
+        person_row['start_times']=  '_'.join([str(st) for st in strt_times])
+        return person_row
 #********************************************
 #      Data
 #********************************************
@@ -252,13 +263,13 @@ tables['persons']=tables['persons'].loc[((tables['persons']['mode']>=0) & (
         (tables['persons']['network_dist_km']>=0)))]
             
 # get the full sequence of activities for each person
-tables['persons']['activity_sched']=tables['persons'].apply(lambda row: 
-    activity_schedule(row['uniquePersonId']), axis=1)
+
+tables['persons'] = tables['persons'].apply(activity_schedule, axis=1)
     
 # output the persons data with subset of columns for sampling activity schedules
 # in the simulation
 tables['persons'][['income', 'age', 'children', 
-          'sex', 'bach_degree', 'cars','activity_sched']].to_csv(
+          'sex', 'bach_degree', 'cars','activities', 'start_times']].to_csv(
       PERSON_SCHED_TABLE_PATH, index=False)
 
 

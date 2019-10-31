@@ -5,11 +5,6 @@ Created on Thu Aug 16 14:50:11 2018
 
 @author: doorleyr
 """
-
-
-# eventually may not need home and work LLs- just get the closest node to every grid cell
-# Later: separate script to create future roads (GB only)
-
 import pickle
 import json
 import random
@@ -187,7 +182,7 @@ def get_routes(persons):
                         np.array(meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']), 5)[1]
                 p['routes'][m]={'route':get_route_costs(home_node_list, work_node_list, 
                                             graphs[mode_graphs[m]]['graph'], 'weight_minutes')}
-                p['routes'][m]['sim_start_time']=start_time
+                p['routes'][m]['external_time']=0
         elif p['work_sim']['type']=='meta_grid':
             p['type']=1 # commute_in
             for m in range(4):
@@ -198,6 +193,8 @@ def get_routes(persons):
                 for portal in range(len(ext_route_costs[mode_graphs[m]][str(p['home_geoid'])])):
                     # get route from home zone to portal by this mode
                     route_to_portal=ext_route_costs[mode_graphs[m]][str(p['home_geoid'])][str(portal)] 
+                    external_time=sum([route_to_portal[c] for c in [
+                            'driving', 'walking', 'cycling', 'pt']])
                     portal_routes[portal]=get_route_costs(['p'+str(portal)], work_node_list, 
                                             graphs[mode_graphs[m]]['graph'], 'weight_minutes')
                     for c in ['driving', 'walking', 'waiting',
@@ -207,9 +204,10 @@ def get_routes(persons):
                             'driving', 'walking', 'cycling', 'pt']])
                     if total_time<best_portal_route_time:
                         best_portal=portal
+                        best_external_time=external_time
                         best_portal_route_time=total_time
                 p['routes'][m]={'portal': best_portal, 'route': portal_routes[best_portal]}
-                p['routes'][m]['sim_start_time']=int(start_time+best_portal_route_time*60)
+                p['routes'][m]['external_time']=int(best_external_time*60)
         elif p['home_sim']['type']=='meta_grid':
             p['type']=2 # commute_out
             for m in range(4):
@@ -231,7 +229,7 @@ def get_routes(persons):
                         best_portal=portal
                         best_portal_route_time=total_time
                 p['routes'][m]={'portal': best_portal, 'route': portal_routes[best_portal]}
-                p['routes'][m]['sim_start_time']=start_time
+                p['routes'][m]['external_time']=0
                 
 def predict_modes(persons):
     """ takes list of person objects and 
@@ -287,7 +285,25 @@ def predict_modes(persons):
                            nodes_xy[chosen_mode][home_node]['y']]
         p['work_node_ll']=[nodes_xy[chosen_mode][work_node]['x'], 
                            nodes_xy[chosen_mode][work_node]['y']]
-        p['sim_start_time']=p['routes'][chosen_mode]['sim_start_time']
+        p['external_time']=p['routes'][chosen_mode]['external_time']
+
+def sample_activity_schedules(persons):
+    for p in persons:
+        matching_persons=activity_sched.loc[((activity_sched['income']==p['income'])&
+                                (activity_sched['age']==p['age'])&
+                                (activity_sched['children']==p['children']))]
+        if len(matching_persons)>0:
+            sampled_person=matching_persons.sample(1)
+        else:
+            # sampling activity schedule from all people
+            sampled_person=activity_sched.sample(1)
+        p['activities']=sampled_person.iloc[0]['activities'].split('_')
+        if len(p['activities'])>1:
+            start_times_str=sampled_person.iloc[0]['start_times'].split('_')
+        else:
+            start_times_str=[]
+        p['start_times']=[int(st) for st in start_times_str]
+                                
 
 def post_od_data(persons, destination_address):
     od_str=json.dumps([{'home_ll': p['home_node_ll'],
@@ -296,7 +312,10 @@ def post_od_data(persons, destination_address):
                        'work_sim': p['work_sim'],
                        'type': p['type'],
                        'mode': p['mode'],
-                       'start_time': p['sim_start_time']} for p in persons])
+                       'activities': p['activities'],
+                       'activity_start_times':p['start_times'],
+                       'start_time': p['start_times'][0]+p['external_time']
+                       } for p in persons if len(p['activities'])>1])
     try:
         r = requests.post(destination_address, data = od_str)
         print(r)
@@ -323,33 +342,33 @@ def post_arc_data(persons, destination_address):
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
           
-def create_trips(persons):
-    """ returns a trip objects for each person
-    each  trip object contains a list of [lon, lat, timestamp] coordinates
-    this is the format required by the deckGL trips layer
-    modifies in place
-    """
-    for p in persons:
-        chosen_route=p['routes'][p['mode']]
-        route_nodes=chosen_route['node_route']
-        route_coords=[nodes_xy[p['mode']][n] for n in route_nodes]
-        route_time=[p['sim_start_time']]+[int(p['sim_start_time']+w*60
-                    ) for w in np.cumsum(chosen_route['weights'])]
-        p['path']=[[int(1e5*route_coords[n]['x'])/1e5, # reduce precision
-                    int(1e5*route_coords[n]['y'])/1e5
-                    ]for n in range(len(route_nodes))]
-        p['timestamps']=route_time
-# 
-def post_trips_data(persons, destination_address):
-    """ posts trip data json to cityIO
-    """
-    trips_str=json.dumps([{'mode': p['mode'], 'path': p['path'], 
-                           'timestamps': p['timestamps']} for p in persons]) 
-    try:
-        r = requests.post(destination_address, data = trips_str)
-        print(r)
-    except requests.exceptions.RequestException as e:
-        print('Couldnt send to cityio')
+#def create_trips(persons):
+#    """ returns a trip objects for each person
+#    each  trip object contains a list of [lon, lat, timestamp] coordinates
+#    this is the format required by the deckGL trips layer
+#    modifies in place
+#    """
+#    for p in persons:
+#        chosen_route=p['routes'][p['mode']]
+#        route_nodes=chosen_route['node_route']
+#        route_coords=[nodes_xy[p['mode']][n] for n in route_nodes]
+#        route_time=[p['sim_start_time']]+[int(p['sim_start_time']+w*60
+#                    ) for w in np.cumsum(chosen_route['weights'])]
+#        p['path']=[[int(1e5*route_coords[n]['x'])/1e5, # reduce precision
+#                    int(1e5*route_coords[n]['y'])/1e5
+#                    ]for n in range(len(route_nodes))]
+#        p['timestamps']=route_time
+## 
+#def post_trips_data(persons, destination_address):
+#    """ posts trip data json to cityIO
+#    """
+#    trips_str=json.dumps([{'mode': p['mode'], 'path': p['path'], 
+#                           'timestamps': p['timestamps']} for p in persons]) 
+#    try:
+#        r = requests.post(destination_address, data = trips_str)
+#        print(r)
+#    except requests.exceptions.RequestException as e:
+#        print('Couldnt send to cityio')
 #        
 #def post_grid_geojson(grid_geo, destination_address):
 #    """ posts grid geojson to cityIO
@@ -406,7 +425,7 @@ def home_location_choices(houses, persons):
 # =============================================================================
 # Parameters
 # =============================================================================
-city='Detroit'
+city='Hamburg'
 send_to_cityIO=True
 
 # =============================================================================
@@ -425,6 +444,8 @@ RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
 # Home location choice model
 FITTED_HOME_LOC_MODEL_PATH='./scripts/cities/'+city+'/models/home_loc_logit.p'
 RENT_NORM_PATH='./scripts/cities/'+city+'/models/rent_norm.json'
+
+ACTIVITY_SCHED_PATH='./scripts/cities/'+city+'/clean/person_sched.csv'
 
 #Road network graph
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
@@ -492,6 +513,7 @@ rent_normalisation=json.load(open(RENT_NORM_PATH))
 graphs=pickle.load(open(SIM_GRAPHS_PATH, 'rb'))
 # load the external route costs
 ext_route_costs=json.load(open(ROUTE_COSTS_PATH))
+activity_sched=pd.read_csv(ACTIVITY_SCHED_PATH)
 
 for graph in graphs:
     graphs[graph]['kdtree']=spatial.KDTree(
@@ -624,6 +646,7 @@ if base_sim_persons:
     get_LLs(base_sim_persons, ['home', 'work'])
     get_routes(base_sim_persons)
     predict_modes(base_sim_persons)
+    sample_activity_schedules(base_sim_persons)
     post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
 #    create_trips(base_sim_persons)
 #    post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
@@ -695,6 +718,7 @@ while True:
         get_simulation_locations(new_sim_persons)
         get_routes(new_sim_persons)
         predict_modes(new_sim_persons)
+        sample_activity_schedules(new_sim_persons)
         post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
 #        create_trips(new_sim_persons)
 #        post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')
