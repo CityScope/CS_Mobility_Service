@@ -13,10 +13,10 @@ from shapely.geometry import Point, shape
 import networkx as nx
 from scipy import spatial
 import numpy as np
-import pickle
+#import pickle
 import pandas as pd
 import math
-import urllib
+#import urllib
 
 # =============================================================================
 # Functions
@@ -137,6 +137,8 @@ PED_EDGES_PATH='./scripts/cities/'+city+'/clean/osm_ped_network_edges.csv'
 
 
 ROUTE_COSTS_PATH='./scripts/cities/'+city+'/clean/route_costs.json'
+INTERNAL_COSTS_PATH='./scripts/cities/'+city+'/clean/internal_route_costs.json'
+PORTAL_INTERNAL_COSTS_PATH='./scripts/cities/'+city+'/clean/portal_internal_route_costs.json'
 SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
 SIM_NET_GEOJSON_PATH='./scripts/cities/'+city+'/clean/'
 NEIGHBOURS_PATH='./scripts/cities/'+city+'/clean/neighbours.json'
@@ -287,184 +289,195 @@ for mode in network_dfs:
 
 # Save the results
 json.dump(ext_route_costs, open(ROUTE_COSTS_PATH, 'w')) 
-
-# =============================================================================
-#  Make smaller graphs for the simulation area
-# =============================================================================
-sim_area_nets={}
-node_name_maps={}
-for net in network_dfs:
-    sim_area_nodes=set()
-#    check if each node in any sim area, if so add to list
-#   TODO: stop checking when one is found
-    for n in range(len(network_dfs[net]['nodes'])):
-        if shape(sim_area['features'][0]['geometry']).contains(Point(
-                network_dfs[net]['nodes'].iloc[n]['x'], 
-                network_dfs[net]['nodes'].iloc[n]['y'])):
-            sim_area_nodes.add(n)
-#    add portals to list
-#    sim_area_nodes.add(['p'+str(p) for p in range(len(portals['features']))])
-    sim_area_edges_df=network_dfs[net]['edges'].loc[
-            ((network_dfs[net]['edges']['from_node_id'].isin(sim_area_nodes)) | # either from or to node is in the sim area
-            (network_dfs[net]['edges']['to_node_id'].isin(sim_area_nodes)))] 
-    
-    #    subset nodes df and edges df by nodes in list
-    # update the node list to include other edges of partially contained links 
-    sim_area_nodes=set(list(sim_area_edges_df['from_node_id'])+list(sim_area_edges_df['to_node_id']))
-    sim_area_nodes_df=network_dfs[net]['nodes'].loc[
-            network_dfs[net]['nodes']['node_id'].isin(sim_area_nodes)]
-    #    rename nodes
-    sim_area_nodes_df, sim_area_edges_df, node_name_maps[net]= rename_nodes(sim_area_nodes_df, sim_area_edges_df, 
-                                                   'node_id', 'to_node_id', 'from_node_id')
-    sim_area_nets[net]={'nodes': sim_area_nodes_df, 'edges': sim_area_edges_df}
-
-    
-# Create networkx graphs for each
-for osm_mode in ['driving', 'walking', 'cycling']:   
-    G_sim=nx.Graph()
-    for i, row in sim_area_nets[osm_mode]['edges'].iterrows():
-        G_sim.add_edge(row['from_node_id'], row['to_node_id'], attr_dict={
-                'weight_minutes':(row['distance']/SPEEDS_MET_S[osm_mode])/60,
-                'type': osm_mode})
-    sim_area_nets[osm_mode]['graph']=G_sim
-
-G_pt_sim=nx.Graph()
-for i, row in sim_area_nets['pt']['edges'].iterrows():
-    G_pt_sim.add_edge(row['from_node_id'], row['to_node_id'], 
-                     attr_dict={'weight_minutes':row['weight'],
-                                'type': pandana_link_types[row['net_type']]})
-sim_area_nets['pt']['graph']= G_pt_sim           
-
-
-# Add the links to/from portals
-for net in sim_area_nets:
-    for p in range(len(portals['features'])):
-        p_shape=shape(portals['features'][p]['geometry'])
-        nodes_inside=[n for n in range(len(sim_area_nets[net]['nodes'])) if p_shape.contains(
-                Point([sim_area_nets[net]['nodes'].iloc[n]['x'],
-                       sim_area_nets[net]['nodes'].iloc[n]['y']]))]
-        for ni in nodes_inside:
-            sim_area_nets[net]['graph'].add_edge('p'+str(p), ni,
-                       attr_dict={'type': 'from_portal', 'weight_minutes':0, 'distance': 0})
-            sim_area_nets[net]['graph'].add_edge(ni, 'p'+str(p),
-                       attr_dict={'type': 'to_portal', 'weight_minutes':0, 'distance': 0})
-
-# =============================================================================
-# Add new links corresponding to the interactive area
-# =============================================================================
-# get the grid data
-with urllib.request.urlopen(cityIO_grid_url+'/header/spatial') as url:
-    cityIO_spatial_data=json.loads(url.read().decode())
-
-with urllib.request.urlopen(cityIO_grid_url+'/meta_grid') as url:
-#get the latest grid data
-    meta_grid=json.loads(url.read().decode())
-   
-# create a lookup from interactive grid to meta_grid
-# and a dict of statuc land uses to their locations in the meta_grid
-int_to_meta_grid={}
-meta_grid_to_int={}
-for fi, f in enumerate(meta_grid['features']):
-    if f['properties']['interactive']:
-        int_to_meta_grid[int(f['properties']['interactive_id'])]=fi
-        meta_grid_to_int[fi]=int(f['properties']['interactive_id'])
-        
-grid_points_ll=[meta_grid['features'][int_to_meta_grid[int_cell]]['geometry']['coordinates'][0][0] for 
-                int_cell in int_to_meta_grid]
-    
-# create internal net
-sim_area_nets=createGridGraphs(grid_points_ll, sim_area_nets, cityIO_spatial_data['nrows'], 
-                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
+#
+## =============================================================================
+##  Make smaller graphs for the simulation area
+## =============================================================================
+#sim_area_nets={}
+#node_name_maps={}
+#for net in network_dfs:
+#    sim_area_nodes=set()
+##    check if each node in any sim area, if so add to list
+##   TODO: stop checking when one is found
+#    for n in range(len(network_dfs[net]['nodes'])):
+#        if shape(sim_area['features'][0]['geometry']).contains(Point(
+#                network_dfs[net]['nodes'].iloc[n]['x'], 
+#                network_dfs[net]['nodes'].iloc[n]['y'])):
+#            sim_area_nodes.add(n)
+##    add portals to list
+##    sim_area_nodes.add(['p'+str(p) for p in range(len(portals['features']))])
+#    sim_area_edges_df=network_dfs[net]['edges'].loc[
+#            ((network_dfs[net]['edges']['from_node_id'].isin(sim_area_nodes)) | # either from or to node is in the sim area
+#            (network_dfs[net]['edges']['to_node_id'].isin(sim_area_nodes)))] 
+#    
+#    #    subset nodes df and edges df by nodes in list
+#    # update the node list to include other edges of partially contained links 
+#    sim_area_nodes=set(list(sim_area_edges_df['from_node_id'])+list(sim_area_edges_df['to_node_id']))
+#    sim_area_nodes_df=network_dfs[net]['nodes'].loc[
+#            network_dfs[net]['nodes']['node_id'].isin(sim_area_nodes)]
+#    #    rename nodes
+#    sim_area_nodes_df, sim_area_edges_df, node_name_maps[net]= rename_nodes(sim_area_nodes_df, sim_area_edges_df, 
+#                                                   'node_id', 'to_node_id', 'from_node_id')
+#    sim_area_nets[net]={'nodes': sim_area_nodes_df, 'edges': sim_area_edges_df}
+#
+#    
+## Create networkx graphs for each
+#for osm_mode in ['driving', 'walking', 'cycling']:   
+#    G_sim=nx.Graph()
+#    for i, row in sim_area_nets[osm_mode]['edges'].iterrows():
+#        G_sim.add_edge(row['from_node_id'], row['to_node_id'], attr_dict={
+#                'weight_minutes':(row['distance']/SPEEDS_MET_S[osm_mode])/60,
+#                'type': osm_mode})
+#    sim_area_nets[osm_mode]['graph']=G_sim
+#
+#G_pt_sim=nx.Graph()
+#for i, row in sim_area_nets['pt']['edges'].iterrows():
+#    G_pt_sim.add_edge(row['from_node_id'], row['to_node_id'], 
+#                     attr_dict={'weight_minutes':row['weight'],
+#                                'type': pandana_link_types[row['net_type']]})
+#sim_area_nets['pt']['graph']= G_pt_sim           
+#
+#
+## Add the links to/from portals
+#for net in sim_area_nets:
+#    for p in range(len(portals['features'])):
+#        p_shape=shape(portals['features'][p]['geometry'])
+#        nodes_inside=[n for n in range(len(sim_area_nets[net]['nodes'])) if p_shape.contains(
+#                Point([sim_area_nets[net]['nodes'].iloc[n]['x'],
+#                       sim_area_nets[net]['nodes'].iloc[n]['y']]))]
+#        for ni in nodes_inside:
+#            sim_area_nets[net]['graph'].add_edge('p'+str(p), ni,
+#                       attr_dict={'type': 'from_portal', 'weight_minutes':0, 'distance': 0})
+#            sim_area_nets[net]['graph'].add_edge(ni, 'p'+str(p),
+#                       attr_dict={'type': 'to_portal', 'weight_minutes':0, 'distance': 0})
+#
+## =============================================================================
+## Add new links corresponding to the interactive area
+## =============================================================================
+## get the grid data
+#with urllib.request.urlopen(cityIO_grid_url+'/header/spatial') as url:
+#    cityIO_spatial_data=json.loads(url.read().decode())
+#
+#with urllib.request.urlopen(cityIO_grid_url+'/meta_grid') as url:
+##get the latest grid data
+#    meta_grid=json.loads(url.read().decode())
+#   
+## create a lookup from interactive grid to meta_grid
+## and a dict of statuc land uses to their locations in the meta_grid
+#int_to_meta_grid={}
+#meta_grid_to_int={}
+#for fi, f in enumerate(meta_grid['features']):
+#    if f['properties']['interactive']:
+#        int_to_meta_grid[int(f['properties']['interactive_id'])]=fi
+#        meta_grid_to_int[fi]=int(f['properties']['interactive_id'])
+#        
+#grid_points_ll=[meta_grid['features'][int_to_meta_grid[int_cell]]['geometry']['coordinates'][0][0] for 
+#                int_cell in int_to_meta_grid]
+#    
+## create internal net
+#sim_area_nets=createGridGraphs(grid_points_ll, sim_area_nets, cityIO_spatial_data['nrows'], 
+#                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
 # =============================================================================
 # Internal Route Costs
 # =============================================================================
 
-internal_closest_nodes={}
-for net in network_dfs:
-    internal_closest_nodes[net]=[]
-    kdtree_nodes=spatial.KDTree(np.array(sim_area_nets[net]['nodes'][['x', 'y']]))
-    for i in range(len(meta_grid['features'])):
-        _, c_nodes=kdtree_nodes.query(meta_grid['features'][i][
-                'geometry']['coordinates'][0][0], 10)
-        internal_closest_nodes[net].append(list(c_nodes))
-
-int_route_costs={}
-for mode in network_dfs:
-    print(mode)
-    int_route_costs[mode]={}
-    for og in range(len(meta_grid['features'])):
-        print(og)
-        int_route_costs[mode][og]={}
-        if og in meta_grid_to_int:
-            origin_node_list='g'+str(meta_grid_to_int[og])
-        else:
-            origin_node_list=internal_closest_nodes[mode][og]
-        for dg in range(len(meta_grid['features'])):
-            int_route_costs[mode][og][dg]={}
-            if dg in meta_grid_to_int:
-                dest_node_list='g'+str(meta_grid_to_int[dg])
-            else:
-                dest_node_list=internal_closest_nodes[mode][dg]
-            node_route=find_route_multi(origin_node_list, 
-                                                  dest_node_list, 
-                                                  sim_area_nets[mode]['graph'],
-                                                  'weight_minutes')
-            if node_route:
-                route_net_types=[sim_area_nets[mode]['graph'][
-                        node_route[i]][
-                        node_route[i+1]
-                        ]['attr_dict']['type'
-                         ] for i in range(len(node_route)-1)]
-                route_weights=[sim_area_nets[mode]['graph'][
-                        node_route[i]][
-                        node_route[i+1]
-                        ]['attr_dict']['weight_minutes'
-                         ] for i in range(len(node_route)-1)]
-                for l_type in ['walking', 'cycling', 'driving', 'pt', 
-                               'waiting']:
-                    if len(route_weights)>0:
-                        int_route_costs[mode][og][dg][l_type]=sum(
-                                [route_weights[l] for l in range(len(route_weights)
-                                ) if route_net_types[l]==l_type])
-                    else:
-                        int_route_costs[mode][og][dg][l_type]=0
-            else:
-                for l_type in ['walking', 'cycling', 'driving', 'pt', 
-                               'waiting']:
-                    int_route_costs[mode][og][dg][l_type]=10000
-            
-# Save the results        
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-         
-
-#            
-## Plot
-##net='driving'
-##gmap=gmplot.GoogleMapPlotter(0,0,1)
-##for i, row in sim_area_nets[net]['edges'].iterrows(): 
-##    from_node=row['from_node_id']
-##    to_node=row['to_node_id']
-##    xs=[sim_area_nets[net]['nodes'].iloc[from_node]['x'], sim_area_nets[net]['nodes'].iloc[to_node]['x']]
-##    ys=[sim_area_nets[net]['nodes'].iloc[from_node]['y'], sim_area_nets[net]['nodes'].iloc[to_node]['y']]
-##    gmap.plot(ys, xs,  
-##               'cornflowerblue', edge_width = 1)
-##gmap.draw( '/Users/doorleyr/Desktop/map_'+net+'.html' )
-#                
-#pickle.dump(sim_area_nets, open(SIM_GRAPHS_PATH, 'wb'))
+#internal_closest_nodes={}
+#for net in network_dfs:
+#    internal_closest_nodes[net]=[]
+#    kdtree_nodes=spatial.KDTree(np.array(sim_area_nets[net]['nodes'][['x', 'y']]))
+#    for i in range(len(meta_grid['features'])):
+#        _, c_nodes=kdtree_nodes.query(meta_grid['features'][i][
+#                'geometry']['coordinates'][0][0], 10)
+#        internal_closest_nodes[net].append(list(c_nodes))
+#
+#int_route_costs={}
+#for mode in network_dfs:
+#    print(mode)
+#    int_route_costs[mode]={}
+#    for og in range(len(meta_grid['features'])):
+#        print(og)
+#        int_route_costs[mode][og]={}
+#        if og in meta_grid_to_int:
+#            origin_node_list='g'+str(meta_grid_to_int[og])
+#        else:
+#            origin_node_list=internal_closest_nodes[mode][og]
+#        for dg in range(len(meta_grid['features'])):
+#            int_route_costs[mode][og][dg]={}
+#            if dg in meta_grid_to_int:
+#                dest_node_list='g'+str(meta_grid_to_int[dg])
+#            else:
+#                dest_node_list=internal_closest_nodes[mode][dg]
+#            node_route=find_route_multi(origin_node_list, 
+#                                                  dest_node_list, 
+#                                                  sim_area_nets[mode]['graph'],
+#                                                  'weight_minutes')
+#            if node_route:
+#                route_net_types=[sim_area_nets[mode]['graph'][
+#                        node_route[i]][
+#                        node_route[i+1]
+#                        ]['attr_dict']['type'
+#                         ] for i in range(len(node_route)-1)]
+#                route_weights=[sim_area_nets[mode]['graph'][
+#                        node_route[i]][
+#                        node_route[i+1]
+#                        ]['attr_dict']['weight_minutes'
+#                         ] for i in range(len(node_route)-1)]
+#                for l_type in ['walking', 'cycling', 'driving', 'pt', 
+#                               'waiting']:
+#                    if len(route_weights)>0:
+#                        int_route_costs[mode][og][dg][l_type]=sum(
+#                                [route_weights[l] for l in range(len(route_weights)
+#                                ) if route_net_types[l]==l_type])
+#                    else:
+#                        int_route_costs[mode][og][dg][l_type]=0
+#            else:
+#                for l_type in ['walking', 'cycling', 'driving', 'pt', 
+#                               'waiting']:
+#                    int_route_costs[mode][og][dg][l_type]=10000
+#
+## add portal to internal grid costs
+#portal_int_route_costs={}
+#for mode in network_dfs:
+#    portal_int_route_costs[mode]={}
+#    print(mode)
+#    for p in range(len(portals)):
+#        portal_int_route_costs[mode][p]={}
+#        origin_node_list=['p'+str(p)]
+#        for dg in range(len(meta_grid['features'])):
+#            portal_int_route_costs[mode][p][dg]={}
+#            if dg in meta_grid_to_int:
+#                dest_node_list='g'+str(meta_grid_to_int[dg])
+#            else:
+#                dest_node_list=internal_closest_nodes[mode][dg]
+#            node_route=find_route_multi(origin_node_list, 
+#                                          dest_node_list, 
+#                                          sim_area_nets[mode]['graph'],
+#                                          'weight_minutes')
+#            if node_route:
+#                route_net_types=[sim_area_nets[mode]['graph'][
+#                        node_route[i]][
+#                        node_route[i+1]
+#                        ]['attr_dict']['type'
+#                         ] for i in range(len(node_route)-1)]
+#                route_weights=[sim_area_nets[mode]['graph'][
+#                        node_route[i]][
+#                        node_route[i+1]
+#                        ]['attr_dict']['weight_minutes'
+#                         ] for i in range(len(node_route)-1)]
+#                for l_type in ['walking', 'cycling', 'driving', 'pt', 
+#                               'waiting']:
+#                    if len(route_weights)>0:
+#                        portal_int_route_costs[mode][p][dg][l_type]=sum(
+#                                [route_weights[l] for l in range(len(route_weights)
+#                                ) if route_net_types[l]==l_type])
+#                    else:
+#                        portal_int_route_costs[mode][p][dg][l_type]=0
+#            else:
+#                for l_type in ['walking', 'cycling', 'driving', 'pt', 
+#                               'waiting']:
+#                    portal_int_route_costs[mode][p][dg][l_type]=10000              
+## Save the results        
+#
+#json.dump(int_route_costs, open(INTERNAL_COSTS_PATH, 'w')) 
+#json.dump(portal_int_route_costs, open(PORTAL_INTERNAL_COSTS_PATH, 'w')) 

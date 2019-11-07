@@ -9,12 +9,12 @@ import pickle
 import json
 import random
 import urllib
-import pyproj
+#import pyproj
 import math
 import pandas as pd
 import numpy as np
-import networkx as nx
-from scipy import spatial
+#import networkx as nx
+#from scipy import spatial
 import requests
 from time import sleep
 import time
@@ -39,37 +39,37 @@ def get_haversine_distance(point_1, point_2):
     r = 6371000 # Radius of earth in kilometers. Use 3956 for miles
     return c * r
 
-def createGridGraphs(grid_coords_ll, graphs, nrows, ncols, cell_size):
-    """
-    returns new networks including roads around the cells
-    """
-    for mode in graphs:
-#    create graph internal to the grid
-        graphs[mode]['graph'].add_nodes_from('g'+str(n) for n in range(len(grid_coords_ll)))
-        for c in range(ncols):
-            for r in range(nrows):
-                # if not at the end of a row, add h link
-                if not c==ncols-1:
-                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c), 'g'+str(r*ncols+c+1), 
-                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
-                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c+1), 'g'+str(r*ncols+c), 
-                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
-                # if not at the end of a column, add v link
-                if not r==nrows-1:
-                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c), 'g'+str((r+1)*ncols+c), 
-                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
-                    graphs[mode]['graph'].add_edge('g'+str((r+1)*ncols+c), 'g'+str(r*ncols+c), 
-                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
-        # create links between the 4 corners of the grid and the road network
-        kd_tree_nodes=spatial.KDTree(np.array(graphs[mode]['nodes'][['x', 'y']]))
-        for n in [0, ncols-1, (nrows-1)*ncols, (nrows*ncols)-1]: 
-            closest=kd_tree_nodes.query(grid_coords_ll[n], k=1)[1]
-            distance_m=get_haversine_distance(grid_coords_ll[n], list(graphs[mode]['nodes'].iloc[closest][['x', 'y']]))
-            graphs[mode]['graph'].add_edge('g'+str(n), closest, attr_dict={'type': mode, 
-                       'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
-            graphs[mode]['graph'].add_edge(closest, 'g'+str(n), attr_dict={'type': mode, 
-                       'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
-    return graphs 
+#def createGridGraphs(grid_coords_ll, graphs, nrows, ncols, cell_size):
+#    """
+#    returns new networks including roads around the cells
+#    """
+#    for mode in graphs:
+##    create graph internal to the grid
+#        graphs[mode]['graph'].add_nodes_from('g'+str(n) for n in range(len(grid_coords_ll)))
+#        for c in range(ncols):
+#            for r in range(nrows):
+#                # if not at the end of a row, add h link
+#                if not c==ncols-1:
+#                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c), 'g'+str(r*ncols+c+1), 
+#                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
+#                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c+1), 'g'+str(r*ncols+c), 
+#                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
+#                # if not at the end of a column, add v link
+#                if not r==nrows-1:
+#                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c), 'g'+str((r+1)*ncols+c), 
+#                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
+#                    graphs[mode]['graph'].add_edge('g'+str((r+1)*ncols+c), 'g'+str(r*ncols+c), 
+#                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
+#        # create links between the 4 corners of the grid and the road network
+#        kd_tree_nodes=spatial.KDTree(np.array(graphs[mode]['nodes'][['x', 'y']]))
+#        for n in [0, ncols-1, (nrows-1)*ncols, (nrows*ncols)-1]: 
+#            closest=kd_tree_nodes.query(grid_coords_ll[n], k=1)[1]
+#            distance_m=get_haversine_distance(grid_coords_ll[n], list(graphs[mode]['nodes'].iloc[closest][['x', 'y']]))
+#            graphs[mode]['graph'].add_edge('g'+str(n), closest, attr_dict={'type': mode, 
+#                       'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
+#            graphs[mode]['graph'].add_edge(closest, 'g'+str(n), attr_dict={'type': mode, 
+#                       'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
+#    return graphs 
 
 #def random_points_within(poly, num_points):
 #    """ takes a polygon such as an admin boundary or building and selects 
@@ -129,107 +129,119 @@ def get_LLs(persons, places):
                     all_geoid_centroids[geoid][1]+np.random.normal(0, 0.002, 1)[0]]
             p[place+'_ll']=ll
 
-def find_route_multi(start_nodes, end_nodes, graph, weight):
-    """
-    tries to find paths between lists of possible start and end nodes
-    Once a path is successfully found it is returned. Otherwise returns None
-    """
-    for sn in start_nodes:
-        for en in end_nodes:
-            try:
-                node_path=nx.shortest_path(graph,sn,en, weight=weight)
-                return node_path
-            except:
-                pass
-    return None
-
-def get_route_costs(start_nodes, end_nodes, graph, weight):
-    node_route=find_route_multi(start_nodes, end_nodes, 
-                                            graph, weight)
-    if node_route:
-        weights=[graph[node_route[i]][node_route[i+1]]['attr_dict'][weight] 
-            for i in range(len(node_route)-1)]
-        types=[graph[node_route[i]][node_route[i+1]]['attr_dict']['type'] 
-            for i in range(len(node_route)-1)]
-        route={'node_route': node_route,
-               'weights': weights}
-        for c in ['driving', 'walking', 'waiting',
-                  'cycling', 'pt']:
-            route[c]=sum([weights[i] for i in range(len(weights)
-            ) if types[i]==c])
-    else:
-        route={'node_route': [end_nodes[0], end_nodes[0]],
-               'weights': [0]}
-        for c in ['driving', 'walking', 'waiting',
-                  'cycling', 'pt']:
-            route[c]=1000
-    return route
+#def find_route_multi(start_nodes, end_nodes, graph, weight):
+#    """
+#    tries to find paths between lists of possible start and end nodes
+#    Once a path is successfully found it is returned. Otherwise returns None
+#    """
+#    for sn in start_nodes:
+#        for en in end_nodes:
+#            try:
+#                node_path=nx.shortest_path(graph,sn,en, weight=weight)
+#                return node_path
+#            except:
+#                pass
+#    return None
+#
+#def get_route_costs(start_nodes, end_nodes, graph, weight):
+#    node_route=find_route_multi(start_nodes, end_nodes, 
+#                                            graph, weight)
+#    if node_route:
+#        weights=[graph[node_route[i]][node_route[i+1]]['attr_dict'][weight] 
+#            for i in range(len(node_route)-1)]
+#        types=[graph[node_route[i]][node_route[i+1]]['attr_dict']['type'] 
+#            for i in range(len(node_route)-1)]
+#        route={'node_route': node_route,
+#               'weights': weights}
+#        for c in ['driving', 'walking', 'waiting',
+#                  'cycling', 'pt']:
+#            route[c]=sum([weights[i] for i in range(len(weights)
+#            ) if types[i]==c])
+#    else:
+#        route={'node_route': [end_nodes[0], end_nodes[0]],
+#               'weights': [0]}
+#        for c in ['driving', 'walking', 'waiting',
+#                  'cycling', 'pt']:
+#            route[c]=1000
+#    return route
+            
+def approx_route_costs(start_coord, end_coord):
+    approx_speeds_met_s={'driving':20/3.6,
+        'cycling':10/3.6,
+        'walking':3/3.6,
+        'pt': 15/3.6 
+        }
+    straight_line_commute=get_haversine_distance(start_coord, end_coord)
+    routes={}
+    for mode in range(4):
+        routes[mode]={'route': {'driving':0, 'walking':0, 'waiting':0,
+                      'cycling':0, 'pt':0}, 'external_time':0}
+    routes[0]['route']['driving']=(straight_line_commute/approx_speeds_met_s['driving'])/60
+    routes[1]['route']['cycling']=(straight_line_commute/approx_speeds_met_s['cycling'])/60
+    routes[2]['route']['walking']=(straight_line_commute/approx_speeds_met_s['walking'])/60
+    routes[3]['route']['pt']=(straight_line_commute/approx_speeds_met_s['pt'])/60
+    routes[3]['route']['walking']=(200/approx_speeds_met_s['walking'])/60
+    return routes
+    
         
-def get_routes(persons):
+def get_route_costs(persons):
     """ takes a list of person objects 
     and finds the travel time costs of travel by each mode
     modifies in place
     """
     for p in persons:
         p['routes']={}
-        start_time=7*60*60+random.choice(range(0,3*60*60))
         if ((p['home_sim']['type']=='meta_grid') and  (p['work_sim']['type']=='meta_grid')):
             p['type']=0 # lives and works on site
-            for m in range(4):
-                home_node_list=graphs[mode_graphs[m]]['kdtree'].query(
-                        np.array(meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']), 5)[1]
-                work_node_list=graphs[mode_graphs[m]]['kdtree'].query(
-                        np.array(meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']), 5)[1]
-                p['routes'][m]={'route':get_route_costs(home_node_list, work_node_list, 
-                                            graphs[mode_graphs[m]]['graph'], 'weight_minutes')}
-                p['routes'][m]['external_time']=0
+            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+            p['routes']=approx_route_costs(home_coord, work_coord)
         elif p['work_sim']['type']=='meta_grid':
             p['type']=1 # commute_in
+            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
             for m in range(4):
-                portal_routes={}
+                p['routes'][m]={}
                 best_portal_route_time=float('inf')
-                work_node_list=graphs[mode_graphs[m]]['kdtree'].query(
-                        np.array(meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']), 5)[1]
-                for portal in range(len(ext_route_costs[mode_graphs[m]][str(p['home_geoid'])])):
-                    # get route from home zone to portal by this mode
-                    route_to_portal=ext_route_costs[mode_graphs[m]][str(p['home_geoid'])][str(portal)] 
-                    external_time=sum([route_to_portal[c] for c in [
-                            'driving', 'walking', 'cycling', 'pt']])
-                    portal_routes[portal]=get_route_costs(['p'+str(portal)], work_node_list, 
-                                            graphs[mode_graphs[m]]['graph'], 'weight_minutes')
-                    for c in ['driving', 'walking', 'waiting',
-                              'cycling', 'pt']:
-                        portal_routes[portal][c]+=route_to_portal[c]
-                    total_time=sum([portal_routes[portal][c] for c in [
-                            'driving', 'walking', 'cycling', 'pt']])
-                    if total_time<best_portal_route_time:
+                for portal in range(len(portals['features'])):
+                    portal_coord=[nodes_xy[m]['p'+str(portal)]['x'], 
+                                  nodes_xy[m]['p'+str(portal)]['y']]
+                    internal_portal_route=approx_route_costs(portal_coord, work_coord)[m]
+                    external_portal_route=ext_route_costs[mode_graphs[m]][str(p['home_geoid'])][str(portal)]
+                    external_time=sum([external_portal_route[c] for c in external_portal_route])
+                    full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
+                                       c in ['driving', 'walking', 'waiting','cycling', 'pt']}
+                    total_portal_route_time=sum([full_portal_route[c] for c in full_portal_route])
+                    if total_portal_route_time<best_portal_route_time:
                         best_portal=portal
+                        best_route=full_portal_route
                         best_external_time=external_time
-                        best_portal_route_time=total_time
-                p['routes'][m]={'portal': best_portal, 'route': portal_routes[best_portal]}
-                p['routes'][m]['external_time']=int(best_external_time*60)
+                        best_portal_route_time=total_portal_route_time                    
+                p['routes'][m]['portal']=best_portal
+                p['routes'][m]['external_time']= int(best_external_time*60)
+                p['routes'][m]['route']=best_route
         elif p['home_sim']['type']=='meta_grid':
             p['type']=2 # commute_out
+            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
             for m in range(4):
-                portal_routes={}
+                p['routes'][m]={}
                 best_portal_route_time=float('inf')
-                home_node_list=graphs[mode_graphs[m]]['kdtree'].query(
-                        np.array(meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']), 5)[1]
-                for portal in range(len(ext_route_costs[mode_graphs[m]][str(p['work_geoid'])])):
-                    # get route from home zone to portal by this mode
-                    route_from_portal=ext_route_costs[mode_graphs[m]][str(p['work_geoid'])][str(portal)] 
-                    portal_routes[portal]=get_route_costs( home_node_list, ['p'+str(portal)],
-                                            graphs[mode_graphs[m]]['graph'], 'weight_minutes')
-                    for c in ['driving', 'walking', 'waiting',
-                              'cycling', 'pt']:
-                        portal_routes[portal][c]+=route_from_portal[c]
-                    total_time=sum([portal_routes[portal][c] for c in [
-                            'driving', 'walking', 'cycling', 'pt']])
-                    if total_time<best_portal_route_time:
+                for portal in range(len(portals['features'])):
+                    portal_coord=[nodes_xy[m]['p'+str(portal)]['x'], 
+                                  nodes_xy[m]['p'+str(portal)]['y']]
+                    internal_portal_route=approx_route_costs(home_coord, portal_coord)[m]
+                    external_portal_route=ext_route_costs[mode_graphs[m]][str(p['work_geoid'])][str(portal)]
+                    external_time=sum([external_portal_route[c] for c in external_portal_route])
+                    full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
+                                       c in ['driving', 'walking', 'waiting','cycling', 'pt']}
+                    total_portal_route_time=sum([full_portal_route[c] for c in full_portal_route])
+                    if total_portal_route_time<best_portal_route_time:
                         best_portal=portal
-                        best_portal_route_time=total_time
-                p['routes'][m]={'portal': best_portal, 'route': portal_routes[best_portal]}
-                p['routes'][m]['external_time']=0
+                        best_route=full_portal_route
+                        best_external_time=external_time
+                        best_portal_route_time=total_portal_route_time                    
+                p['routes'][m]['portal']=best_portal
+                p['routes'][m]['external_time']= 0
+                p['routes'][m]['route']=best_route
                 
 def predict_modes(persons):
     """ takes list of person objects and 
@@ -270,21 +282,19 @@ def predict_modes(persons):
     for i,p in enumerate(persons): 
         chosen_mode=int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0])
         p['mode']=chosen_mode
-        if p['home_sim']['type']=='portal': p['home_sim']['ind']=p['routes'][chosen_mode]['portal']
-        elif p['work_sim']['type']=='portal': p['work_sim']['ind']=p['routes'][chosen_mode]['portal']
-        # TODO: temporary hack below. Don't need home node if only sending sim_home and sim_work to /od 
-        if 'g' in str(p['home_geoid']):
-            home_node=p['home_geoid']
+        if p['home_sim']['type']=='portal': 
+            p['home_sim']['ind']=p['routes'][chosen_mode]['portal']
+            p['home_sim']['ll']=[nodes_xy[0]['p'+str(p['home_sim']['ind'])]['x'],
+                                 nodes_xy[0]['p'+str(p['home_sim']['ind'])]['y']]
+            p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+        elif p['work_sim']['type']=='portal': 
+            p['work_sim']['ind']=p['routes'][chosen_mode]['portal']
+            p['work_sim']['ll']=[nodes_xy[0]['p'+str(p['work_sim']['ind'])]['x'],
+                     nodes_xy[0]['p'+str(p['work_sim']['ind'])]['y']]
+            p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
         else:
-            home_node=p['routes'][chosen_mode]['route']['node_route'][0]
-        if 'g' in str(p['work_geoid']):
-            work_node=p['work_geoid']
-        else: 
-            work_node=p['routes'][chosen_mode]['route']['node_route'][-1]
-        p['home_node_ll']=[nodes_xy[chosen_mode][home_node]['x'], 
-                           nodes_xy[chosen_mode][home_node]['y']]
-        p['work_node_ll']=[nodes_xy[chosen_mode][work_node]['x'], 
-                           nodes_xy[chosen_mode][work_node]['y']]
+            p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+            p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
         p['external_time']=p['routes'][chosen_mode]['external_time']
 
 def sample_activity_schedules(persons):
@@ -306,8 +316,8 @@ def sample_activity_schedules(persons):
                                 
 
 def post_od_data(persons, destination_address):
-    od_str=json.dumps([{'home_ll': p['home_node_ll'],
-                       'work_ll': p['work_node_ll'],
+    od_str=json.dumps([{'home_ll': p['home_sim']['ll'],
+                       'work_ll': p['work_sim']['ll'],
                        'home_sim': p['home_sim'],
                        'work_sim': p['work_sim'],
                        'type': p['type'],
@@ -510,14 +520,14 @@ rf_features=json.load(open(RF_FEATURES_LIST_PATH, 'r'))
 home_loc_logit=pickle.load( open( FITTED_HOME_LOC_MODEL_PATH, "rb" ) )
 rent_normalisation=json.load(open(RENT_NORM_PATH))
 #load the network graphs
-graphs=pickle.load(open(SIM_GRAPHS_PATH, 'rb'))
+#graphs=pickle.load(open(SIM_GRAPHS_PATH, 'rb'))
 # load the external route costs
 ext_route_costs=json.load(open(ROUTE_COSTS_PATH))
 activity_sched=pd.read_csv(ACTIVITY_SCHED_PATH)
 
-for graph in graphs:
-    graphs[graph]['kdtree']=spatial.KDTree(
-            np.array(graphs[graph]['nodes'][['x', 'y']]))
+#for graph in graphs:
+#    graphs[graph]['kdtree']=spatial.KDTree(
+#            np.array(graphs[graph]['nodes'][['x', 'y']]))
 
 #nodes=pd.read_csv(NODES_PATH)
 # load the zones geojson
@@ -601,8 +611,8 @@ for cell in meta_grid['features']:
 grid_points_ll=[f['geometry']['coordinates'][0][0] for f in grid_interactive['features']]
 
 
-graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
-                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
+#graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
+#                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
 sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
 #
@@ -614,12 +624,12 @@ sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
 nodes_xy={}
 for mode in mode_graphs:
     nodes_xy[mode]={}
-    for i in range(len(graphs[mode_graphs[mode]]['nodes'])):
-        nodes_xy[mode][i]={'x':graphs[mode_graphs[mode]]['nodes'].iloc[i]['x'],
-             'y':graphs[mode_graphs[mode]]['nodes'].iloc[i]['y']}
-    for i in range(len(grid_points_ll)):
-        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
-             'y':grid_points_ll[i][1]}
+#    for i in range(len(graphs[mode_graphs[mode]]['nodes'])):
+#        nodes_xy[mode][i]={'x':graphs[mode_graphs[mode]]['nodes'].iloc[i]['x'],
+#             'y':graphs[mode_graphs[mode]]['nodes'].iloc[i]['y']}
+#    for i in range(len(grid_points_ll)):
+#        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
+#             'y':grid_points_ll[i][1]}
     for p in range(len(portals['features'])):
 #        p_centroid=shape(portals['features'][p]['geometry']).centroid
         p_centroid=approx_shape_centroid(portals['features'][p]['geometry'])
@@ -644,7 +654,7 @@ for h in base_vacant_houses:
 if base_sim_persons: 
     get_simulation_locations(base_sim_persons)
     get_LLs(base_sim_persons, ['home', 'work'])
-    get_routes(base_sim_persons)
+    get_route_costs(base_sim_persons)
     predict_modes(base_sim_persons)
     sample_activity_schedules(base_sim_persons)
     post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
@@ -716,7 +726,7 @@ while True:
                           p['work_geoid'] in sim_area_zone_list)]
         get_LLs(new_sim_persons, ['home', 'work'])
         get_simulation_locations(new_sim_persons)
-        get_routes(new_sim_persons)
+        get_route_costs(new_sim_persons)
         predict_modes(new_sim_persons)
         sample_activity_schedules(new_sim_persons)
         post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
