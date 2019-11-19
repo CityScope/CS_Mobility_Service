@@ -18,6 +18,9 @@ import numpy as np
 import requests
 from time import sleep
 import time
+import sys
+
+city=sys.argv[1]
 
 
 # =============================================================================
@@ -433,12 +436,6 @@ def home_location_choices(houses, persons):
         # update characterictics of persons in these households
 
 # =============================================================================
-# Parameters
-# =============================================================================
-city='Hamburg'
-send_to_cityIO=True
-
-# =============================================================================
 # Constants
 # =============================================================================
 
@@ -567,6 +564,7 @@ except:
     print('Using static cityIO grid file')
     cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
     cityIO_spatial_data=cityIO_data['header']['spatial']
+n_cells=cityIO_spatial_data['ncols']*cityIO_spatial_data['nrows']
 
 # Interactive grid geojson    
 try:
@@ -608,11 +606,10 @@ for cell in meta_grid['features']:
     cell['properties']['centroid']=approx_shape_centroid(cell['geometry'])
     
 
-grid_points_ll=[f['geometry']['coordinates'][0][0] for f in grid_interactive['features']]
+grid_points_ll=[meta_grid['features'][int_to_meta_grid[int_grid_cell]][
+        'geometry']['coordinates'][0][0
+        ] for int_grid_cell in range(n_cells)]
 
-
-#graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
-#                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
 sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
 #
