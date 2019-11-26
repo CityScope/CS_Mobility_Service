@@ -42,49 +42,6 @@ def get_haversine_distance(point_1, point_2):
     r = 6371000 # Radius of earth in kilometers. Use 3956 for miles
     return c * r
 
-#def createGridGraphs(grid_coords_ll, graphs, nrows, ncols, cell_size):
-#    """
-#    returns new networks including roads around the cells
-#    """
-#    for mode in graphs:
-##    create graph internal to the grid
-#        graphs[mode]['graph'].add_nodes_from('g'+str(n) for n in range(len(grid_coords_ll)))
-#        for c in range(ncols):
-#            for r in range(nrows):
-#                # if not at the end of a row, add h link
-#                if not c==ncols-1:
-#                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c), 'g'+str(r*ncols+c+1), 
-#                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
-#                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c+1), 'g'+str(r*ncols+c), 
-#                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
-#                # if not at the end of a column, add v link
-#                if not r==nrows-1:
-#                    graphs[mode]['graph'].add_edge('g'+str(r*ncols+c), 'g'+str((r+1)*ncols+c), 
-#                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
-#                    graphs[mode]['graph'].add_edge('g'+str((r+1)*ncols+c), 'g'+str(r*ncols+c), 
-#                          attr_dict={'type': mode, 'weight_minutes':(cell_size/SPEEDS_MET_S[mode])/(60)})
-#        # create links between the 4 corners of the grid and the road network
-#        kd_tree_nodes=spatial.KDTree(np.array(graphs[mode]['nodes'][['x', 'y']]))
-#        for n in [0, ncols-1, (nrows-1)*ncols, (nrows*ncols)-1]: 
-#            closest=kd_tree_nodes.query(grid_coords_ll[n], k=1)[1]
-#            distance_m=get_haversine_distance(grid_coords_ll[n], list(graphs[mode]['nodes'].iloc[closest][['x', 'y']]))
-#            graphs[mode]['graph'].add_edge('g'+str(n), closest, attr_dict={'type': mode, 
-#                       'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
-#            graphs[mode]['graph'].add_edge(closest, 'g'+str(n), attr_dict={'type': mode, 
-#                       'weight_minutes':(distance_m/SPEEDS_MET_S[mode])/(60)})
-#    return graphs 
-
-#def random_points_within(poly, num_points):
-#    """ takes a polygon such as an admin boundary or building and selects 
-#    a random point inside using rejection sampling
-#    """
-#    min_x, min_y, max_x, max_y = poly.bounds
-#    points = []
-#    while len(points) < num_points:
-#        random_point = Point([random.uniform(min_x, max_x), random.uniform(min_y, max_y)])
-#        if (random_point.within(poly)):
-#            points.append(random_point)
-#    return points
 
 def approx_shape_centroid(geometry):
     if geometry['type']=='Polygon':
@@ -131,42 +88,6 @@ def get_LLs(persons, places):
                 ll=[all_geoid_centroids[geoid][0]+np.random.normal(0, 0.002, 1)[0], 
                     all_geoid_centroids[geoid][1]+np.random.normal(0, 0.002, 1)[0]]
             p[place+'_ll']=ll
-
-#def find_route_multi(start_nodes, end_nodes, graph, weight):
-#    """
-#    tries to find paths between lists of possible start and end nodes
-#    Once a path is successfully found it is returned. Otherwise returns None
-#    """
-#    for sn in start_nodes:
-#        for en in end_nodes:
-#            try:
-#                node_path=nx.shortest_path(graph,sn,en, weight=weight)
-#                return node_path
-#            except:
-#                pass
-#    return None
-#
-#def get_route_costs(start_nodes, end_nodes, graph, weight):
-#    node_route=find_route_multi(start_nodes, end_nodes, 
-#                                            graph, weight)
-#    if node_route:
-#        weights=[graph[node_route[i]][node_route[i+1]]['attr_dict'][weight] 
-#            for i in range(len(node_route)-1)]
-#        types=[graph[node_route[i]][node_route[i+1]]['attr_dict']['type'] 
-#            for i in range(len(node_route)-1)]
-#        route={'node_route': node_route,
-#               'weights': weights}
-#        for c in ['driving', 'walking', 'waiting',
-#                  'cycling', 'pt']:
-#            route[c]=sum([weights[i] for i in range(len(weights)
-#            ) if types[i]==c])
-#    else:
-#        route={'node_route': [end_nodes[0], end_nodes[0]],
-#               'weights': [0]}
-#        for c in ['driving', 'walking', 'waiting',
-#                  'cycling', 'pt']:
-#            route[c]=1000
-#    return route
             
 def approx_route_costs(start_coord, end_coord):
     approx_speeds_met_s={'driving':20/3.6,
@@ -355,43 +276,8 @@ def post_arc_data(persons, destination_address):
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
           
-#def create_trips(persons):
-#    """ returns a trip objects for each person
-#    each  trip object contains a list of [lon, lat, timestamp] coordinates
-#    this is the format required by the deckGL trips layer
-#    modifies in place
-#    """
-#    for p in persons:
-#        chosen_route=p['routes'][p['mode']]
-#        route_nodes=chosen_route['node_route']
-#        route_coords=[nodes_xy[p['mode']][n] for n in route_nodes]
-#        route_time=[p['sim_start_time']]+[int(p['sim_start_time']+w*60
-#                    ) for w in np.cumsum(chosen_route['weights'])]
-#        p['path']=[[int(1e5*route_coords[n]['x'])/1e5, # reduce precision
-#                    int(1e5*route_coords[n]['y'])/1e5
-#                    ]for n in range(len(route_nodes))]
-#        p['timestamps']=route_time
-## 
-#def post_trips_data(persons, destination_address):
-#    """ posts trip data json to cityIO
-#    """
-#    trips_str=json.dumps([{'mode': p['mode'], 'path': p['path'], 
-#                           'timestamps': p['timestamps']} for p in persons]) 
-#    try:
-#        r = requests.post(destination_address, data = trips_str)
-#        print(r)
-#    except requests.exceptions.RequestException as e:
-#        print('Couldnt send to cityio')
-#        
-#def post_grid_geojson(grid_geo, destination_address):
-#    """ posts grid geojson to cityIO
-#    """
-#    try:
-#        r = requests.post(destination_address, data = json.dumps(grid_geo))
-#        print(r)
-#    except requests.exceptions.RequestException as e:
-#        print('Couldnt send grid geojson to cityio')
-#        
+
+
 def create_long_record(person, house, choice_id):
     """ takes a house object and a household object and 
     creates a row for the MNL long data frame 
@@ -435,6 +321,48 @@ def home_location_choices(houses, persons):
         persons[p_ind]['home_geoid']=houses[house_id]['home_geoid']
         # update characterictics of persons in these households
 
+def shannon_equitability(species_pop, species_set):
+    diversity=0
+    pop_size=len(species_pop)
+    if pop_size>0:
+        for species in species_set:
+            pj=species_pop.count(species)/len(species_pop)
+            if not pj==0:
+                diversity+= -pj*np.log(pj)
+        equitability=diversity/np.log(len(species_set))
+        return equitability
+    else:
+        return 0
+            
+def get_pop_diversity(persons):
+    diversity={}
+    dims=['age', 'income']
+    for d in dims:
+        dim_all_persons=[p[d] for p in persons]
+        diversity[d]=shannon_equitability(dim_all_persons, set(dim_all_persons))
+    return diversity
+        
+def get_lu_diversity(grid_data):
+    # TODO: incorporate num floors
+    lu_diversity={}
+    all_lu_pop=[int(gd[0]) for gd in grid_data]
+    housing_pop=[lu for lu in all_lu_pop if lu in housing_types]
+    lu_diversity['housing']=shannon_equitability(housing_pop, set(housing_types))
+    office_pop=[lu for lu in all_lu_pop if lu in employment_types]
+    lu_diversity['office']=shannon_equitability(office_pop, set(employment_types))
+    return lu_diversity
+
+def post_diversity_indicators(pop_diversity, lu_diversity, destination_address):
+    all_diversity={}
+    for var in pop_diversity:
+        all_diversity[var]=pop_diversity[var]
+    for var in lu_diversity:
+        all_diversity[var]=lu_diversity[var]
+    try:
+        r = requests.post(destination_address, data = json.dumps(all_diversity))
+        print('Diversity Indicators: {}'.format(r))
+    except requests.exceptions.RequestException as e:
+        print('Couldnt send diversity indicators to cityio')
 # =============================================================================
 # Constants
 # =============================================================================
@@ -721,6 +649,9 @@ while True:
         new_sim_persons=[p for p in floating_persons if
                          (p['home_geoid'] in sim_area_zone_list or
                           p['work_geoid'] in sim_area_zone_list)]
+        pop_diversity=get_pop_diversity(base_sim_persons+ new_sim_persons)
+        lu_diversity=get_lu_diversity(cityIO_grid_data)
+        post_diversity_indicators(pop_diversity, lu_diversity, CITYIO_OUTPUT_PATH+'ind_diversity')
         get_LLs(new_sim_persons, ['home', 'work'])
         get_simulation_locations(new_sim_persons)
         get_route_costs(new_sim_persons)
