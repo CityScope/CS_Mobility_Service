@@ -18,9 +18,12 @@ import numpy as np
 import requests
 from time import sleep
 import time
-import sys
+from shapely.geometry import Point, shape
 
-city=sys.argv[1]
+import sys
+from os import path,chdir
+import time
+chdir(path.dirname(sys.argv[0]))        #use relative path
 
 
 # =============================================================================
@@ -275,51 +278,165 @@ def post_arc_data(persons, destination_address):
         print(r)
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
-          
+              
+def create_long_record_puma(person, puma):
+    """ takes a puma object and a household object and 
+    creates a row for the MNL long data frame 
+    """
+    return   {'puma_pop_per_sqm': puma['puma_pop_per_sqm'],
+              'income_disparity': np.abs(person['HINCP'] - puma['med_income']),
+              'work_dist': get_haversine_distance(person['work_ll'], puma['centroid']),
+              'media_norm_rent': puma['media_norm_rent'],
+              'num_houses': puma['num_houses'],
+              'entertainment_den': puma['entertainment_den'],
+              'medical_den': puma['medical_den'],
+              'school_den': puma['school_den'],
+              'custom_id': person['person_id'],
+              'choice_id': puma['puma']} 
 
-
-def create_long_record(person, house, choice_id):
+def create_long_record_house(person, house, choice_id):
     """ takes a house object and a household object and 
     creates a row for the MNL long data frame 
     """
     beds=min(3, max(1, house['beds']))
     norm_rent=(house['rent']-rent_normalisation['mean'][str(int(beds))])/rent_normalisation['std'][str(int(beds))]
-    return {'norm_rent': norm_rent,
-            'work_dist': get_haversine_distance(p['work_ll'], h['centroid']),
-            'puma_pop_per_sqmeter': house['puma_pop_per_sqmeter'],
-            'income_disparity': np.abs(house['puma_med_income']-person['HINCP']),
+    record = {'norm_rent': norm_rent,
             'built_since_jan2010': house['built_since_jan2010'],
+            'bedrooms': house['beds'],
+            'income': person['HINCP'],
             'custom_id': person['person_id'],
             'choice_id': choice_id,
-            'actual_house_id':house['house_id']}  
-#        
+            'actual_house_id':house['house_id']} 
+    nPersons = 0
+    if person['workers'] == 'one':
+        nPersons += 1
+    elif person['workers'] == 'two or more':
+        nPersons += 2
+    if person['children'] == 'yes':
+        nPersons += 1
+    if nPersons == 0:
+        nPersons = 1
+    record['nPersons'] = nPersons
+    return record
+    
+#
+def utility_to_prob(v):
+    """ takes a utility vector and predicts probability 
+    """
+    v = v - v.mean()
+    v[v>700] = 700
+    v[v<-700] = -700
+    expV = np.exp(v)
+    p = expV / expV.sum()
+    return p
+    
+def unique_ele_and_keep_order(seq):
+    """ same as list(set(seq)) while keep element order 
+    """
+    seen = set()
+    seen_add = seen.add
+    return [x for x in seq if not (x in seen or seen_add(x))]
+    
+def pylogit_pred(data, modelDict, customIDColumnName, even=True):
+    """ predicts probabilities for pylogit models,
+    this function is needed as the official 'predict' method cannot be used when the choice sets 
+    in predicting is not exactly the same as in trainning,
+    argument even: whether each choice situation has the same number of alternatives
+    """
+    # fectch variable names and parameters 
+    if modelDict['just_point']:
+        params, varnames = modelDict['params'], modelDict['var_names']
+    else:
+        params, varnames = list(modelDict['model'].coefs.values), list(modelDict['model'].coefs.index)
+    # calc utilities
+    data['utility'] = 0
+    for varname, param in zip(varnames, params):
+        data['utility'] += data[varname] * param
+    # calc probabilities given utilities
+    # if every choice situation has the same number of alternatives, use matrix, otherwise use list comprehension
+    if even:
+        numChoices = len(set(data[customIDColumnName]))
+        v = np.array(data['utility']).copy().reshape(numChoices, -1)
+        v = v - v.mean(axis=1, keepdims=True)  
+        v[v>700] = 700
+        v[v<-700] = -700
+        expV = np.exp(v)
+        p = expV / expV.sum(axis=1, keepdims=True)
+        return p.flatten()
+    else:
+        uniqueCustomIDs = unique_ele_and_keep_order(data[customIDColumnName])
+        vArrayList = [np.array(data.loc[data[customIDColumnName]==id, 'utility']) for id in uniqueCustomIDs]
+        pArrayList = [utility_to_prob(v) for v in vArrayList]
+        return [pElement for pArray in pArrayList for pElement in pArray ]
+    
 def home_location_choices(houses, persons):
     """ takes the house and person objects
     finds the vacant houses and homeless persons
     chooses a housing unit for each person
     modifies the house and person objects in place
     """
-    long_data=[]
-    # for each household, sample N potential housing choices
-    # and add them to the long data frame
+    # preparing
+    valid_pumas = list(set([h['puma10'] for h in houses]))
+    valid_puma_objs = [puma_obj_dict[puma] for puma in valid_pumas]
+    puma_to_houses = {puma: [h for h in houses if h['puma10']==puma] for puma in valid_pumas}
+    for h in houses:        # updating number of houses in each puma given new houses
+        if h['home_geoid'].startswith('g'):
+            puma_index = valid_pumas.index(h['puma10'])
+            valid_puma_objs[puma_index]['num_houses'] += 1
+    # stage1: PUMA choice
+    long_data_puma = []
     for p in persons:
-        #choose N houses
-        h_alts=random.sample(houses, 9)
-        for hi, h in enumerate(h_alts):
-            long_record=create_long_record(p, h, hi+1)
-            long_data.append(long_record)             
-#             long_data.append(h.long_data_record(hh.hh_income, hh.household_id, hi+1, rent_normalisation))
-    long_df=pd.DataFrame(long_data)
-    # TODO: why do some houses have nan for norm_rent
-    long_df.loc[long_df['norm_rent'].isnull(), 'norm_rent']=0
-    long_df['predictions']=home_loc_logit.predict(long_df)
-    for p_ind in set(long_df['custom_id']):
-        # find maximum prob or sample from probs in subset of long_df
-        house_id=np.random.choice(long_df.loc[long_df['custom_id']==p_ind, 'actual_house_id'], 
-                                  p=long_df.loc[long_df['custom_id']==p_ind, 'predictions'])
+        for puma in valid_puma_objs:
+            this_sample_long_record_puma = create_long_record_puma(p, puma)
+            long_data_puma.append(this_sample_long_record_puma)
+    long_df_puma = pd.DataFrame(long_data_puma)
+    home_loc_mnl_puma = home_loc_logit['home_loc_mnl_PUMAs']
+    long_df_puma['predictions'] = pylogit_pred(long_df_puma, home_loc_mnl_puma, 'custom_id', even=True)   
+    if top_n_pumas is None:
+        custom_specific_long_df_puma = {custom_id: group for custom_id, group in long_df_puma[['custom_id', 'choice_id', 'predictions']].groupby('custom_id')}
+    else:
+        long_df_puma_sorted = long_df_puma[['custom_id', 'choice_id', 'predictions']].sort_values(['custom_id','predictions'], ascending=[True, False])
+        custom_specific_long_df_puma = {custom_id: group.iloc[:top_n_pumas,:] for custom_id, group in long_df_puma_sorted.groupby('custom_id')}
+    for p_ind in set(long_df_puma['custom_id']):
+        if top_n_pumas is None:
+            house_puma=np.random.choice(custom_specific_long_df_puma[p_ind]['choice_id'], p=custom_specific_long_df_puma[p_ind]['predictions'])
+        else:
+            house_puma=np.random.choice(custom_specific_long_df_puma[p_ind]['choice_id'], 
+                                        p=custom_specific_long_df_puma[p_ind]['predictions'] / custom_specific_long_df_puma[p_ind]['predictions'].sum())
+        persons[p_ind]['house_puma'] = house_puma
+    # stage2: housing unit choice
+    long_data_house = []
+    even = True  # use "even" to monitor if every choice situation has the same number of alternatives
+    for p in persons:
+        houses_in_puma = puma_to_houses[p['house_puma']]
+        if len(houses_in_puma) < 9:
+            house_alts = houses_in_puma 
+            even = False
+        else:
+            house_alts = random.sample(houses_in_puma, 9)
+        for hi, h in enumerate(house_alts):
+            this_sample_long_record_house = create_long_record_house(p, h, hi+1)
+            long_data_house.append(this_sample_long_record_house)             
+    long_df_house = pd.DataFrame(long_data_house)
+    long_df_house.loc[long_df_house['norm_rent'].isnull(), 'norm_rent']=0
+    long_df_house['income_norm_rent'] = long_df_house['income'] * long_df_house['norm_rent']
+    long_df_house['income_bedrooms'] = long_df_house['income'] * long_df_house['bedrooms']
+    long_df_house['nPerson_bedrooms'] = long_df_house['nPersons'] * long_df_house['bedrooms']
+    home_loc_mnl_house = home_loc_logit['home_loc_mnl_hh']
+    long_df_house['predictions'] = pylogit_pred(long_df_house, home_loc_mnl_house, 'custom_id', even=even)
+    custom_specific_long_df_house = {custom_id: group for custom_id, group in long_df_house[['custom_id', 'actual_house_id', 'predictions']].groupby('custom_id')}
+    for p_ind in set(long_df_house['custom_id']):
+        house_id = np.random.choice(custom_specific_long_df_house[p_ind]['actual_house_id'], 
+                                    p=custom_specific_long_df_house[p_ind]['predictions'])             
         persons[p_ind]['house_id']=house_id
         persons[p_ind]['home_geoid']=houses[house_id]['home_geoid']
-        # update characterictics of persons in these households
+
+
+# =============================================================================
+# Parameters
+# =============================================================================
+city='Detroit'
+send_to_cityIO=True
 
 def shannon_equitability(species_pop, species_set):
     diversity=0
@@ -390,6 +507,9 @@ SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
 META_GRID_SAMPLE_PATH='./scripts/cities/'+city+'/clean/meta_grid.geojson'
 GRID_INT_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
 
+PUMA_SHAPE_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas.geojson'
+PUMAS_INCLUDED_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas_included.json'
+PUMA_ATTR_PATH = './scripts/cities/'+city+'/models/puma_attr.json'
 
 
 # the graph used by each mode
@@ -492,7 +612,6 @@ except:
     print('Using static cityIO grid file')
     cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
     cityIO_spatial_data=cityIO_data['header']['spatial']
-n_cells=cityIO_spatial_data['ncols']*cityIO_spatial_data['nrows']
 
 # Interactive grid geojson    
 try:
@@ -529,15 +648,42 @@ for fi, f in enumerate(meta_grid['features']):
         else:
             static_land_uses[this_land_use_simple]=[fi]
 
+
 # add centroids to meta_grid_cells
 for cell in meta_grid['features']:
     cell['properties']['centroid']=approx_shape_centroid(cell['geometry'])
     
 
-grid_points_ll=[meta_grid['features'][int_to_meta_grid[int_grid_cell]][
-        'geometry']['coordinates'][0][0
-        ] for int_grid_cell in range(n_cells)]
+grid_points_ll=[f['geometry']['coordinates'][0][0] for f in grid_interactive['features']]
 
+
+# create a lookup from interactive grid to puma
+puma_shape=json.load(open(PUMA_SHAPE_PATH))
+puma_order=[f['properties']['PUMACE10'] for f in puma_shape['features']]
+puma_included=json.load(open(PUMAS_INCLUDED_PATH)) 
+puma_shape_dict = {feature["properties"]["GEOID10"][2:]: shape(feature["geometry"]) 
+                   for feature in puma_shape['features'] if feature["properties"]["GEOID10"][2:] in puma_included}
+int_grid_to_puma = {'g'+str(grid_id): None for grid_id in range(len(grid_points_ll))}
+for grid_id, grid_point_ll in enumerate(grid_points_ll):
+    for puma_id, puma_polygon in puma_shape_dict.items():
+        if puma_polygon.contains(Point(grid_point_ll[0], grid_point_ll[1])):
+            int_grid_to_puma['g'+str(grid_id)] = puma_id
+            break
+            
+# create puma objects
+puma_df = pd.DataFrame(json.load(open(PUMA_ATTR_PATH, 'r')))
+puma_obj_dict = {}
+for puma in puma_df.index:
+    this_obj = puma_df.loc[puma].to_dict()
+    this_obj['puma'] = puma
+    centroid = shape(puma_shape['features'][puma_order.index(puma)]['geometry']).centroid
+    this_obj['centroid'] = [centroid.x, centroid.y]
+    puma_obj_dict[puma] = this_obj
+
+
+
+#graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
+#                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
 sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
 #
@@ -583,6 +729,9 @@ if base_sim_persons:
     predict_modes(base_sim_persons)
     sample_activity_schedules(base_sim_persons)
     post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
+
+if base_floating_persons:
+    get_LLs(base_floating_persons, ['work'])
 #    create_trips(base_sim_persons)
 #    post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
 
@@ -644,6 +793,12 @@ while True:
             p['person_id']=ip
         for ih, h in enumerate(vacant_houses):
             h['house_id']=ih
+        # add PUMA info for new housing units
+        for h in vacant_houses:
+            if 'puma10' not in h:
+                h['puma10'] = int_grid_to_puma[h['home_geoid']]
+            h['puma10'] = str(h['puma10']).zfill(5)
+        top_n_pumas = 5
         home_location_choices(vacant_houses, floating_persons)
         # new_sim_people = people living/working in simzone
         new_sim_persons=[p for p in floating_persons if

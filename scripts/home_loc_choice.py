@@ -14,7 +14,6 @@ import time
 chdir(path.dirname(sys.argv[0]))        #use relative path
 
 
-
 def get_haversine_distance(point_1, point_2):
     """
     Calculate the distance between any 2 points on earth given as [lon, lat]
@@ -37,7 +36,7 @@ state_fips={'Detroit': '26', 'Boston': '25'}
 NUM_ALTS=8
 sample_size=5000
 
-#PUMAS_INCLUDED_PATH='./'+city+'/raw/PUMS/pumas_included.json'
+PUMAS_INCLUDED_PATH='./cities/'+city+'/raw/PUMS/pumas_included.json'
 FITTED_HOME_LOC_MODEL_PATH='./cities/'+city+'/models/home_loc_logit.p'
 PUMA_POP_PATH='./cities/'+city+'/raw/ACS/ACS_17_1YR_B01003/population.csv'
 PUMS_HH_PATH='./cities/'+city+'/raw/PUMS/csv_h'+state_codes[city]+'/ss16h'+state_codes[city]+'.csv'
@@ -46,6 +45,7 @@ PUMA_SHAPE_PATH='./cities/'+city+'/raw/PUMS/pumas.geojson'
 POI_PATH = './cities/'+city+'/raw/OSM/poi.geojson'
 PUMA_TO_POW_PUMA_PATH='./puma_to_pow_puma.csv'
 RENT_NORM_PATH='./cities/'+city+'/models/rent_norm.json'
+PUMA_ATTR_PATH = './cities/'+city+'/models/puma_attr.json'
 
 hh=pd.read_csv(PUMS_HH_PATH)
 pop = pd.read_csv(PUMS_POP_PATH)
@@ -54,7 +54,9 @@ pop['PUMA']=pop.apply(lambda row: str(int(row['PUMA'])).zfill(5), axis=1)
 pop['POWPUMA']=pop.apply(lambda row: str(int(row['POWPUMA'])).zfill(5) 
                         if not np.isnan(row['POWPUMA']) else 'NaN', axis=1)
 
-#pumas_included=json.load(open(PUMAS_INCLUDED_PATH))
+all_PUMAs=list(set(hh['PUMA']))
+pumas_included=json.load(open(PUMAS_INCLUDED_PATH))                 # For Southeast MI
+# pumas_included = all_PUMAs                                          # For the whole MI
 pumas_shape=json.load(open(PUMA_SHAPE_PATH))
 pumas_order=[f['properties']['PUMACE10'] for f in pumas_shape['features']]
           
@@ -64,9 +66,9 @@ puma_pop=puma_pop.set_index('PUMA')
 
 
 # identify recent movers and vacant houses                                            
-hh_vacant_for_rent=hh[hh['VACS']==1].copy()          #hh in MI and for rent
-hh_rented=hh[hh['TEN']==3].copy()                            #hh in MI and rented                            
-renters_recent_move=hh_rented[hh_rented['MV']==1].copy()     #(MV=1: 12 months or less) hh in MI and rented in lt 12 months
+hh_vacant_for_rent=hh[(hh['VACS']==1) & (hh['PUMA'].isin(pumas_included))].copy()          
+hh_rented=hh[(hh['TEN']==3) & (hh['PUMA'].isin(pumas_included))].copy()                                                      
+renters_recent_move=hh_rented[hh_rented['MV']==1].copy()     
 
 # get the area of each PUMA
 puma_land_sqm={str(int(f['properties']['PUMACE10'])).zfill(5): f['properties']['ALAND10']
@@ -144,20 +146,20 @@ PUMAsJointPOIsData = process_poi(POI_PATH, PUMA_SHAPE_PATH, poiConfigure)
 poiFields = [x+'_den' for x in poiConfigure]
 puma_poi_dict = {str(int(x['properties']['PUMACE10'])).zfill(5):x['properties'] for x in PUMAsJointPOIsData['features']}
 
+
 # build the PUMA aggregate data data frame
 median_income_by_puma=hh.groupby('PUMA')['HINCP'].median()
 #TODO: get more zonal attributes such as access to employment, amenities etc.
 
-all_PUMAs=list(set(hh['PUMA']))
 puma_obj=[{'PUMA':puma,
            'med_income':median_income_by_puma.loc[puma],
            'puma_pop_per_sqm':float(puma_pop.loc[puma]['HD01_VD01'])/puma_land_sqm[puma]
-           } for puma in all_PUMAs]
+           } for puma in pumas_included]
+
 puma_attr_df=pd.DataFrame(puma_obj)
 for poiField in poiFields:
     puma_attr_df[poiField] = puma_attr_df.apply(lambda row: puma_poi_dict[row['PUMA']][poiField], axis=1)
 puma_attr_df=puma_attr_df.set_index('PUMA')
-
 
 # create features at property level
 # normalise rent stratifying by bedroom number
@@ -182,11 +184,16 @@ all_rooms_available = pd.concat([hh_vacant_for_rent, renters_recent_move], axis=
 median_norm_rent = all_rooms_available.groupby('PUMA')['norm_rent'].median()
 puma_attr_df['media_norm_rent'] =  puma_attr_df.apply(lambda row: median_norm_rent[row.name], axis=1)
 
+# num of avaiable housing units in each PUMA
+num_available_houses_in_puma = hh_vacant_for_rent.groupby('PUMA')['SERIALNO'].count()
+puma_attr_df['num_houses'] = puma_attr_df.apply(lambda row: num_available_houses_in_puma[row.name], axis=1)
+
 renters_recent_move=renters_recent_move[['SERIALNO', 'PUMA','HINCP',  'norm_rent', 'RNTP', 'built_since_jan2010', 'puma_pop_per_sqmeter', 'med_income', 'BDSP', 'NP']]
 hh_vacant_for_rent=hh_vacant_for_rent[['PUMA', 'HINCP', 'norm_rent', 'RNTP','built_since_jan2010', 'puma_pop_per_sqmeter', 'med_income', 'BDSP']]
  
 rent_normalisation={"mean": rent_mean, "std": rent_std}   
-        
+
+home_loc_mnl = {'home_loc_mnl_PUMAs': {}, 'home_loc_mnl_hh': {}}    
 
 # =============================================================================
 # Model Estimation
@@ -222,7 +229,7 @@ long_data_PUMA.to_csv('./cities/'+city+'/clean/logit_data_long_form/logit_data_P
 
 choiceModelPUMA_spec = OrderedDict()
 choiceModelPUMA_names = OrderedDict()
-choiceModelPUMAsRegressors = ['puma_pop_per_sqm', 'income_disparity', 'work_dist', 'media_norm_rent'] + [x for x in list(long_data_PUMA.columns) if x.endswith('_den')]
+choiceModelPUMAsRegressors = ['puma_pop_per_sqm', 'income_disparity', 'work_dist', 'media_norm_rent', 'num_houses'] + [x for x in list(long_data_PUMA.columns) if x.endswith('_den')]
 for var in choiceModelPUMAsRegressors:
     choiceModelPUMA_spec[var] = [list(set(long_data_PUMA['choice_id']))]
     choiceModelPUMA_names[var] = [var]
@@ -241,18 +248,21 @@ numCoef=sum([len(choiceModelPUMA_spec[s]) for s in choiceModelPUMA_spec])
 try:
     home_loc_mnl_PUMAs.fit_mle(np.zeros(numCoef))
     print(home_loc_mnl_PUMAs.get_statsmodels_summary())
+    home_loc_mnl['home_loc_mnl_PUMAs'] = {'just_point': False, 'model': home_loc_mnl_PUMAs}
 except:
     home_loc_mnl_PUMAs_result = home_loc_mnl_PUMAs.fit_mle(np.zeros(numCoef), just_point=True)
     params = home_loc_mnl_PUMAs_result['x']
     print('\nLogit model parameters:\n---------------------------')
     for varname, para in zip(home_loc_mnl_PUMAs.ind_var_names, params):
         print('{}: {:4.6f}'.format(varname, para))
+    home_loc_mnl['home_loc_mnl_PUMAs'] = {'just_point': True, 'model': home_loc_mnl_PUMAs, 'params': params, 'var_names': home_loc_mnl_PUMAs.ind_var_names}
 
 
 # =============================================================================
 # Model Estimation
 # Second stage: choice model on HH level
 # =============================================================================
+random.seed(1)
 print('\n\n[info] Preparing long data for HH-level choice.')
 long_data_hh_obj = []
 ind=0
@@ -333,10 +343,16 @@ numCoef=sum([len(choiceModelHH_spec[s]) for s in choiceModelHH_spec])
 try:
     home_loc_mnl_hh.fit_mle(np.zeros(numCoef))
     print(home_loc_mnl_hh.get_statsmodels_summary())
+    home_loc_mnl['home_loc_mnl_hh'] = {'just_point': False, 'model': home_loc_mnl_hh}
 except:
     home_loc_mnl_hh_result = home_loc_mnl_hh.fit_mle(np.zeros(numCoef), just_point=True)
     params = home_loc_mnl_hh_result['x']
     print('\nLogit model parameters:\n---------------------------')
-    for varname, para in zip(home_loc_mnl_hh_result.ind_var_names, params):
+    for varname, para in zip(home_loc_mnl_hh.ind_var_names, params):
         print('{}: {:4.6f}'.format(varname, para))
- 
+    home_loc_mnl['home_loc_mnl_hh'] = {'just_point': True, 'model': home_loc_mnl_hh, 'params': params, 'var_names': home_loc_mnl_hh.ind_var_names}
+        
+# save models to file
+pickle.dump(home_loc_mnl, open(FITTED_HOME_LOC_MODEL_PATH, 'wb'))
+json.dump(rent_normalisation, open(RENT_NORM_PATH, 'w'))
+puma_attr_df.to_json(PUMA_ATTR_PATH)
