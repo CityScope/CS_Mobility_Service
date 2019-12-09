@@ -23,7 +23,7 @@ from shapely.geometry import Point, shape
 import sys
 from os import path,chdir
 import time
-chdir(path.dirname(sys.argv[0]))        #use relative path
+#chdir(path.dirname(sys.argv[0]))        #use relative path
 
 
 # =============================================================================
@@ -431,13 +431,6 @@ def home_location_choices(houses, persons):
         persons[p_ind]['house_id']=house_id
         persons[p_ind]['home_geoid']=houses[house_id]['home_geoid']
 
-
-# =============================================================================
-# Parameters
-# =============================================================================
-city='Detroit'
-send_to_cityIO=True
-
 def shannon_equitability(species_pop, species_set):
     diversity=0
     pop_size=len(species_pop)
@@ -480,6 +473,8 @@ def post_diversity_indicators(pop_diversity, lu_diversity, destination_address):
         print('Diversity Indicators: {}'.format(r))
     except requests.exceptions.RequestException as e:
         print('Couldnt send diversity indicators to cityio')
+
+city=sys.argv[1]
 # =============================================================================
 # Constants
 # =============================================================================

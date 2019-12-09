@@ -34,7 +34,7 @@ NHTS_TRIP_PATH='scripts/NHTS/trippub.csv'
 #MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
 PICKLED_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_rf.p'
 RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
-PERSON_SCHED_TABLE_PATH='./scripts/cities/'+city+'/clean/person_sched.csv'
+PERSON_SCHED_TABLE_PATH='./scripts/cities/'+city+'/clean/person_sched_weekday.csv'
 
 # =============================================================================
 # Functions
@@ -85,15 +85,6 @@ def race_cat_nhts(row):
     elif row['R_RACE'] == 2: return "black"
     elif row['R_RACE'] == 3: return "asian"
     return "other"
-
-## Functions to simplify some NHTS categories
-#def trip_type_cat(row):
-#    if row['TRIPPURP']=='HBW': # includes to work and back to home trips
-#        return 'HBW'
-#    elif row['TRIPPURP']=='NHB':
-#        return 'NHB'
-#    else:
-#        return 'HBO'
     
 def mode_cat(nhts_mode):
     # map NHTS modes to a simpler list of modes
@@ -185,10 +176,12 @@ def activity_schedule(person_row):
 #      Data
 #********************************************
 #mode_table=pd.read_csv(MODE_TABLE_PATH)
-nhts_per=pd.read_csv(NHTS_PATH)
-nhts_tour=pd.read_csv(NHTS_TOUR_PATH)
-nhts_trip=pd.read_csv(NHTS_TRIP_PATH)
+nhts_per=pd.read_csv(NHTS_PATH) # for mode choice on main mode
+nhts_tour=pd.read_csv(NHTS_TOUR_PATH) # for mode speeds
+nhts_trip=pd.read_csv(NHTS_TRIP_PATH) # for motifs
 
+# Only use weekdays for motifs
+nhts_trip=nhts_trip.loc[nhts_trip['TRAVDAY'].isin(range(2,7))]
 
 # add unique ids and merge some variables across the 3 tables
 nhts_trip['uniquePersonId']=nhts_trip.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
@@ -218,8 +211,25 @@ for t in ['trips', 'persons']:
     tables[t]['race']=tables[t].apply(lambda row: race_cat_nhts(row), axis=1)
     tables[t]=tables[t].rename(columns= {'HTPPOPDN': 'pop_per_sqmile_home'})
 
+# =============================================================================
+# Activities
+# =============================================================================
 
+# with the trip table only, map 'why' codes to a simpler list of activities
+tables['trips']['why_to_mapped']=tables['trips'].apply(lambda row: 
+    why_dict[row['WHYTO']], axis=1)
+tables['trips']['why_from_mapped']=tables['trips'].apply(lambda row: 
+    why_dict[row['WHYFROM']], axis=1)
 
+# get the full sequence of activities for each person
+tables['persons'] = tables['persons'].apply(activity_schedule, axis=1)
+    
+# output the persons data with subset of columns for clustering of 
+# activity schedules
+tables['persons'][['income', 'age', 'children', 
+          'sex', 'bach_degree', 'cars','activities', 'start_times']].to_csv(
+      PERSON_SCHED_TABLE_PATH, index=False)
+                    
 #with the tour file:
 #    get the speed for each mode and the distance to walk/drive to transit for each CBSA
 #    we can use this to estimate the travel time for each potential mode in the trip file
@@ -250,27 +260,15 @@ for area in speeds:
             print('Using lowest speed')
             speeds[area][mode_speed] = np.nanmin([speeds[other_area][mode_speed] for other_area in speeds])
 
-# with the trip table only, map 'why' codes to a simpler list of activities
-tables['trips']['why_to_mapped']=tables['trips'].apply(lambda row: why_dict[row['WHYTO']], axis=1)
-tables['trips']['why_from_mapped']=tables['trips'].apply(lambda row: why_dict[row['WHYFROM']], axis=1)
-
 
 # with the person table only
 tables['persons']['network_dist_km']=tables['persons'].apply(lambda row: get_main_dist_km(row), axis=1)
 tables['persons']['mode']=tables['persons'].apply(lambda row: get_main_mode(row), axis=1) 
-#tables['persons']['purpose']=tables['persons'].apply(lambda row: trip_type_cat(row), axis=1)
+
+# For the urpose of main mode choice modelling, remove all records with no 
+# work transport mode or a distance of 0 to work
 tables['persons']=tables['persons'].loc[((tables['persons']['mode']>=0) & (
         (tables['persons']['network_dist_km']>=0)))]
-            
-# get the full sequence of activities for each person
-
-tables['persons'] = tables['persons'].apply(activity_schedule, axis=1)
-    
-# output the persons data with subset of columns for sampling activity schedules
-# in the simulation
-tables['persons'][['income', 'age', 'children', 
-          'sex', 'bach_degree', 'cars','activities', 'start_times']].to_csv(
-      PERSON_SCHED_TABLE_PATH, index=False)
 
 
 # create the mode choice table
