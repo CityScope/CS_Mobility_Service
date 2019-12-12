@@ -19,11 +19,12 @@ import requests
 from time import sleep
 import time
 from shapely.geometry import Point, shape
-
 import sys
+
 from os import path,chdir
 import time
-#chdir(path.dirname(sys.argv[0]))        #use relative path
+chdir(path.dirname(sys.argv[0]))        #use relative path
+city=sys.argv[1]
 
 
 # =============================================================================
@@ -223,6 +224,7 @@ def predict_modes(persons):
             p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
             p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
         p['external_time']=p['routes'][chosen_mode]['external_time']
+        
 
 def sample_activity_schedules(persons):
     for p in persons:
@@ -237,19 +239,22 @@ def sample_activity_schedules(persons):
         p['activities']=sampled_person.iloc[0]['activities'].split('_')
         if len(p['activities'])>1:
             start_times_str=sampled_person.iloc[0]['start_times'].split('_')
+            start_times = [int(st) for st in start_times_str]
+            start_times.append(start_times[0])
         else:
-            start_times_str=[]
-        p['start_times']=[int(st) for st in start_times_str]
+            start_times=[]
+        p['start_times']=start_times
                                 
 
 def post_od_data(persons, destination_address):
-    od_str=json.dumps([{'home_ll': p['home_sim']['ll'],
+    od_str=json.dumps([{'person_id':p['person_id'],
+                       'home_ll': p['home_sim']['ll'],
                        'work_ll': p['work_sim']['ll'],
                        'home_sim': p['home_sim'],
                        'work_sim': p['work_sim'],
                        'type': p['type'],
                        'mode': p['mode'],
-                       'activities': p['activities'],
+                       'activities': p['activities_places'],
                        'activity_start_times':p['start_times'],
                        'start_time': p['start_times'][0]+p['external_time']
                        } for p in persons if len(p['activities'])>1])
@@ -278,7 +283,7 @@ def post_arc_data(persons, destination_address):
         print(r)
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
-              
+          
 def create_long_record_puma(person, puma):
     """ takes a puma object and a household object and 
     creates a row for the MNL long data frame 
@@ -430,6 +435,7 @@ def home_location_choices(houses, persons):
                                     p=custom_specific_long_df_house[p_ind]['predictions'])             
         persons[p_ind]['house_id']=house_id
         persons[p_ind]['home_geoid']=houses[house_id]['home_geoid']
+        
 
 def shannon_equitability(species_pop, species_set):
     diversity=0
@@ -473,8 +479,145 @@ def post_diversity_indicators(pop_diversity, lu_diversity, destination_address):
         print('Diversity Indicators: {}'.format(r))
     except requests.exceptions.RequestException as e:
         print('Couldnt send diversity indicators to cityio')
+        
+        
+def find_destination(persons):
+    """ takes the person objects,
+    choosing the place for each of his activities:
+        work/home: use work_sim / home_sim
+        others: randomly select a grid with correspoding landuse, too simple right now
+    modifies the person objects in place
+    """
+    for person in persons:
+        activities = person['activities']
+        activities_places = []
+        for activity in activities:
+            portal = 0
+            if activity=='H':
+                place = person['home_sim']['ll']
+                if person['home_sim']['type']=='portal': portal = 1
+            elif activity=='W':
+                place = person['work_sim']['ll']
+                if person['work_sim']['type']=='portal': portal=1
+            elif activity=='C':
+                place = meta_grid['features'][random.choice(static_land_uses['P'])]['properties']['centroid']
+            elif activity=='D':
+                place = meta_grid['features'][random.choice(static_land_uses['P'])]['properties']['centroid']
+#                 place = meta_grid['features'][random.choice(static_land_uses['P1'])]['properties']['centroid']
+            elif activity=='G':
+                #place = meta_grid['features'][random.choice(static_land_uses_detail['B3'])]['properties']['centroid']
+                place = meta_grid['features'][random.choice(static_land_uses['B'])]['properties']['centroid']
+            elif activity=='S':
+                place = meta_grid['features'][random.choice(static_land_uses_detail['B6'])]['properties']['centroid']
+            elif activity=='E':
+                place = meta_grid['features'][random.choice(static_land_uses['B'])]['properties']['centroid']
+            elif activity=='R':
+#                  place = meta_grid['features'][random.choice(static_land_uses_detail['PR'])]['properties']['centroid']
+                place = meta_grid['features'][random.choice(static_land_uses['P'])]['properties']['centroid']
+            elif activity=='X':
+#                  place = meta_grid['features'][random.choice(static_land_uses_detail['PR'])]['properties']['centroid']
+                place = meta_grid['features'][random.choice(static_land_uses['P'])]['properties']['centroid']
+            elif activity=='V':
+                place = meta_grid['features'][random.choice(static_land_uses['R'])]['properties']['centroid']
+            elif activity=='P':
+#                 place = meta_grid['features'][random.choice(static_land_uses_detail['PC'])]['properties']['centroid']
+                place = meta_grid['features'][random.choice(static_land_uses['P'])]['properties']['centroid']
+            elif activity=='Z':
+#                 place = meta_grid['features'][random.choice(static_land_uses_detail['PC'])]['properties']['centroid']
+                place = meta_grid['features'][random.choice(static_land_uses['P'])]['properties']['centroid']
+            else:
+                print('Error: activity = {}'.format(activity))
+            activities_places.append((activity, place, portal))
+        person['activities_places'] = activities_places          
+        
 
-city=sys.argv[1]
+def get_ods(persons):
+    """ takes list of person objects and 
+    return a list of od objects
+    """
+    return [dict(p, origin=p['activities_places'][idx], destination=p['activities_places'][idx+1],
+                 trip_start_time=p['start_times'][idx], stay_until_time=p['start_times'][idx+1],
+                 purpose_HBW=0, purpose_HBO=0, purpose_NHB=0)
+           for p in persons for idx in range(len(p['activities_places'])-1)]
+
+
+
+def predict_modes_for_ods(ods):
+    """ takes list of od objects and 
+    predicts transport modes for each od
+    """
+    for od in ods:
+        od['od_routes'] = approx_route_costs(od['origin'][1], od['destination'][1])
+        if od['origin'][0] + od['destination'][0] in ['HW', 'WH']:
+            od['purpose_HBW'] = 1
+        if od['purpose_HBW'] == 0:
+            if 'H' in [od['origin'][0] , od['destination'][0]]:
+                od['purpose_HBO'] = 1
+            else:
+                od['purpose_NHB'] = 1
+        assert od['purpose_HBW']+od['purpose_HBO']+od['purpose_NHB'] == 1
+        if od['purpose_HBW'] == 1:
+            od['purpose'] = 'HBW'
+        elif od['purpose_HBO'] == 1:
+            od['purpose'] = 'HBO'
+        else:
+            od['purpose'] = 'NHB'
+            
+    feature_df=pd.DataFrame(ods)  
+
+    for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
+                 'bach_degree', 'race', 'cars']:
+        new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
+        feature_df=pd.concat([feature_df, new_dummys],  axis=1)
+    # TODO: better method of predicting travel times
+    # routing engine or feedback from simulation
+    feature_df['drive_time_minutes']=  feature_df.apply(lambda row: row['od_routes'][0]['route']['driving'], axis=1)     
+    feature_df['cycle_time_minutes']=  feature_df.apply(lambda row: row['od_routes'][1]['route']['cycling'], axis=1)     
+    feature_df['walk_time_minutes']=  feature_df.apply(lambda row: row['od_routes'][2]['route']['walking'], axis=1)     
+    feature_df['PT_time_minutes']=  feature_df.apply(lambda row: row['od_routes'][3]['route']['pt'], axis=1)
+    feature_df['walk_time_PT_minutes']=feature_df.apply(lambda row: row['od_routes'][3]['route']['walking'], axis=1)  
+    feature_df['drive_time_PT_minutes']=0 
+    # TODO: below should come directly from the path-finding
+    feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1) 
+    # TODO: change below if modelling housing sales as well
+    feature_df['tenure_owned']=False
+    feature_df['tenure_other']=False
+    feature_df['race_asian']=0
+    for rff in rf_features:
+        assert rff in feature_df.columns, str(rff) +' not in data.' 
+    feature_df=feature_df[rf_features]#reorder columns to match rf model
+    mode_probs=mode_rf.predict_proba(feature_df)
+    for i,od in enumerate(ods): 
+        chosen_mode=int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0])
+        od['activity_mode']=chosen_mode
+        
+def post_od_data_for_ods(ods, destination_address):
+
+    od_dict = [{'person_id': od['person_id'],
+                'home_ll':od['home_sim']['ll'],
+                'work_ll': od['work_sim']['ll'],
+                'type': od['type'],
+                'mode': od['mode'],
+                'activity': od['destination'][0],
+                'activity_place': od['destination'][1],
+                'from_place': od['origin'][1],
+                'from_portal': od['origin'][2],
+                'to_portal': od['destination'][2],
+                'external_time':od['external_time'],
+                'activity_trip_start_time': od['trip_start_time'],
+                'activity_stay_until_time': od['stay_until_time'],
+                'activity_mode': od['activity_mode'],
+                'trip_type': od['purpose']
+                 } for od in ods]
+    od_str=json.dumps(od_dict)
+    try:
+        r = requests.post(destination_address, data = od_str)
+        print(r)
+    except requests.exceptions.RequestException as e:
+        print('Couldnt send to cityio')
+    return od_dict
+    
+    
 # =============================================================================
 # Constants
 # =============================================================================
@@ -505,7 +648,6 @@ GRID_INT_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
 PUMA_SHAPE_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas.geojson'
 PUMAS_INCLUDED_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas_included.json'
 PUMA_ATTR_PATH = './scripts/cities/'+city+'/models/puma_attr.json'
-
 
 # the graph used by each mode
 mode_graphs={0:'driving',
@@ -607,6 +749,7 @@ except:
     print('Using static cityIO grid file')
     cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
     cityIO_spatial_data=cityIO_data['header']['spatial']
+n_cells=cityIO_spatial_data['ncols']*cityIO_spatial_data['nrows']
 
 # Interactive grid geojson    
 try:
@@ -630,6 +773,7 @@ except:
 # and a dict of statuc land uses to their locations in the meta_grid
 int_to_meta_grid={}
 static_land_uses={}
+static_land_uses_detail={}
 for fi, f in enumerate(meta_grid['features']):
     if f['properties']['interactive']:
         int_to_meta_grid[int(f['properties']['interactive_id'])]=fi
@@ -642,14 +786,21 @@ for fi, f in enumerate(meta_grid['features']):
             static_land_uses[this_land_use_simple].append(fi)
         else:
             static_land_uses[this_land_use_simple]=[fi]
-
+        if this_land_use == 'None':
+            continue
+        if this_land_use in static_land_uses_detail:
+            static_land_uses_detail[this_land_use].append(fi)
+        else:
+            static_land_uses_detail[this_land_use]=[fi]
 
 # add centroids to meta_grid_cells
 for cell in meta_grid['features']:
     cell['properties']['centroid']=approx_shape_centroid(cell['geometry'])
     
 
-grid_points_ll=[f['geometry']['coordinates'][0][0] for f in grid_interactive['features']]
+grid_points_ll=[meta_grid['features'][int_to_meta_grid[int_grid_cell]][
+        'geometry']['coordinates'][0][0
+        ] for int_grid_cell in range(n_cells)]
 
 
 # create a lookup from interactive grid to puma
@@ -674,11 +825,7 @@ for puma in puma_df.index:
     centroid = shape(puma_shape['features'][puma_order.index(puma)]['geometry']).centroid
     this_obj['centroid'] = [centroid.x, centroid.y]
     puma_obj_dict[puma] = this_obj
-
-
-
-#graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
-#                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
+    
 
 sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
 #
@@ -718,15 +865,20 @@ for h in base_vacant_houses:
     h['centroid']=all_geoid_centroids[h['home_geoid']]
 
 if base_sim_persons: 
+    for ip, p in enumerate(base_sim_persons):
+        p['person_id']=-ip
     get_simulation_locations(base_sim_persons)
     get_LLs(base_sim_persons, ['home', 'work'])
     get_route_costs(base_sim_persons)
     predict_modes(base_sim_persons)
     sample_activity_schedules(base_sim_persons)
-    post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
-
+    find_destination(base_sim_persons)
+    base_sim_persons_ods = get_ods(base_sim_persons)
+    predict_modes_for_ods(base_sim_persons_ods)
+    
 if base_floating_persons:
     get_LLs(base_floating_persons, ['work'])
+    # post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
 #    create_trips(base_sim_persons)
 #    post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
 
@@ -807,7 +959,12 @@ while True:
         get_route_costs(new_sim_persons)
         predict_modes(new_sim_persons)
         sample_activity_schedules(new_sim_persons)
-        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
+        find_destination(new_sim_persons)
+        new_sim_persons_ods = get_ods(new_sim_persons)
+        predict_modes_for_ods(new_sim_persons_ods)
+        # post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
+        post_od_data_for_ods(base_sim_persons_ods+ new_sim_persons_ods, CITYIO_OUTPUT_PATH+'od2')
+        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od3')
 #        create_trips(new_sim_persons)
 #        post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')
         finish_time=time.time()
