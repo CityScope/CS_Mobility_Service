@@ -18,7 +18,8 @@ import numpy as np
 import requests
 from time import sleep
 import time
-from shapely.geometry import Point, shape
+#from shapely.geometry import Point, shape
+import matplotlib.path as mplPath
 
 import sys
 from os import path,chdir
@@ -288,9 +289,9 @@ def create_long_record_puma(person, puma):
               'work_dist': get_haversine_distance(person['work_ll'], puma['centroid']),
               'media_norm_rent': puma['media_norm_rent'],
               'num_houses': puma['num_houses'],
-              'entertainment_den': puma['entertainment_den'],
-              'medical_den': puma['medical_den'],
-              'school_den': puma['school_den'],
+#              'entertainment_den': puma['entertainment_den'],
+#              'medical_den': puma['medical_den'],
+#              'school_den': puma['school_den'],
               'custom_id': person['person_id'],
               'choice_id': puma['puma']} 
 
@@ -492,7 +493,7 @@ RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
 FITTED_HOME_LOC_MODEL_PATH='./scripts/cities/'+city+'/models/home_loc_logit.p'
 RENT_NORM_PATH='./scripts/cities/'+city+'/models/rent_norm.json'
 
-ACTIVITY_SCHED_PATH='./scripts/cities/'+city+'/clean/person_sched.csv'
+ACTIVITY_SCHED_PATH='./scripts/cities/'+city+'/clean/person_sched_weekday.csv'
 
 #Road network graph
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
@@ -589,7 +590,6 @@ else:
 
 all_geoid_centroids={}
 for ind, geo_id in enumerate(geoid_order_all):
-#    centroid=shape(all_zones['features'][ind]['geometry']).centroid
     centroid=approx_shape_centroid(all_zones['features'][ind]['geometry'])
 #    all_geoid_centroids[geo_id]=[centroid.x, centroid.y]
     all_geoid_centroids[geo_id]=list(centroid)
@@ -608,14 +608,14 @@ except:
     cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
     cityIO_spatial_data=cityIO_data['header']['spatial']
 
-# Interactive grid geojson    
-try:
-    with urllib.request.urlopen(cityIO_grid_url+'/grid_interactive_area') as url:
-    #get the latest grid data
-        grid_interactive=json.loads(url.read().decode())
-except:
-    print('Using static cityIO grid file')
-    grid_interactive=json.load(open(GRID_INT_SAMPLE_PATH))
+## Interactive grid geojson    
+#try:
+#    with urllib.request.urlopen(cityIO_grid_url+'/grid_interactive_area') as url:
+#    #get the latest grid data
+#        grid_interactive=json.loads(url.read().decode())
+#except:
+#    print('Using static cityIO grid file')
+#    grid_interactive=json.load(open(GRID_INT_SAMPLE_PATH))
     
 # Full meta grid geojson      
 try:
@@ -648,20 +648,23 @@ for fi, f in enumerate(meta_grid['features']):
 for cell in meta_grid['features']:
     cell['properties']['centroid']=approx_shape_centroid(cell['geometry'])
     
+meta_grid_ll=[meta_grid['features'][i][
+        'geometry']['coordinates'][0][0
+        ] for i in range(len(meta_grid['features']))]
 
-grid_points_ll=[f['geometry']['coordinates'][0][0] for f in grid_interactive['features']]
-
+grid_points_ll=[meta_grid_ll[int_to_meta_grid[int_grid_cell]]
+                 for int_grid_cell in int_to_meta_grid]
 
 # create a lookup from interactive grid to puma
 puma_shape=json.load(open(PUMA_SHAPE_PATH))
 puma_order=[f['properties']['PUMACE10'] for f in puma_shape['features']]
 puma_included=json.load(open(PUMAS_INCLUDED_PATH)) 
-puma_shape_dict = {feature["properties"]["GEOID10"][2:]: shape(feature["geometry"]) 
+puma_path_dict = {feature["properties"]["GEOID10"][2:]: mplPath.Path(feature["geometry"]["coordinates"][0][0]) 
                    for feature in puma_shape['features'] if feature["properties"]["GEOID10"][2:] in puma_included}
 int_grid_to_puma = {'g'+str(grid_id): None for grid_id in range(len(grid_points_ll))}
 for grid_id, grid_point_ll in enumerate(grid_points_ll):
-    for puma_id, puma_polygon in puma_shape_dict.items():
-        if puma_polygon.contains(Point(grid_point_ll[0], grid_point_ll[1])):
+    for puma_id, puma_path in puma_path_dict.items():
+        if puma_path.contains_point((grid_point_ll[0], grid_point_ll[1])):
             int_grid_to_puma['g'+str(grid_id)] = puma_id
             break
             
@@ -671,8 +674,8 @@ puma_obj_dict = {}
 for puma in puma_df.index:
     this_obj = puma_df.loc[puma].to_dict()
     this_obj['puma'] = puma
-    centroid = shape(puma_shape['features'][puma_order.index(puma)]['geometry']).centroid
-    this_obj['centroid'] = [centroid.x, centroid.y]
+    centroid = approx_shape_centroid(puma_shape['features'][puma_order.index(puma)]['geometry'])
+    this_obj['centroid'] = centroid
     puma_obj_dict[puma] = this_obj
 
 
@@ -681,6 +684,7 @@ for puma in puma_df.index:
 #                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
 sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
+# TODO: is this right? shouldn't all meta cells be in sim area?
 #
 # =============================================================================
 # Node Locations
@@ -697,7 +701,6 @@ for mode in mode_graphs:
 #        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
 #             'y':grid_points_ll[i][1]}
     for p in range(len(portals['features'])):
-#        p_centroid=shape(portals['features'][p]['geometry']).centroid
         p_centroid=approx_shape_centroid(portals['features'][p]['geometry'])
 #        nodes_xy[mode]['p'+str(p)]={'x':p_centroid.x,
 #             'y':p_centroid.y}
@@ -757,10 +760,10 @@ while True:
         lastId=hash_id
 ## =============================================================================
 ##         FAKE DATA FOR SCENAIO EXPLORATION
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(cityIO_grid_data))] # all employment
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(cityIO_grid_data))] # all housing
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(cityIO_grid_data))] # random mix
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(cityIO_grid_data))] # affordable + employment
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(int_to_meta_grid))] # all employment
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(int_to_meta_grid))] # all housing
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(int_to_meta_grid))] # random mix
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(int_to_meta_grid))] # affordable + employment
 ## =============================================================================
         new_houses=[]
         new_persons=[]
