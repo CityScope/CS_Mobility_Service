@@ -1,0 +1,30 @@
+{
+  "Residential": {
+    "Residential_Market_Rate": 0.5,
+    "Residential_Affordable": 0.5
+  },
+  "Office": {
+    "Office_High_Density": 0.4,
+    "Office_Low_Density": 0.4,
+    "Makerspace": 0.2
+  },
+  "Retail": {
+    "Commercial": 0.7,
+    "Restaurants": 0.3
+  },
+  "Lab_Light_industrial_Makerspace": {
+    "Makerspace": 1
+  },
+  "Parks_Open_Space": {
+    "Open Space": 1
+  },
+  "Parking": {
+    "Parking": 1
+  },
+  "Academic_Institutional_Art_NGO": {
+    "School": 0.2,
+    "University": 0.3,
+    "Cultural Attraction": 0.3,
+    "Place of Worship": 0.1
+  }
+}
