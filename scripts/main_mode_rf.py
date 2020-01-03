@@ -110,11 +110,11 @@ def get_main_mode(row):
     
 def get_main_dist_km(row):
     if row['WRKTRANS']>0:
-        return row['DISTTOWK17']/1.62
+        return row['DISTTOWK17']*1.62
     elif row['SCHTRN1']>0:
-        return row['DISTTOSC17']/1.62
+        return row['DISTTOSC17']*1.62
     elif row['SCHTRN2']>0:
-        return row['DISTTOSC17']/1.62
+        return row['DISTTOSC17']*1.62
     else: return -99
     
 why_dict={
