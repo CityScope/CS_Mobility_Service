@@ -18,12 +18,10 @@ import numpy as np
 import requests
 from time import sleep
 import time
-from shapely.geometry import Point, shape
-
+#from shapely.geometry import Point, shape
+import matplotlib.path as mplPath
 import sys
-from os import path,chdir
 import time
-#chdir(path.dirname(sys.argv[0]))        #use relative path
 
 
 # =============================================================================
@@ -68,8 +66,11 @@ def get_simulation_locations(persons):
                 p[place+'_sim']={'type': 'meta_grid', 
                                  'ind': int_to_meta_grid[int(geoid[1:])]}
             elif p[place+'_geoid'] in sim_area_zone_list:
-                relevant_land_use_codes=land_use_codes[place]
-                possible_locations=[static_land_uses[rlu] for rlu in relevant_land_use_codes]
+                if 'place'=='work':
+                    relevant_land_use_codes=employment_lus
+                else:
+                    relevant_land_use_codes=housing_lus
+                possible_locations=[static_land_uses[rlu] for rlu in relevant_land_use_codes if rlu in static_land_uses]
                 possible_locations=[item for sublist in possible_locations for item in sublist]
                 p[place+'_sim']={'type': 'meta_grid', 
                                  'ind': random.choice(possible_locations)}
@@ -223,25 +224,33 @@ def predict_modes(persons):
             p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
             p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
         p['external_time']=p['routes'][chosen_mode]['external_time']
-
+        
 def sample_activity_schedules(persons):
+    # TODO predict rather than random sample
     for p in persons:
-        matching_persons=activity_sched.loc[((activity_sched['income']==p['income'])&
-                                (activity_sched['age']==p['age'])&
-                                (activity_sched['children']==p['children']))]
-        if len(matching_persons)>0:
-            sampled_person=matching_persons.sample(1)
-        else:
-            # sampling activity schedule from all people
-            sampled_person=activity_sched.sample(1)
-        p['activities']=sampled_person.iloc[0]['activities'].split('_')
-        if len(p['activities'])>1:
-            start_times_str=sampled_person.iloc[0]['start_times'].split('_')
-        else:
-            start_times_str=[]
-        p['start_times']=[int(st) for st in start_times_str]
-                                
-
+        motif=random.choice(motif_sample_obj)
+        activities=[motif['P{}'.format(str(period).zfill(3))] for period in range(24)]
+        p['activities']=activities
+        p['motif_name']=motif['cluster_name']
+        p['motif_id']=motif['cluster']
+        
+def get_standard_lu_from_base(land_use_input):
+    if land_use_input is None:
+        return None
+    elif land_use_input=='None':
+        return None
+    else:
+        return base_lu_to_lu[land_use_input]
+    
+def get_standard_lu_from_input_lu(input_index):
+    try: 
+        input_lu_name=lu_inputs[str(input_index)]
+    except:
+        return None
+    possible_standard_lus=lu_input_to_lu_standard[input_lu_name]
+    return np.random.choice([k for k in possible_standard_lus],
+                                 1, p=[v for v in possible_standard_lus.values()])[0]
+    
 def post_od_data(persons, destination_address):
     od_str=json.dumps([{'home_ll': p['home_sim']['ll'],
                        'work_ll': p['work_sim']['ll'],
@@ -250,31 +259,12 @@ def post_od_data(persons, destination_address):
                        'type': p['type'],
                        'mode': p['mode'],
                        'activities': p['activities'],
-                       'activity_start_times':p['start_times'],
-                       'start_time': p['start_times'][0]+p['external_time']
+                       'motif': p['motif_name'],
+#                       'activity_start_times':p['start_times'],
+                       'start_time': 6*3600+random.randint(0,3*3600)+p['external_time']
                        } for p in persons if len(p['activities'])>1])
     try:
         r = requests.post(destination_address, data = od_str)
-        print(r)
-    except requests.exceptions.RequestException as e:
-        print('Couldnt send to cityio')
-        
-def post_arc_data(persons, destination_address):
-    persons_df=pd.DataFrame(persons)
-#    if type==1, arc is from actual home (geoid) to sim_home (portal)
-#    if type==2, arc is from sim_work (portal) to actual work (geoid)
-    arcs=[]
-    for ind, row in persons_df.iterrows():
-        if row['type']==1:
-            arcs.append({'start_latlon': row['home_ll'],
-                         'end_latlon': row['home_node_ll'],
-                         'mode': row['mode']})
-        elif row['type']==2:
-            arcs.append({'start_latlon': row['work_node_ll'],
-                         'end_latlon': row['work_ll'],
-                         'mode': row['mode']}) 
-    try:
-        r = requests.post(destination_address, data = json.dumps(arcs))
         print(r)
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
@@ -288,9 +278,9 @@ def create_long_record_puma(person, puma):
               'work_dist': get_haversine_distance(person['work_ll'], puma['centroid']),
               'media_norm_rent': puma['media_norm_rent'],
               'num_houses': puma['num_houses'],
-              'entertainment_den': puma['entertainment_den'],
-              'medical_den': puma['medical_den'],
-              'school_den': puma['school_den'],
+#              'entertainment_den': puma['entertainment_den'],
+#              'medical_den': puma['medical_den'],
+#              'school_den': puma['school_den'],
               'custom_id': person['person_id'],
               'choice_id': puma['puma']} 
 
@@ -455,11 +445,10 @@ def get_pop_diversity(persons):
 def get_lu_diversity(grid_data):
     # TODO: incorporate num floors
     lu_diversity={}
-    all_lu_pop=[int(gd[0]) for gd in grid_data]
-    housing_pop=[lu for lu in all_lu_pop if lu in housing_types]
-    lu_diversity['housing']=shannon_equitability(housing_pop, set(housing_types))
-    office_pop=[lu for lu in all_lu_pop if lu in employment_types]
-    lu_diversity['office']=shannon_equitability(office_pop, set(employment_types))
+    housing_pop=[lu for lu in grid_data if lu in housing_lus]
+    lu_diversity['housing']=shannon_equitability(housing_pop, set(housing_lus))
+    office_pop=[lu for lu in grid_data if lu in employment_lus]
+    lu_diversity['office']=shannon_equitability(office_pop, set(employment_lus))
     return lu_diversity
 
 def post_diversity_indicators(pop_diversity, lu_diversity, destination_address):
@@ -492,7 +481,8 @@ RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
 FITTED_HOME_LOC_MODEL_PATH='./scripts/cities/'+city+'/models/home_loc_logit.p'
 RENT_NORM_PATH='./scripts/cities/'+city+'/models/rent_norm.json'
 
-ACTIVITY_SCHED_PATH='./scripts/cities/'+city+'/clean/person_sched.csv'
+#ACTIVITY_SCHED_PATH='./scripts/cities/'+city+'/clean/person_sched_weekday.csv'
+MOTIF_SAMPLE_PATH='./scripts/cities/'+city+'/clean/motif_samples.csv'
 
 #Road network graph
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
@@ -505,6 +495,8 @@ GRID_INT_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
 PUMA_SHAPE_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas.geojson'
 PUMAS_INCLUDED_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas_included.json'
 PUMA_ATTR_PATH = './scripts/cities/'+city+'/models/puma_attr.json'
+
+MAPPINGS_PATH = './scripts/cities/'+city+'/mappings'
 
 
 # the graph used by each mode
@@ -525,16 +517,17 @@ kgCO2PerMet={0: 0.45*0.8708/0.00162,
                     3: 0.45*0.2359/0.00162}#from lbs/mile to US tonnes/m
 # TODO: put the below in a text file
 # TODO: number of of people per housing cell should vary by type
-housing_types={1:{'rent': 800, 'beds': 2, 'built_since_jan2010': True, 
+housing_lus={'Residential_Affordable':{'rent': 800, 'beds': 2, 'built_since_jan2010': True, 
                   'puma_pop_per_sqmeter': 0.000292, 'puma_med_income': 60000,
                   'pop_per_sqmile': 5000, 'tenure': 'rented'},
-               2:{'rent': 1500, 'beds': 2, 'built_since_jan2010': True, 
+             'Residential_Market_Rate':{'rent': 1500, 'beds': 2, 'built_since_jan2010': True, 
                   'puma_pop_per_sqmeter': 0.000292, 'puma_med_income': 60000,
                   'pop_per_sqmile': 5000, 'tenure': 'rented'}}
 # TODO: number of each employment sector for each building type
-employment_types= {3:{},4:{}}
+employment_lus= {"Office_High_Density":{},"Office_Low_Density":{},
+                 "Industrial":{},"Makerspace":{}}
 
-land_use_codes={'home': ['R'], 'work': ['M', 'B']}
+#land_use_codes={'home': ['R'], 'work': ['M', 'B']}
 
 NEW_PERSONS_PER_BLD=10
 
@@ -559,18 +552,21 @@ rf_features=json.load(open(RF_FEATURES_LIST_PATH, 'r'))
 # load the pre-calibrated home location choice model
 home_loc_logit=pickle.load( open( FITTED_HOME_LOC_MODEL_PATH, "rb" ) )
 rent_normalisation=json.load(open(RENT_NORM_PATH))
-#load the network graphs
-#graphs=pickle.load(open(SIM_GRAPHS_PATH, 'rb'))
+
 # load the external route costs
 ext_route_costs=json.load(open(ROUTE_COSTS_PATH))
-activity_sched=pd.read_csv(ACTIVITY_SCHED_PATH)
 
-#for graph in graphs:
-#    graphs[graph]['kdtree']=spatial.KDTree(
-#            np.array(graphs[graph]['nodes'][['x', 'y']]))
+sample_motifs=pd.read_csv(MOTIF_SAMPLE_PATH)
+motif_sample_obj=sample_motifs.to_dict(orient='records')
 
-#nodes=pd.read_csv(NODES_PATH)
-# load the zones geojson
+# load the land use and activity mappings
+
+lu_inputs=json.load(open(MAPPINGS_PATH+'/lu_inputs.json'))
+lu_input_to_lu_standard=json.load(open(MAPPINGS_PATH+'/lu_input_to_lu_standard.json'))
+activities_to_lu=json.load(open(MAPPINGS_PATH+'/activities_to_lu.json'))
+base_lu_to_lu=json.load(open(MAPPINGS_PATH+'/base_lu_to_lu.json'))
+#lu_standard=json.load(open(MAPPINGS_PATH+'/lu_standard.json'))
+
 all_zones=json.load(open(ALL_ZONES_PATH))
 sim_zones=json.load(open(SIM_ZONES_PATH))
 portals=json.load(open(PORTALS_PATH))
@@ -589,7 +585,6 @@ else:
 
 all_geoid_centroids={}
 for ind, geo_id in enumerate(geoid_order_all):
-#    centroid=shape(all_zones['features'][ind]['geometry']).centroid
     centroid=approx_shape_centroid(all_zones['features'][ind]['geometry'])
 #    all_geoid_centroids[geo_id]=[centroid.x, centroid.y]
     all_geoid_centroids[geo_id]=list(centroid)
@@ -607,15 +602,6 @@ except:
     print('Using static cityIO grid file')
     cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
     cityIO_spatial_data=cityIO_data['header']['spatial']
-
-# Interactive grid geojson    
-try:
-    with urllib.request.urlopen(cityIO_grid_url+'/grid_interactive_area') as url:
-    #get the latest grid data
-        grid_interactive=json.loads(url.read().decode())
-except:
-    print('Using static cityIO grid file')
-    grid_interactive=json.load(open(GRID_INT_SAMPLE_PATH))
     
 # Full meta grid geojson      
 try:
@@ -627,41 +613,41 @@ except:
     meta_grid=json.load(open(META_GRID_SAMPLE_PATH))
     
 # create a lookup from interactive grid to meta_grid
-# and a dict of statuc land uses to their locations in the meta_grid
+# and a dict of static land uses to their locations in the meta_grid
 int_to_meta_grid={}
 static_land_uses={}
 for fi, f in enumerate(meta_grid['features']):
     if f['properties']['interactive']:
         int_to_meta_grid[int(f['properties']['interactive_id'])]=fi
     else:
-        this_land_use=f['properties']['land_use']
-        if not this_land_use:
-            this_land_use='None'
-        this_land_use_simple=this_land_use[0]
-        if this_land_use_simple in static_land_uses:
-            static_land_uses[this_land_use_simple].append(fi)
+        this_land_use_input=f['properties']['land_use']
+        this_land_use_standard=get_standard_lu_from_base(this_land_use_input)
+        if this_land_use_standard in static_land_uses:
+            static_land_uses[this_land_use_standard].append(fi)
         else:
-            static_land_uses[this_land_use_simple]=[fi]
-
+            static_land_uses[this_land_use_standard]=[fi]
 
 # add centroids to meta_grid_cells
 for cell in meta_grid['features']:
     cell['properties']['centroid']=approx_shape_centroid(cell['geometry'])
     
+meta_grid_ll=[meta_grid['features'][i][
+        'geometry']['coordinates'][0][0
+        ] for i in range(len(meta_grid['features']))]
 
-grid_points_ll=[f['geometry']['coordinates'][0][0] for f in grid_interactive['features']]
-
+grid_points_ll=[meta_grid_ll[int_to_meta_grid[int_grid_cell]]
+                 for int_grid_cell in int_to_meta_grid]
 
 # create a lookup from interactive grid to puma
 puma_shape=json.load(open(PUMA_SHAPE_PATH))
 puma_order=[f['properties']['PUMACE10'] for f in puma_shape['features']]
 puma_included=json.load(open(PUMAS_INCLUDED_PATH)) 
-puma_shape_dict = {feature["properties"]["GEOID10"][2:]: shape(feature["geometry"]) 
+puma_path_dict = {feature["properties"]["GEOID10"][2:]: mplPath.Path(feature["geometry"]["coordinates"][0][0]) 
                    for feature in puma_shape['features'] if feature["properties"]["GEOID10"][2:] in puma_included}
 int_grid_to_puma = {'g'+str(grid_id): None for grid_id in range(len(grid_points_ll))}
 for grid_id, grid_point_ll in enumerate(grid_points_ll):
-    for puma_id, puma_polygon in puma_shape_dict.items():
-        if puma_polygon.contains(Point(grid_point_ll[0], grid_point_ll[1])):
+    for puma_id, puma_path in puma_path_dict.items():
+        if puma_path.contains_point((grid_point_ll[0], grid_point_ll[1])):
             int_grid_to_puma['g'+str(grid_id)] = puma_id
             break
             
@@ -671,8 +657,8 @@ puma_obj_dict = {}
 for puma in puma_df.index:
     this_obj = puma_df.loc[puma].to_dict()
     this_obj['puma'] = puma
-    centroid = shape(puma_shape['features'][puma_order.index(puma)]['geometry']).centroid
-    this_obj['centroid'] = [centroid.x, centroid.y]
+    centroid = approx_shape_centroid(puma_shape['features'][puma_order.index(puma)]['geometry'])
+    this_obj['centroid'] = centroid
     puma_obj_dict[puma] = this_obj
 
 
@@ -681,6 +667,7 @@ for puma in puma_df.index:
 #                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
 sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
+# TODO: is this right? shouldn't all meta cells be in sim area?
 #
 # =============================================================================
 # Node Locations
@@ -697,7 +684,6 @@ for mode in mode_graphs:
 #        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
 #             'y':grid_points_ll[i][1]}
     for p in range(len(portals['features'])):
-#        p_centroid=shape(portals['features'][p]['geometry']).centroid
         p_centroid=approx_shape_centroid(portals['features'][p]['geometry'])
 #        nodes_xy[mode]['p'+str(p)]={'x':p_centroid.x,
 #             'y':p_centroid.y}
@@ -757,25 +743,26 @@ while True:
         lastId=hash_id
 ## =============================================================================
 ##         FAKE DATA FOR SCENAIO EXPLORATION
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(cityIO_grid_data))] # all employment
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(cityIO_grid_data))] # all housing
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(cityIO_grid_data))] # random mix
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(cityIO_grid_data))] # affordable + employment
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(int_to_meta_grid))] # all employment
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(int_to_meta_grid))] # all housing
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(int_to_meta_grid))] # random mix
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(int_to_meta_grid))] # affordable + employment
 ## =============================================================================
         new_houses=[]
         new_persons=[]
-#        new_households=[]        
-        for ht in housing_types:
-            ht_locs=[i for i in range(len(cityIO_grid_data)) if cityIO_grid_data[i][0]==ht]
+#        new_households=[]  
+        int_grid_land_uses=[get_standard_lu_from_input_lu(g[0]) for g in cityIO_grid_data]
+        for ht in housing_lus:
+            ht_locs=[i for i in range(len(int_grid_land_uses)) if int_grid_land_uses[i]==ht]
             for htl in ht_locs:
-                add_house=housing_types[ht].copy()
+                add_house=housing_lus[ht].copy()
                 add_house['home_geoid']='g'+str(htl)
                 add_house['centroid']=grid_points_ll[htl]
                 new_houses.append(add_house)        
 #        # for each office unit, add a (homeless) person
         random.seed(0)
-        for et in employment_types:
-            et_locs=[i for i in range(len(cityIO_grid_data)) if cityIO_grid_data[i][0]==et]
+        for et in employment_lus:
+            et_locs=[i for i in range(len(int_grid_land_uses)) if int_grid_land_uses[i]==et]
             for etl in et_locs:
                 for i in range(NEW_PERSONS_PER_BLD):
                     add_person=random.choice(base_floating_persons).copy()
@@ -800,7 +787,7 @@ while True:
                          (p['home_geoid'] in sim_area_zone_list or
                           p['work_geoid'] in sim_area_zone_list)]
         pop_diversity=get_pop_diversity(base_sim_persons+ new_sim_persons)
-        lu_diversity=get_lu_diversity(cityIO_grid_data)
+        lu_diversity=get_lu_diversity(int_grid_land_uses)
         post_diversity_indicators(pop_diversity, lu_diversity, CITYIO_OUTPUT_PATH+'ind_diversity')
         get_LLs(new_sim_persons, ['home', 'work'])
         get_simulation_locations(new_sim_persons)

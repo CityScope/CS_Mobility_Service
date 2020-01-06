@@ -1,0 +1,36 @@
+{
+  "College": {
+    "School": 0.5,
+    "University": 0.5
+  },
+  "Drop-off": {
+    "School": 1
+  },
+  "Eat": {
+    "Restaurants": 1
+  },
+  "Groceries": {
+    "Commercial": 1
+  },
+  "Health": {
+    "Commercial": 0.7,
+    "Hospital": 0.3
+  },
+  "Recreation": {
+    "Commercial": 0.7,
+    "Open Space": 0.3
+  },
+  "Shopping": {
+    "Commercial": 1
+  },
+  "Visit": {
+    "Residential": 1
+  },
+  "Exercise": {
+    "Commercial": 0.3,
+    "Open Space": 0.7
+  },
+  "Religion": {
+    "Place of Worship": 1
+  }
+}

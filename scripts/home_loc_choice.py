@@ -6,12 +6,12 @@ import math
 import pickle
 import random
 from collections import OrderedDict
-from shapely.geometry import shape, Point
-from utilities import amenityHealthList, amenityRestaurantList, amenityEntertainmentList, amenitySchoolList, process_poi
+#from shapely.geometry import shape, Point
+#from utilities import amenityHealthList, amenityRestaurantList, amenityEntertainmentList, amenitySchoolList, process_poi
 import sys
 from os import path,chdir
 import time
-chdir(path.dirname(sys.argv[0]))        #use relative path
+#chdir(path.dirname(sys.argv[0]))        #use relative path
 
 
 def get_haversine_distance(point_1, point_2):
@@ -29,6 +29,16 @@ def get_haversine_distance(point_1, point_2):
     r = 6371000 # Radius of earth in kilometers. Use 3956 for miles
     return c * r
 
+def approx_shape_centroid(geometry):
+    if geometry['type']=='Polygon':
+        centroid=list(np.mean(geometry['coordinates'][0], axis=0))
+        return centroid
+    elif geometry['type']=='MultiPolygon':
+        centroid=list(np.mean(geometry['coordinates'][0][0], axis=0))
+        return centroid
+    else:
+        print('Unknown geometry type')
+
 
 city='Detroit'
 state_codes={'Detroit': 'mi', 'Boston': 'ma'}
@@ -36,16 +46,16 @@ state_fips={'Detroit': '26', 'Boston': '25'}
 NUM_ALTS=8
 sample_size=5000
 
-PUMAS_INCLUDED_PATH='./cities/'+city+'/raw/PUMS/pumas_included.json'
-FITTED_HOME_LOC_MODEL_PATH='./cities/'+city+'/models/home_loc_logit.p'
-PUMA_POP_PATH='./cities/'+city+'/raw/ACS/ACS_17_1YR_B01003/population.csv'
-PUMS_HH_PATH='./cities/'+city+'/raw/PUMS/csv_h'+state_codes[city]+'/ss16h'+state_codes[city]+'.csv'
-PUMS_POP_PATH='./cities/'+city+'/raw/PUMS/csv_p'+state_codes[city]+'/ss16p'+state_codes[city]+'.csv'
-PUMA_SHAPE_PATH='./cities/'+city+'/raw/PUMS/pumas.geojson'
-POI_PATH = './cities/'+city+'/raw/OSM/poi.geojson'
-PUMA_TO_POW_PUMA_PATH='./puma_to_pow_puma.csv'
-RENT_NORM_PATH='./cities/'+city+'/models/rent_norm.json'
-PUMA_ATTR_PATH = './cities/'+city+'/models/puma_attr.json'
+PUMAS_INCLUDED_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas_included.json'
+FITTED_HOME_LOC_MODEL_PATH='./scripts/cities/'+city+'/models/home_loc_logit.p'
+PUMA_POP_PATH='./scripts/cities/'+city+'/raw/ACS/ACS_17_1YR_B01003/population.csv'
+PUMS_HH_PATH='./scripts/cities/'+city+'/raw/PUMS/csv_h'+state_codes[city]+'/ss16h'+state_codes[city]+'.csv'
+PUMS_POP_PATH='./scripts/cities/'+city+'/raw/PUMS/csv_p'+state_codes[city]+'/ss16p'+state_codes[city]+'.csv'
+PUMA_SHAPE_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas.geojson'
+POI_PATH = './scripts/cities/'+city+'/raw/OSM/poi.geojson'
+PUMA_TO_POW_PUMA_PATH='./scripts/puma_to_pow_puma.csv'
+RENT_NORM_PATH='./scripts/cities/'+city+'/models/rent_norm.json'
+PUMA_ATTR_PATH = './scripts/cities/'+city+'/models/puma_attr.json'
 
 hh=pd.read_csv(PUMS_HH_PATH)
 pop = pd.read_csv(PUMS_POP_PATH)
@@ -63,6 +73,7 @@ pumas_order=[f['properties']['PUMACE10'] for f in pumas_shape['features']]
 puma_pop=pd.read_csv(PUMA_POP_PATH)
 puma_pop['PUMA']=puma_pop.apply(lambda row: str(row['GEO.id2'])[2:].zfill(5), axis=1)
 puma_pop=puma_pop.set_index('PUMA')
+puma_pop=puma_pop.iloc[1:] # get rid of second header line
 
 
 # identify recent movers and vacant houses                                            
@@ -97,8 +108,8 @@ for p in all_pow_pumas:
 puma_centroids={}
 pow_puma_centroids={}
 for puma in set(pow_puma_df_state['PUMA']):
-    centr=shape(pumas_shape['features'][pumas_order.index(puma)]['geometry']).centroid
-    puma_centroids[puma]=[centr.x, centr.y]
+    centr=approx_shape_centroid(pumas_shape['features'][pumas_order.index(puma)]['geometry'])
+    puma_centroids[puma]=centr
     
 # and each pow-puma
 all_pow_pumas=set(pow_puma_df_state['POW_PUMA'])
@@ -133,18 +144,19 @@ for puma in puma_centroids:
 # or any point has "leisure" / "shop" attribue (no matter what the value of "leisure" / "shop" is) would be categorized as "entertainment". 
 # a point with "amenity" attribute, and its "amentiy" value is in the list of "amenityHealthList" would be categorized as "medical"
 # a point with "amenity" attribute, and its "amentiy" value is in the list of "amenitySchoolList" would be categorized as "school"
-poiConfigure = {
-    'entertainment': {'amenity': amenityEntertainmentList + amenityRestaurantList,
-            'leisure': [],
-            'shop':[]
-    },
-    'medical': {'amenity':amenityHealthList},
-    'school': {'amenity': amenitySchoolList}
-    }
-print('\n[info] Processing POIs...')
-PUMAsJointPOIsData = process_poi(POI_PATH, PUMA_SHAPE_PATH, poiConfigure)
-poiFields = [x+'_den' for x in poiConfigure]
-puma_poi_dict = {str(int(x['properties']['PUMACE10'])).zfill(5):x['properties'] for x in PUMAsJointPOIsData['features']}
+
+#poiConfigure = {
+#    'entertainment': {'amenity': amenityEntertainmentList + amenityRestaurantList,
+#            'leisure': [],
+#            'shop':[]
+#    },
+#    'medical': {'amenity':amenityHealthList},
+#    'school': {'amenity': amenitySchoolList}
+#    }
+#print('\n[info] Processing POIs...')
+#PUMAsJointPOIsData = process_poi(POI_PATH, PUMA_SHAPE_PATH, poiConfigure)
+#poiFields = [x+'_den' for x in poiConfigure]
+#puma_poi_dict = {str(int(x['properties']['PUMACE10'])).zfill(5):x['properties'] for x in PUMAsJointPOIsData['features']}
 
 
 # build the PUMA aggregate data data frame
@@ -157,8 +169,9 @@ puma_obj=[{'PUMA':puma,
            } for puma in pumas_included]
 
 puma_attr_df=pd.DataFrame(puma_obj)
-for poiField in poiFields:
-    puma_attr_df[poiField] = puma_attr_df.apply(lambda row: puma_poi_dict[row['PUMA']][poiField], axis=1)
+
+#for poiField in poiFields:
+#    puma_attr_df[poiField] = puma_attr_df.apply(lambda row: puma_poi_dict[row['PUMA']][poiField], axis=1)
 puma_attr_df=puma_attr_df.set_index('PUMA')
 
 # create features at property level

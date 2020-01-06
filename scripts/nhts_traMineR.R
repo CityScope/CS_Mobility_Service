@@ -34,7 +34,7 @@ library(cluster)
 clusterward1 <- agnes(dist.om1, diss = TRUE, method = "ward")
 # plot(clusterward1, which.plot = 2)
 
-n_clusters=7
+n_clusters=3
 
 cl1 <- cutree(clusterward1, k = n_clusters)
 cl1.fac <- factor(cl1, labels = paste("Cluster", 1:n_clusters))
