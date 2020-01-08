@@ -13,3 +13,4 @@ scripts/simulation/__pycache__/Agents.cpython-35.pyc
 **/comb_network_nodes.csv
 **/osm_ped_network_edges.csv
 **/osm_ped_network_nodes.csv
+**/fw_result.json

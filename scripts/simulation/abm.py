@@ -14,7 +14,7 @@ import math
 import pandas as pd
 import numpy as np
 #import networkx as nx
-#from scipy import spatial
+from scipy import spatial
 import requests
 from time import sleep
 import time
@@ -23,7 +23,7 @@ import matplotlib.path as mplPath
 import sys
 import time
 
-
+city=sys.argv[1]
 # =============================================================================
 # Functions
 # =============================================================================
@@ -93,23 +93,23 @@ def get_LLs(persons, places):
                     all_geoid_centroids[geoid][1]+np.random.normal(0, 0.002, 1)[0]]
             p[place+'_ll']=ll
             
-def approx_route_costs(start_coord, end_coord):
-    approx_speeds_met_s={'driving':20/3.6,
-        'cycling':10/3.6,
-        'walking':3/3.6,
-        'pt': 15/3.6 
-        }
-    straight_line_commute=get_haversine_distance(start_coord, end_coord)
-    routes={}
-    for mode in range(4):
-        routes[mode]={'route': {'driving':0, 'walking':0, 'waiting':0,
-                      'cycling':0, 'pt':0}, 'external_time':0}
-    routes[0]['route']['driving']=(straight_line_commute/approx_speeds_met_s['driving'])/60
-    routes[1]['route']['cycling']=(straight_line_commute/approx_speeds_met_s['cycling'])/60
-    routes[2]['route']['walking']=(straight_line_commute/approx_speeds_met_s['walking'])/60
-    routes[3]['route']['pt']=(straight_line_commute/approx_speeds_met_s['pt'])/60
-    routes[3]['route']['walking']=(200/approx_speeds_met_s['walking'])/60
-    return routes
+#def approx_route_costs(start_coord, end_coord):
+#    approx_speeds_met_s={'driving':20/3.6,
+#        'cycling':10/3.6,
+#        'walking':3/3.6,
+#        'pt': 15/3.6 
+#        }
+#    straight_line_commute=get_haversine_distance(start_coord, end_coord)
+#    routes={}
+#    for mode in range(4):
+#        routes[mode]={'route': {'driving':0, 'walking':0, 'waiting':0,
+#                      'cycling':0, 'pt':0}, 'external_time':0}
+#    routes[0]['route']['driving']=(straight_line_commute/approx_speeds_met_s['driving'])/60
+#    routes[1]['route']['cycling']=(straight_line_commute/approx_speeds_met_s['cycling'])/60
+#    routes[2]['route']['walking']=(straight_line_commute/approx_speeds_met_s['walking'])/60
+#    routes[3]['route']['pt']=(straight_line_commute/approx_speeds_met_s['pt'])/60
+#    routes[3]['route']['walking']=(200/approx_speeds_met_s['walking'])/60
+#    return routes
     
         
 def get_route_costs(persons):
@@ -121,19 +121,27 @@ def get_route_costs(persons):
         p['routes']={}
         if ((p['home_sim']['type']=='meta_grid') and  (p['work_sim']['type']=='meta_grid')):
             p['type']=0 # lives and works on site
-            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
-            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
-            p['routes']=approx_route_costs(home_coord, work_coord)
+#            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+#            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+            home_node_list=meta_grid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
+            work_node_list=meta_grid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
+
+#            p['routes']=approx_route_costs(home_coord, work_coord)
+            p['routes']=internal_route_costs(home_node_list, work_node_list, 
+                         sim_net_floyd_result, nodes_to_link_attributes)
         elif p['work_sim']['type']=='meta_grid':
             p['type']=1 # commute_in
-            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+#            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+            work_node_list=meta_grid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
             for m in range(4):
                 p['routes'][m]={}
                 best_portal_route_time=float('inf')
                 for portal in range(len(portals['features'])):
-                    portal_coord=[nodes_xy[m]['p'+str(portal)]['x'], 
-                                  nodes_xy[m]['p'+str(portal)]['y']]
-                    internal_portal_route=approx_route_costs(portal_coord, work_coord)[m]
+#                    portal_coord=portals['features'][portal]['properties']['centroid']
+                    portal_node_list=portals['features'][portal]['properties']['closest_nodes']
+#                    internal_portal_route=approx_route_costs(portal_coord, work_coord)[m]
+                    internal_portal_route=internal_route_costs(portal_node_list, work_node_list, 
+                         sim_net_floyd_result, nodes_to_link_attributes)[m]
                     external_portal_route=ext_route_costs[mode_graphs[m]][str(p['home_geoid'])][str(portal)]
                     external_time=sum([external_portal_route[c] for c in external_portal_route])
                     full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
@@ -149,14 +157,18 @@ def get_route_costs(persons):
                 p['routes'][m]['route']=best_route
         elif p['home_sim']['type']=='meta_grid':
             p['type']=2 # commute_out
-            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+#            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+            home_node_list=meta_grid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
+
             for m in range(4):
                 p['routes'][m]={}
                 best_portal_route_time=float('inf')
                 for portal in range(len(portals['features'])):
-                    portal_coord=[nodes_xy[m]['p'+str(portal)]['x'], 
-                                  nodes_xy[m]['p'+str(portal)]['y']]
-                    internal_portal_route=approx_route_costs(home_coord, portal_coord)[m]
+#                    portal_coord=portals['features'][portal]['properties']['centroid']
+                    portal_node_list=portals['features'][portal]['properties']['closest_nodes']
+#                    internal_portal_route=approx_route_costs(home_coord, portal_coord)[m]
+                    internal_portal_route=internal_route_costs(home_node_list, portal_node_list, 
+                         sim_net_floyd_result, nodes_to_link_attributes)[m]
                     external_portal_route=ext_route_costs[mode_graphs[m]][str(p['work_geoid'])][str(portal)]
                     external_time=sum([external_portal_route[c] for c in external_portal_route])
                     full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
@@ -212,13 +224,11 @@ def predict_modes(persons):
         p['mode']=chosen_mode
         if p['home_sim']['type']=='portal': 
             p['home_sim']['ind']=p['routes'][chosen_mode]['portal']
-            p['home_sim']['ll']=[nodes_xy[0]['p'+str(p['home_sim']['ind'])]['x'],
-                                 nodes_xy[0]['p'+str(p['home_sim']['ind'])]['y']]
+            p['home_sim']['ll']=portals['features'][p['home_sim']['ind']]['properties']['centroid']
             p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
         elif p['work_sim']['type']=='portal': 
             p['work_sim']['ind']=p['routes'][chosen_mode]['portal']
-            p['work_sim']['ll']=[nodes_xy[0]['p'+str(p['work_sim']['ind'])]['x'],
-                     nodes_xy[0]['p'+str(p['work_sim']['ind'])]['y']]
+            p['work_sim']['ll']=portals['features'][p['work_sim']['ind']]['properties']['centroid']
             p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
         else:
             p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
@@ -265,9 +275,10 @@ def post_od_data(persons, destination_address):
                        } for p in persons if len(p['activities'])>1])
     try:
         r = requests.post(destination_address, data = od_str)
-        print(r)
+        print('OD: {}'.format(r))
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
+    
               
 def create_long_record_puma(person, puma):
     """ takes a puma object and a household object and 
@@ -462,8 +473,74 @@ def post_diversity_indicators(pop_diversity, lu_diversity, destination_address):
         print('Diversity Indicators: {}'.format(r))
     except requests.exceptions.RequestException as e:
         print('Couldnt send diversity indicators to cityio')
+        
+#def get_path_from_fw_multi(fw_result, sim_net_list, from_node_list, to_node_list):
+#    for fn in from_node_list:
+#        for tn in to_node_list:
+#            try:
+#                return get_path_from_fw(fw_result, sim_net_list, fn, tn)
+#            except:
+#                pass
+#    print('No path found')
+#    return None, None, None
+def get_node_path_from_fw_try_multi(sim_net_floyd_result, from_list, to_list):
+    for fn in from_list:
+        for tn in to_list:
+            try: 
+                node_path=get_node_path_from_fw(sim_net_floyd_result, 
+                                                fn, tn)
+                return node_path
+            except:
+                pass
+    print('No path found')
+    return []     
+  
+def get_node_path_from_fw(sim_net_floyd_result, from_node, to_node):
+    if from_node==to_node:
+        return []
+    pred=to_node
+    path=[pred]
+    while not pred==from_node:
+        pred=sim_net_floyd_result[from_node][pred]
+        path.insert(0,pred)
+    return path
+        
+def get_path_coords_distances(nodes_to_link_attributes, path):
+    coords, distances =[], []
+    if len(path)>1:
+        for node_ind in range(len(path)-1):
+            from_node=path[node_ind]
+            to_node=path[node_ind+1]
+            link_attributes=nodes_to_link_attributes['{}_{}'.format(from_node, to_node)]
+            distances+=[link_attributes['distance']]
+            coords+=[link_attributes['from_coord']]
+        coords+= [link_attributes['to_coord']]
+        # add the final coordinate of the very last segment
+    return coords, distances
 
-city=sys.argv[1]
+def internal_route_costs(from_node_list, to_node_list, 
+                         sim_net_floyd_result, nodes_to_link_attributes):
+    approx_speeds_met_s={'driving':30/3.6,
+        'cycling':15/3.6,
+        'walking':4/3.6,
+        'pt': 20/3.6 
+        }
+#     from_node_list= [sim_node_ids[n_ind] for n_ind in int_nodes_kdtree.query(start_coord, 3)[1]]
+#     to_node_list= [sim_node_ids[n_ind] for n_ind in int_nodes_kdtree.query(end_coord, 3)[1]]
+    path=get_node_path_from_fw_try_multi(sim_net_floyd_result, from_node_list, to_node_list)
+    coords, distances=get_path_coords_distances(nodes_to_link_attributes, path)
+    total_distance=sum(distances)
+    routes={}
+    for mode in range(4):
+        routes[mode]={'route': {'driving':0, 'walking':0, 'waiting':0,
+                      'cycling':0, 'pt':0}, 'external_time':0}
+    routes[0]['route']['driving']=(total_distance/approx_speeds_met_s['driving'])/60
+    routes[1]['route']['cycling']=(total_distance/approx_speeds_met_s['cycling'])/60
+    routes[2]['route']['walking']=(total_distance/approx_speeds_met_s['walking'])/60
+    routes[3]['route']['pt']=(total_distance/approx_speeds_met_s['pt'])/60
+    routes[3]['route']['walking']=(200/approx_speeds_met_s['walking'])/60
+    return routes
+
 # =============================================================================
 # Constants
 # =============================================================================
@@ -487,7 +564,9 @@ MOTIF_SAMPLE_PATH='./scripts/cities/'+city+'/clean/motif_samples.csv'
 #Road network graph
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
 ROUTE_COSTS_PATH='./scripts/cities/'+city+'/clean/route_costs.json'
-SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
+FLOYD_PREDECESSOR_PATH='./scripts/cities/'+city+'/clean/fw_result.json'
+INT_NET_DF_FLOYD_PATH='./scripts/cities/'+city+'/clean/sim_net_df_floyd.csv'
+INT_NET_COORDINATES_PATH='./scripts/cities/'+city+'/clean/sim_net_node_coords.json'
 
 META_GRID_SAMPLE_PATH='./scripts/cities/'+city+'/clean/meta_grid.geojson'
 GRID_INT_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
@@ -571,10 +650,34 @@ all_zones=json.load(open(ALL_ZONES_PATH))
 sim_zones=json.load(open(SIM_ZONES_PATH))
 portals=json.load(open(PORTALS_PATH))
 
-# add centroids to portals
-for p in portals['features']:
-    p['properties']['centroid']=approx_shape_centroid(p['geometry'])
+# precomputed shortest paths for internal simulation networks
+sim_net_floyd_result=json.load(open(FLOYD_PREDECESSOR_PATH))
+sim_net_floyd_df=pd.read_csv(INT_NET_DF_FLOYD_PATH)
 
+# =============================================================================
+# Pre-Processing
+# =============================================================================
+
+# Processing of the Floyd Warshall results and graph
+# Create mapping from nodes to link attributes to speed up queries
+nodes_to_link_attributes={}
+for ind, row in sim_net_floyd_df.iterrows():
+    nodes_to_link_attributes['{}_{}'.format(row['aNodes'], row['bNodes'])]={
+        'distance': row['distance'],
+        'from_coord': [float(row['aNodeLon']), float(row['aNodeLat'])],
+        'to_coord': [float(row['bNodeLon']), float(row['bNodeLat'])]}
+
+sim_net_map_node_lls=json.load(open(INT_NET_COORDINATES_PATH))
+sim_node_ids=[node for node in sim_net_map_node_lls]
+sim_node_lls=[sim_net_map_node_lls[node] for node in sim_node_ids]
+int_nodes_kdtree=spatial.KDTree(np.array(sim_node_lls))
+
+# add centroids and closest sim network nodes to portals
+for p in portals['features']:
+    centroid=approx_shape_centroid(p['geometry'])
+    p['properties']['centroid']=centroid
+    p['properties']['closest_nodes']=[sim_node_ids[n_ind] for n_ind in 
+      int_nodes_kdtree.query(centroid, 3)[1]]
 
 if city=='Hamburg':
     geoid_order_all=[f['properties']['GEO_ID'] for f in all_zones['features']]
@@ -590,7 +693,7 @@ for ind, geo_id in enumerate(geoid_order_all):
     all_geoid_centroids[geo_id]=list(centroid)
 
 # =============================================================================
-# Processing of spatial grid data
+# Pre-Processing of spatial grid data
 # =============================================================================
 # Get the grid data
 # Interactive grid parameters
@@ -627,9 +730,12 @@ for fi, f in enumerate(meta_grid['features']):
         else:
             static_land_uses[this_land_use_standard]=[fi]
 
-# add centroids to meta_grid_cells
+# add centroids and closest nodes in sim network to meta_grid_cells
 for cell in meta_grid['features']:
-    cell['properties']['centroid']=approx_shape_centroid(cell['geometry'])
+    centroid=approx_shape_centroid(cell['geometry'])
+    cell['properties']['centroid']=centroid
+    cell['properties']['closest_nodes']=[sim_node_ids[n_ind] for n_ind in 
+      int_nodes_kdtree.query(centroid, 3)[1]]
     
 meta_grid_ll=[meta_grid['features'][i][
         'geometry']['coordinates'][0][0
@@ -667,28 +773,6 @@ for puma in puma_df.index:
 #                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
 sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
-# TODO: is this right? shouldn't all meta cells be in sim area?
-#
-# =============================================================================
-# Node Locations
-# =============================================================================
-
-# create a list of nodes with their coords for each mode
-nodes_xy={}
-for mode in mode_graphs:
-    nodes_xy[mode]={}
-#    for i in range(len(graphs[mode_graphs[mode]]['nodes'])):
-#        nodes_xy[mode][i]={'x':graphs[mode_graphs[mode]]['nodes'].iloc[i]['x'],
-#             'y':graphs[mode_graphs[mode]]['nodes'].iloc[i]['y']}
-#    for i in range(len(grid_points_ll)):
-#        nodes_xy[mode]['g'+str(i)]={'x':grid_points_ll[i][0],
-#             'y':grid_points_ll[i][1]}
-    for p in range(len(portals['features'])):
-        p_centroid=approx_shape_centroid(portals['features'][p]['geometry'])
-#        nodes_xy[mode]['p'+str(p)]={'x':p_centroid.x,
-#             'y':p_centroid.y}
-        nodes_xy[mode]['p'+str(p)]={'x':p_centroid[0],
-             'y':p_centroid[1]}
                    
 # =============================================================================
 # Population
