@@ -22,8 +22,12 @@ import time
 import matplotlib.path as mplPath
 import sys
 import time
+import copy
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 city=sys.argv[1]
+
 # =============================================================================
 # Functions
 # =============================================================================
@@ -66,7 +70,7 @@ def get_simulation_locations(persons):
                 p[place+'_sim']={'type': 'meta_grid', 
                                  'ind': int_to_meta_grid[int(geoid[1:])]}
             elif p[place+'_geoid'] in sim_area_zone_list:
-                if 'place'=='work':
+                if place == 'work':
                     relevant_land_use_codes=employment_lus
                 else:
                     relevant_land_use_codes=housing_lus
@@ -234,6 +238,7 @@ def predict_modes(persons):
             p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
             p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
         p['external_time']=p['routes'][chosen_mode]['external_time']
+        
         
 def sample_activity_schedules(persons):
     # TODO predict rather than random sample
@@ -539,7 +544,548 @@ def internal_route_costs(from_node_list, to_node_list,
     routes[2]['route']['walking']=(total_distance/approx_speeds_met_s['walking'])/60
     routes[3]['route']['pt']=(total_distance/approx_speeds_met_s['pt'])/60
     routes[3]['route']['walking']=(200/approx_speeds_met_s['walking'])/60
+    routes['total_distance'] = total_distance
+    routes['node_path'] = path
     return routes
+    
+    
+def external_route_costs(out_geoid, grid_node_list, direction):
+    """
+    calcuating route costs between a in-site location (grid_node_list) and 
+    a outside location (out_geoid)
+    directions = 'in' (origin is outside) or 'out' (destination is outside)
+    """
+    routes = {}
+    portal_specific_internal_routes = {portal:{} for portal in range(len(portals['features']))} 
+    for portal in portal_specific_internal_routes:
+        portal_node_list=portals['features'][portal]['properties']['closest_nodes']
+        if direction == 'in':
+            internal_portal_route_all_modes = internal_route_costs(portal_node_list, grid_node_list, 
+                sim_net_floyd_result, nodes_to_link_attributes)
+        elif direction == 'out':
+            internal_portal_route_all_modes = internal_route_costs(grid_node_list, portal_node_list, 
+                sim_net_floyd_result, nodes_to_link_attributes)
+        portal_specific_internal_routes[portal] = internal_portal_route_all_modes
+    for m in range(4):
+        routes[m] = {}
+        best_portal_route_time = np.inf
+        for portal in portal_specific_internal_routes:
+            internal_portal_route = portal_specific_internal_routes[portal][m]
+            external_portal_route = ext_route_costs[mode_graphs[m]][str(out_geoid)][str(portal)]
+            external_time = sum([external_portal_route[c] for c in external_portal_route])
+            full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
+                               c in ['driving', 'walking', 'waiting','cycling', 'pt']}
+            total_portal_route_time=sum([full_portal_route[c] for c in full_portal_route])
+            if total_portal_route_time<best_portal_route_time:
+                best_portal=portal
+                best_route=full_portal_route
+                best_interanl_route = internal_portal_route
+                best_external_time=external_time
+                best_portal_route_time=total_portal_route_time   
+        routes[m]['portal']=best_portal
+        routes[m]['external_time']= int(best_external_time*60)
+        routes[m]['route']=best_route
+        routes[m]['internal_route'] = best_interanl_route
+        routes[m]['node_path'] =  portal_specific_internal_routes[best_portal]['node_path']
+    return routes
+
+
+def find_destination(persons, land_uses, sampleN=15):
+    """ 
+    takes the person objects, choosing the place for each of his activities, 
+    modifies in place: all results are stored in "activity_objs"
+    work/home: use work_sim / home_sim; 
+    others: if there are available meta grids in-site, use huff model to make choice; 
+            otherwise randomly choose a external zone which contains the corresponding amenities
+    
+    Arguments:
+    -------------------------------------
+    persons: a list of person objects
+    land_uses: a lookup dict, key: land use code, value: meta grid indices
+    sampleN: the number of alternatives when choosing among meta grids, sampleN=None for all meta grids
+    """
+    for p_id, person in enumerate(persons):
+        activities_hourly = person['activities']
+        activity_objs = [{'t': t*3600,  'activity': a} for t, a in enumerate(activities_hourly) if t == 0 or a != activities_hourly[t-1]]
+        for a_id, a_object in enumerate(activity_objs):
+            t, a = a_object['t'], a_object['activity']
+            if a == 'H':
+                place = person['home_sim']
+                if place['type']=='portal': place['geo_id']=person['home_geoid']
+            elif a == 'W':
+                place = person['work_sim']
+                if place['type']=='portal': place['geo_id']=person['work_geoid']
+            else:
+                lu_config = activities_to_lu.get(activity_full_name[a], None)
+                if len(lu_config) == 1:
+                    lu_type = list(lu_config)[0]
+                else:
+                    lu_type = np.random.choice(list(lu_config), p=list(lu_config.values()))
+                possible_lus = land_uses.get(lu_type, [])
+                if sampleN:
+                    possible_lus = np.random.choice(possible_lus, size=min(sampleN, len(possible_lus)), replace=False)
+                possible_lus_ll = [meta_grid['features'][idx]['properties']['centroid'] for idx in possible_lus]
+                if len(possible_lus) > 1:
+                    if a_id > 0:
+                        last_place_sim = activity_objs[a_id-1]['place_sim']
+                    else:
+                        last_place_sim = person['home_sim']   # in case that "Home" is not the first activity, should not happen
+                        last_place_sim['geo_id'] = person['home_geoid']
+                    if last_place_sim['type'] == 'meta_grid':
+                        last_node_list = meta_grid['features'][last_place_sim['ind']]['properties']['closest_nodes']
+                        dist = [internal_route_costs(last_node_list, meta_grid['features'][this_grid]['properties']['closest_nodes'], 
+                            sim_net_floyd_result, nodes_to_link_attributes)['total_distance'] for this_grid in possible_lus]
+                    else:
+                        # too much time to calculate network distance between a outside geoid and in-site metagrid, use straighline for approx.
+                        # dist = [external_routes(last_place_sim['geo_id'], meta_grid['features'][this_grid]['properties']['closest_nodes'],
+                            # direction='in')[0]['route']['driving']*30/60 for this_grid in possible_lus]
+                        dist = [get_haversine_distance(all_geoid_centroids[last_place_sim['geo_id']], this_grid_ll) 
+                            for this_grid_ll in possible_lus_ll]
+                    prob, chosen_idx = huff_model(dist, beta=2, predict_y=True, topN=5, alt_names=possible_lus)
+                    place = {'type': 'meta_grid', 'ind': chosen_idx[0], 'll': meta_grid['features'][chosen_idx[0]]['properties']['centroid']}
+                elif len(possible_lus) == 1:
+                    place = {'type': 'meta_grid', 'ind': possible_lus[0], 'll': possible_lus_ll[0]}
+                elif len(possible_lus) == 0:
+                    # no available land use in site, randomly find a destination outside
+                    geo_id = np.random.choice(external_lu[lu_type])
+                    place = {'type': 'portal', 'geo_id': geo_id}
+            if 'ind' in place:
+                place['ind'] = int(place['ind'])     # np.int32 will cause error for json.dumps()
+            activity_objs[a_id]['place_sim'] = place
+        person['activity_objs'] = activity_objs
+        person['start_times'] = [activity_objs[i]['t'] for i in range(1, len(activity_objs))]
+        if len(person['start_times']) > 0:
+            person['start_times'].append(person['start_times'][0])  # assuming the person will repeat the schedule the next day
+        
+
+def generate_ods(persons):
+    """ 
+    takes list of person objects and return a list of od objects
+    an od object is a dict with all attributes of its affiliated person, plus:
+        'o_loc', 'd_loc': location information (type, ind, ll, geo_id) of origin and destination
+        'o_activity', 'd_activity': activities at origin and destination
+        'activity_routes': routes (costs) returned by interal_route_costs or external_route_costs
+        'mode': to be predicted by "predict_modes_for_activities"
+        'internal_time_sec', 'external_time_sec': interal and external time in seconds from o to d
+        'node_path': a list of network nodes from o to d
+        ...
+    """
+    all_ods = [dict(p, o_loc=p['activity_objs'][idx]['place_sim'], d_loc=p['activity_objs'][idx+1]['place_sim'],
+            o_activity=p['activity_objs'][idx]['activity'], d_activity=p['activity_objs'][idx+1]['activity'], 
+            start_time=p['start_times'][idx], stay_until_time=p['start_times'][idx+1], od_id=idx)
+            for p in persons for idx in range(0, len(p['activity_objs'])-1)]
+    valid_ods = []
+    for od in all_ods:
+        if od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'meta_grid':
+            o_node_list = meta_grid['features'][od['o_loc']['ind']]['properties']['closest_nodes']
+            d_node_list = meta_grid['features'][od['d_loc']['ind']]['properties']['closest_nodes']
+            activity_routes = internal_route_costs(o_node_list, d_node_list, 
+                sim_net_floyd_result, nodes_to_link_attributes)
+        elif od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'portal':
+            o_node_list = meta_grid['features'][od['o_loc']['ind']]['properties']['closest_nodes']
+            out_geoid = od['d_loc']['geo_id']
+            activity_routes = external_route_costs(out_geoid, o_node_list, direction='out')
+        elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'meta_grid':
+            d_node_list = meta_grid['features'][od['d_loc']['ind']]['properties']['closest_nodes']
+            out_geoid = od['o_loc']['geo_id']
+            activity_routes = external_route_costs(out_geoid, d_node_list, direction='in')
+        else:
+            continue    # omit ods with both o and d outside
+        purpose_HBW, purpose_HBO, purpose_NHB = 0, 0, 0
+        if od['o_activity'] + od['d_activity'] in ['HW', 'WH']:
+            od['purpose'] = 'HBW'
+            purpose_HBW = 1
+        elif 'H' in [od['o_activity'] , od['d_activity']]:
+            od['purpose'] = 'HBO'
+            purpose_HBO = 1
+        else:
+            od['purpose'] = 'NHB'
+            purpose_NHB = 1
+        assert purpose_HBW + purpose_HBO + purpose_NHB == 1
+        od['purpose_HBW'] = purpose_HBW
+        od['purpose_HBO'] = purpose_HBO
+        od['purpose_NHB'] = purpose_NHB 
+        od['activity_routes'] = activity_routes
+        valid_ods.append(od)
+    return valid_ods
+
+
+def predict_modes_for_activities(ods, persons=[]):
+    """ 
+    takes a list of od objects and predicts transport modes for each od, modifies in place
+    
+    Arguments:
+    ---------------------------------
+    ods: a list of od objects, returned by "generate_ods"
+    persons: a list of persons who generate ods, modified in place to add new information of ods
+    """
+    person_lookup = {p['person_id']: p for p in persons}
+    feature_df=pd.DataFrame(ods)  
+    for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
+                 'bach_degree', 'race', 'cars']:
+        new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
+        feature_df=pd.concat([feature_df, new_dummys],  axis=1)
+    feature_df['drive_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][0]['route']['driving'], axis=1)     
+    feature_df['cycle_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][1]['route']['cycling'], axis=1)     
+    feature_df['walk_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][2]['route']['walking'], axis=1)     
+    feature_df['PT_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][3]['route']['pt'], axis=1)
+    feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['activity_routes'][3]['route']['walking'], axis=1)  
+    feature_df['drive_time_PT_minutes']=0 
+    feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1) 
+    # TODO: change below if modelling housing sales as well
+    feature_df['tenure_owned']=False
+    feature_df['tenure_other']=False
+    feature_df['race_asian']=0
+    for rff in rf_features:
+        assert rff in feature_df.columns, str(rff) +' not in data.'
+    feature_df=feature_df[rf_features] #reorder columns to match rf model
+    mode_probs=mode_rf.predict_proba(feature_df)
+    for i,od in enumerate(ods): 
+        chosen_mode=int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0])
+        od['mode']=chosen_mode
+        if od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'meta_grid':
+            internal_route_mode = od['activity_routes'][chosen_mode]['route']
+            external_time_sec = 0
+            node_path = od['activity_routes']['node_path']
+        elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'meta_grid':     #travel in
+            internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
+            external_time_sec = od['activity_routes'][chosen_mode]['external_time']
+            node_path = od['activity_routes'][chosen_mode]['node_path']
+            od['o_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
+            od['o_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
+        elif od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'portal':     #travel out  
+            internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
+            external_time_sec = od['activity_routes'][chosen_mode]['external_time'] #or use external_time_sec=0?
+            node_path = od['activity_routes'][chosen_mode]['node_path']
+            od['d_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
+            od['d_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
+            
+        if chosen_mode == 0:
+            internal_time_sec = int(internal_route_mode['driving']*60)
+        elif chosen_mode == 1:
+            internal_time_sec = int(internal_route_mode['cycling']*60)
+        elif chosen_mode == 2:
+            internal_time_sec = int(internal_route_mode['walking']*60)
+        elif chosen_mode == 3:
+            internal_time_sec = int((internal_route_mode['pt'] + internal_route_mode['walking'])*60)
+        
+        od['internal_time_sec'] = internal_time_sec
+        od['external_time_sec'] = external_time_sec
+        
+        if od['person_id'] in person_lookup:
+            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['mode'] = chosen_mode
+            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['internal_time_sec'] = internal_time_sec
+            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['external_time_sec'] = external_time_sec
+            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['node_path'] = node_path   
+    
+
+def generate_detailed_schedules(persons):
+    """ 
+    takes a list of person objects and generate the attribute of 'sched_objs', modifies in place
+    'sched_objs' is a list of detailed schedule objects to describe status of the person in different periods of a day
+    a detailed sched object is dict for a certain period:
+    {
+        't': start_time in seconds for this period,
+        'period': [start_time,  end_time]
+        'status': 'stay' (stay in site) or 'trip' (trip in site) or 'out' (stay or trip outside),
+        'activity': activity code if the person is doing an activity, None if the person is on trip
+        'mode': 0~3 if the person is on trip, None if the person is doing an activity
+        ...
+    }
+    if the person is doing an activity, the dict also contains 'place_sim' for location information
+    if the person is on trip, the dict also contains 'o_loc' & 'd_loc' for location information, and 'node_path' for network path inforatmion
+    """
+    for p in persons:
+        activity_objs = p['activity_objs']
+        
+        # the 1st activity: no trip
+        sched_objs = [copy.deepcopy(activity_objs[0])]
+        if sched_objs[0]['place_sim']['type'] == 'meta_grid':
+            sched_objs[0]['status'] = 'stay' 
+        else:
+            sched_objs[0]['status'] = 'out' 
+        if len(activity_objs) == 1:
+            sched_objs[0]['period'] = [activity_objs[0]['t'], 86400]
+            p['sched_objs'] = sched_objs
+            continue
+        sched_objs[0]['period'] = [activity_objs[0]['t'], activity_objs[1]['t']]
+        
+        # following activities and trips
+        for a_id in range(1, len(activity_objs)):
+            stay_until_time_sec = activity_objs[a_id+1]['t'] if a_id < len(activity_objs)-1 else 86400
+            if activity_objs[a_id-1]['place_sim']['type'] == 'meta_grid':
+                depart_time_sec = activity_objs[a_id]['t']
+                arrive_time_sec = depart_time_sec + activity_objs[a_id]['internal_time_sec']
+                if arrive_time_sec > stay_until_time_sec - 5*60:
+                    arrive_time_sec = stay_until_time_sec - 5*60    # allow at least 5 mins stay for this activity
+                internal_trip_obj = {'t': depart_time_sec, 'period': [depart_time_sec, arrive_time_sec], 
+                    'status': 'trip', 'o_loc': activity_objs[a_id-1]['place_sim'], 'd_loc': activity_objs[a_id]['place_sim'],
+                    'node_path': activity_objs[a_id]['node_path'], 'mode': activity_objs[a_id]['mode']}
+                sched_objs.append(internal_trip_obj)
+            elif activity_objs[a_id-1]['place_sim']['type'] == 'portal' and activity_objs[a_id]['place_sim']['type'] == 'meta_grid':
+                external_depart_time_sec = activity_objs[a_id]['t']
+                internal_depart_time_sec = external_depart_time_sec + activity_objs[a_id]['external_time_sec']
+                arrive_time_sec = internal_depart_time_sec + activity_objs[a_id]['internal_time_sec']
+                if arrive_time_sec > stay_until_time_sec - 5*60:
+                    arrive_time_sec = stay_until_time_sec - 5*60
+                if internal_depart_time_sec >= arrive_time_sec:
+                    internal_depart_time_sec = arrive_time_sec - 60  # allow at least 1min internal trip 
+                external_trip_obj = {'t': external_depart_time_sec, 'period': [external_depart_time_sec, internal_depart_time_sec],
+                    'status': 'out', 'mode': activity_objs[a_id]['mode']}
+                internal_trip_obj = {'t': internal_depart_time_sec, 'period': [internal_depart_time_sec, arrive_time_sec],
+                    'status': 'trip', 'o_loc': activity_objs[a_id-1]['place_sim'], 'd_loc': activity_objs[a_id]['place_sim'],
+                    'node_path': activity_objs[a_id]['node_path'], 'mode': activity_objs[a_id]['mode']}
+                sched_objs.extend([external_trip_obj, internal_trip_obj])
+            elif activity_objs[a_id-1]['place_sim']['type'] == 'portal' and activity_objs[a_id]['place_sim']['type'] == 'portal':
+                arrive_time_sec = activity_objs[a_id]['t']  #just assuming 'portal-portal' trip is external and omit it
+            stay_obj = {key: activity_objs[a_id][key] for key in ['activity', 'place_sim']}
+            stay_obj['t'] = arrive_time_sec
+            stay_obj['period'] = [arrive_time_sec, stay_until_time_sec]
+            if stay_obj['place_sim']['type'] == 'meta_grid':
+                stay_obj['status'] = 'stay'
+            else:
+                stay_obj['status'] = 'out'
+            sched_objs.append(stay_obj)  
+        p['sched_objs'] = sched_objs
+                        
+        
+def huff_model(dist, attract=None, alt_names=None, alpha=1, beta=2, predict_y=False, topN=None):
+    """ 
+    takes a distance matrix and a optional attraction matrix, calculates choice probabilities 
+    and predicts choice outcomes by sampleing according to probabilities
+    prob = (attract**alpha / dist**beta) / sum_over_all_alternatives(attract**alpha / dist**beta)
+    
+    Arguments:
+    --------------------------------------------
+    dist: distance matrix, ncs(number of choice situations) * nalt(number of alternatives), or 1-d array
+    attract: optional attraction matrix, ncs * nalt, or 1-d array
+    alt_names: optional matrix of alternative names, ncs * nalt, or 1-d array
+    alpha, beta: coefficents of attraction and distance
+    predict_y: whether or not to predict choice outcomes via sampling
+    topN: when predicting choice outcomes, only alternatives with top N probabilities will be considered
+    """
+    dist = np.array(dist)
+    dist = np.maximum(dist, np.ones_like(dist)*0.01)    # avoid dist=0
+    if attract is None:
+        attract = np.ones_like(dist)
+    else:
+        attract = np.array(attract)
+    if dist.ndim == 1:
+        dist = dist.reshape(1, -1)
+        attract = attract.reshape(1, -1)
+        if alt_names is not None:
+            alt_names = alt_names.reshape(1, -1)
+    ncs, nalt = dist.shape
+    u = (attract ** alpha) / (dist ** beta)
+    prob = u / u.sum(axis=1, keepdims=True)
+    if predict_y:
+        y = []
+        if topN:
+            use_prob = -np.sort(-prob, axis=1)[:, :topN]
+            use_prob = use_prob / use_prob.sum(axis=1, keepdims=True)
+            use_idx = np.argsort(-prob, axis=1)[:, :topN]
+            if alt_names is None:
+                use_names = use_idx
+            else:
+                use_names = np.asarray([alt_names[i, use_idx[i,:]] for i in range(ncs)])
+        else:
+            use_prob = prob
+            if alt_names is None:
+                use_names = np.asarray([list(range(nalt)) for i in range(ncs)])
+            else:
+                use_names = alt_names
+        for i in range(ncs):
+            this_y = np.random.choice(use_names[i, :], p=use_prob[i, :])
+            y.append(this_y) 
+    else:
+        y = None
+    return prob, y
+
+
+def post_sched_data(persons, destination_address):
+    sched_str = json.dumps([{'person_id': p['person_id'], 'sched_objs': p['sched_objs']}
+        for p in persons])
+    ## online post always return 413, have to save local file
+    # with open('./sched.json', 'w') as f:
+        # f.write(sched_str)
+    try:
+        r = requests.post(destination_address, data = sched_str)
+        print('Detailed schedule: {}'.format(r))
+    except requests.exceptions.RequestException as e:
+        print('Couldnt send to cityio')
+
+    
+def get_realtime_route_position(node_path, period, current_time):
+    """ 
+    when a person is traveling on a route, predict his realtime lon-lat position,
+    assuming the speed is known and constant
+    
+    Arguments:
+    --------------------------------------------
+    node_path: a list of network nodes to represent the route
+    period: expected period ([start_time, end_time]) for passing this route
+    current_time: time for prediction
+    
+    Return:
+    --------------------------------------------
+    ll: lon-lat position at current_time
+    """
+    segment_length = np.asarray([nodes_to_link_attributes['{}_{}'.format(node_path[i], node_path[i+1])][
+        'distance'] for i in range(len(node_path)-1)])
+    segment_length_ratio = segment_length.cumsum() / segment_length.sum()
+    time_ratio = (current_time-period[0]) / (period[1]-period[0])
+    try:
+        segment_idx = next(idx for idx, ratio in enumerate(segment_length_ratio) if ratio>=time_ratio)
+    except:
+        segment_idx = 0
+        print('"get_realtime_route_position" encount an error: ')
+        print('segment_length_ratio: ', segment_length_ratio)
+        print('time_ratio: ', time_ratio)
+    if segment_length_ratio[segment_idx] > segment_length_ratio[segment_idx-1]:
+        in_segment_ratio = (time_ratio-segment_length_ratio[segment_idx-1]) / (segment_length_ratio[segment_idx]-segment_length_ratio[segment_idx-1])
+    else:
+        in_segment_ratio = 0
+    segment_start_ll = LatLongDict[node_path[segment_idx]]
+    segment_end_ll = LatLongDict[node_path[segment_idx+1]]
+    ll = [segment_start_ll[i] + (segment_end_ll[i]-segment_start_ll[i]) * in_segment_ratio for i in [0,1]]
+    return ll
+
+
+def get_realtime_agents(persons, current_time):
+    """ 
+    takes a list of person objects, and generate a list of agent objects at certain time
+    an agent object is dict with minimum realtime information: "status", "activity", "mode", "ll"
+    """
+    agents = []
+    generic_keys = ['status', 'activity', 'mode']
+    for person in persons:
+        for sched in person['sched_objs']:
+            if current_time>=sched['period'][0] and current_time<=sched['period'][1]:
+                break
+        agent = {key: sched.get(key, None) for key in generic_keys}
+        if sched['status'] == 'stay':
+            agent['ll'] = sched['place_sim']['ll']
+        elif sched['status'] == 'trip':
+            if len(sched['node_path']) > 1:
+                agent['ll'] = get_realtime_route_position(
+                    sched['node_path'], sched['period'], current_time)
+            else:
+                # node_path may be empty when o and d are too close
+                agent['ll'] = sched['d_loc']['ll']
+        agents.append(agent)
+    return agents
+    
+def draw_agents_inital(agents, ax, time_sec=None):
+    """ 
+    takes a list of agent objects, initializes the visulization: 
+    road network as background, and matplotlib objects for different kinds of agents.
+    return these matplotlib objects for update
+    """
+    # background
+    from_coords, to_coords = [], []
+    for key, value in nodes_to_link_attributes.items():
+        from_coords.append(value['from_coord'])
+        to_coords.append(value['to_coord'])
+    from_coords, to_coords = np.asarray(from_coords), np.asarray(to_coords)
+    x_coords = np.asarray([[from_coord[0], to_coord[0]] for from_coord, to_coord in zip(from_coords, to_coords)]).transpose()
+    y_coords = np.asarray([[from_coord[1], to_coord[1]] for from_coord, to_coord in zip(from_coords, to_coords)]).transpose()
+    ax.plot(x_coords, y_coords, 'b-', linewidth=1) 
+
+    driving_agents = [agent['ll'] for agent in agents if agent['status']=='trip' and agent['mode']==0] 
+    cycling_agents = [agent['ll'] for agent in agents if agent['status']=='trip' and agent['mode']==1]
+    walk_agents = [agent['ll'] for agent in agents if agent['status']=='trip' and agent['mode']==2]
+    pt_agents = [agent['ll'] for agent in agents if agent['status']=='trip' and agent['mode']==3]
+    stay_agents = [agent['ll'] for agent in agents if agent['status']=='stay']
+    driving_agents = np.asarray(driving_agents)
+    cycling_agents = np.asarray(cycling_agents)
+    walk_agents = np.asarray(walk_agents)
+    pt_agents = np.asarray(pt_agents)
+    stay_agents = np.asarray(stay_agents)
+    
+    if len(driving_agents) > 0:
+        driving_points, = ax.plot(driving_agents[:,0], driving_agents[:,1], 'ro', label='driving') 
+    else:
+        driving_points, = ax.plot([], [], 'ro', label='driving')
+    if len(cycling_agents) > 0:
+        cycling_points, = ax.plot(cycling_agents[:,0], cycling_agents[:,1], 'yo', label='cycling')
+    else:
+        cycling_points, = ax.plot([], [], 'yo', label='cycling')
+    if len(walk_agents) > 0:
+        walk_points, = ax.plot(walk_agents[:,0], walk_agents[:,1], 'co', label='walk')
+    else:
+        walk_points, = ax.plot([], [], 'co', label='walk')
+    if len(pt_agents) > 0:
+        pt_points, = ax.plot(pt_agents[:,0], pt_agents[:,1], 'mo', label='pt')
+    else:
+        pt_points, = ax.plot([], [], 'mo', label='pt')
+    if len(stay_agents) > 0:
+        stay_points, = ax.plot(stay_agents[:,0], stay_agents[:,1], 'ks', label='stay')
+    else:
+        stay_points, = ax.plot([], [], 'ks', label='stay')
+    ax.legend()
+    if time_sec:
+        hour = int(time_sec / 3600)
+        minute = int((time_sec-hour*3600)/60)
+        second = time_sec - 3600*hour - 60*minute
+        time_str = ':'.join([str(hour).zfill(2), str(minute).zfill(2), str(second).zfill(2)])
+        ax.set_title('Current time: {}'.format(time_str))
+    points = {'driving_points': driving_points, 'cycling_points': cycling_points, 'walk_points': walk_points, 'pt_points': pt_points, 'stay_points': stay_points}
+    print('People counts at {}: driving={}, cycling={}, walk={}, pt={}, stay={}'.format(time_str, 
+        len(driving_agents), len(cycling_agents), len(walk_agents), len(pt_agents),  len(stay_agents)))
+    return points
+    
+def draw_agents_update(agents, points, time_sec=None):
+    """ 
+    takes a list of agent objects and a dict of matplotlib objects for different kinds of agents,
+    update their locations and status
+    """
+    driving_agents = [agent['ll'] for agent in agents if agent['status']=='trip' and agent['mode']==0] 
+    cycling_agents = [agent['ll'] for agent in agents if agent['status']=='trip' and agent['mode']==1]
+    walk_agents = [agent['ll'] for agent in agents if agent['status']=='trip' and agent['mode']==2]
+    pt_agents = [agent['ll'] for agent in agents if agent['status']=='trip' and agent['mode']==3]
+    stay_agents = [agent['ll'] for agent in agents if agent['status']=='stay']
+    driving_agents = np.asarray(driving_agents)
+    cycling_agents = np.asarray(cycling_agents)
+    walk_agents = np.asarray(walk_agents)
+    pt_agents = np.asarray(pt_agents)
+    stay_agents = np.asarray(stay_agents)
+    driving_points = points['driving_points']
+    cycling_points = points['cycling_points']
+    walk_points = points['walk_points']
+    pt_points = points['pt_points']
+    stay_points = points['stay_points']
+    if len(driving_agents) > 0:
+        driving_points.set_data(driving_agents[:,0], driving_agents[:,1])
+    else:
+        driving_points.set_data([], [])
+    if len(cycling_agents) > 0:
+        cycling_points.set_data(cycling_agents[:,0], cycling_agents[:,1])
+    else:
+        cycling_points.set_data([], [])
+    if len(walk_agents) > 0:
+        walk_points.set_data(walk_agents[:,0], walk_agents[:,1])
+    else:
+        walk_points.set_data([], [])
+    if len(pt_agents) > 0:
+        pt_points.set_data(pt_agents[:,0], pt_agents[:,1])
+    else:
+        pt_points.set_data([], [])
+    if len(stay_agents) > 0:
+        stay_points.set_data(stay_agents[:,0], stay_agents[:,1])
+    else:
+        stay_points.set_data([], [])
+    if time_sec:
+        hour = int(time_sec / 3600)
+        minute = int((time_sec-hour*3600)/60)
+        second = time_sec - 3600*hour - 60*minute
+        time_str = ':'.join([str(hour).zfill(2), str(minute).zfill(2), str(second).zfill(2)])
+        ax.set_title('Current time: {}'.format(time_str))
+    else:
+        ax.set_title('')
+    print('People counts at {}: driving={}, cycling={}, walk={}, pt={}, stay={}'.format(time_str, 
+        len(driving_agents), len(cycling_agents), len(walk_agents), len(pt_agents),  len(stay_agents)))
+
+
 
 # =============================================================================
 # Constants
@@ -574,6 +1120,7 @@ GRID_INT_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
 PUMA_SHAPE_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas.geojson'
 PUMAS_INCLUDED_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas_included.json'
 PUMA_ATTR_PATH = './scripts/cities/'+city+'/models/puma_attr.json'
+EXTERNAL_LU_PATH = './scripts/cities/'+city+'/clean/external_lu.json'
 
 MAPPINGS_PATH = './scripts/cities/'+city+'/mappings'
 
@@ -622,6 +1169,11 @@ CITYIO_SAMPLE_PATH='scripts/cities/'+city+'/clean/sample_cityio_data.json' #city
 # destination for output files
 CITYIO_OUTPUT_PATH=host+'api/table/update/'+table_name_map[city]+'/'
 
+# activity full name lookup
+# "S" is short for "Buy services" before and "Shopping" now
+activity_full_name = {'H': 'Home', 'W': 'Work', 'C': 'College', 'D': 'Drop-off', 'G': 'Groceries',
+    'S': 'Shopping', 'E': 'Eat', 'R': 'Recreation', 'X': 'Exercise', 'V': 'Visit', 'P': 'Health', 'Z':'Religion'}
+
 # =============================================================================
 # Load Data
 # =============================================================================
@@ -645,6 +1197,7 @@ lu_input_to_lu_standard=json.load(open(MAPPINGS_PATH+'/lu_input_to_lu_standard.j
 activities_to_lu=json.load(open(MAPPINGS_PATH+'/activities_to_lu.json'))
 base_lu_to_lu=json.load(open(MAPPINGS_PATH+'/base_lu_to_lu.json'))
 #lu_standard=json.load(open(MAPPINGS_PATH+'/lu_standard.json'))
+external_lu = json.load(open(EXTERNAL_LU_PATH))
 
 all_zones=json.load(open(ALL_ZONES_PATH))
 sim_zones=json.load(open(SIM_ZONES_PATH))
@@ -654,6 +1207,7 @@ portals=json.load(open(PORTALS_PATH))
 sim_net_floyd_result=json.load(open(FLOYD_PREDECESSOR_PATH))
 sim_net_floyd_df=pd.read_csv(INT_NET_DF_FLOYD_PATH)
 
+
 # =============================================================================
 # Pre-Processing
 # =============================================================================
@@ -661,16 +1215,23 @@ sim_net_floyd_df=pd.read_csv(INT_NET_DF_FLOYD_PATH)
 # Processing of the Floyd Warshall results and graph
 # Create mapping from nodes to link attributes to speed up queries
 nodes_to_link_attributes={}
+LatLongDict = {}
 for ind, row in sim_net_floyd_df.iterrows():
     nodes_to_link_attributes['{}_{}'.format(row['aNodes'], row['bNodes'])]={
         'distance': row['distance'],
         'from_coord': [float(row['aNodeLon']), float(row['aNodeLat'])],
         'to_coord': [float(row['bNodeLon']), float(row['bNodeLat'])]}
+    if row['aNodes'] not in LatLongDict:
+       LatLongDict[str(row['aNodes'])]  = [float(row['aNodeLon']), float(row['aNodeLat'])]
+    if row['bNodes'] not in LatLongDict:
+       LatLongDict[str(row['bNodes'])]  = [float(row['bNodeLon']), float(row['bNodeLat'])]
+
 
 sim_net_map_node_lls=json.load(open(INT_NET_COORDINATES_PATH))
 sim_node_ids=[node for node in sim_net_map_node_lls]
 sim_node_lls=[sim_net_map_node_lls[node] for node in sim_node_ids]
 int_nodes_kdtree=spatial.KDTree(np.array(sim_node_lls))
+
 
 # add centroids and closest sim network nodes to portals
 for p in portals['features']:
@@ -678,6 +1239,7 @@ for p in portals['features']:
     p['properties']['centroid']=centroid
     p['properties']['closest_nodes']=[sim_node_ids[n_ind] for n_ind in 
       int_nodes_kdtree.query(centroid, 3)[1]]
+      
 
 if city=='Hamburg':
     geoid_order_all=[f['properties']['GEO_ID'] for f in all_zones['features']]
@@ -730,6 +1292,7 @@ for fi, f in enumerate(meta_grid['features']):
         else:
             static_land_uses[this_land_use_standard]=[fi]
 
+    
 # add centroids and closest nodes in sim network to meta_grid_cells
 for cell in meta_grid['features']:
     centroid=approx_shape_centroid(cell['geometry'])
@@ -740,7 +1303,7 @@ for cell in meta_grid['features']:
 meta_grid_ll=[meta_grid['features'][i][
         'geometry']['coordinates'][0][0
         ] for i in range(len(meta_grid['features']))]
-
+        
 grid_points_ll=[meta_grid_ll[int_to_meta_grid[int_grid_cell]]
                  for int_grid_cell in int_to_meta_grid]
 
@@ -748,8 +1311,14 @@ grid_points_ll=[meta_grid_ll[int_to_meta_grid[int_grid_cell]]
 puma_shape=json.load(open(PUMA_SHAPE_PATH))
 puma_order=[f['properties']['PUMACE10'] for f in puma_shape['features']]
 puma_included=json.load(open(PUMAS_INCLUDED_PATH)) 
-puma_path_dict = {feature["properties"]["GEOID10"][2:]: mplPath.Path(feature["geometry"]["coordinates"][0][0]) 
-                   for feature in puma_shape['features'] if feature["properties"]["GEOID10"][2:] in puma_included}
+puma_path_dict = {}
+# if the shape type is "Polygon", [0][0] would return only a point
+for feature in puma_shape['features']:
+    if feature["properties"]["GEOID10"][2:] in puma_included:
+        if feature['geometry']['type'] == 'Polygon':
+            puma_path_dict[feature["properties"]["GEOID10"][2:]] = mplPath.Path(feature["geometry"]["coordinates"][0])
+        elif feature['geometry']['type'] == 'MultiPolygon':
+            puma_path_dict[feature["properties"]["GEOID10"][2:]] = mplPath.Path(feature["geometry"]["coordinates"][0][0])
 int_grid_to_puma = {'g'+str(grid_id): None for grid_id in range(len(grid_points_ll))}
 for grid_id, grid_point_ll in enumerate(grid_points_ll):
     for puma_id, puma_path in puma_path_dict.items():
@@ -767,8 +1336,6 @@ for puma in puma_df.index:
     this_obj['centroid'] = centroid
     puma_obj_dict[puma] = this_obj
 
-
-
 #graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
 #                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
@@ -780,6 +1347,8 @@ sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
 
 # load sim_persons
 base_sim_persons=json.load(open(SIM_POP_PATH))
+for idx, person in enumerate(base_sim_persons):
+    person['person_id'] = 'b'+str(idx)
 # load floaters
 base_floating_persons=json.load(open(FLOATING_PATH))
 # load vacant houses
@@ -787,12 +1356,20 @@ base_vacant_houses=json.load(open(VACANT_PATH))
 for h in base_vacant_houses:
     h['centroid']=all_geoid_centroids[h['home_geoid']]
 
+
 if base_sim_persons: 
     get_simulation_locations(base_sim_persons)
     get_LLs(base_sim_persons, ['home', 'work'])
     get_route_costs(base_sim_persons)
     predict_modes(base_sim_persons)
     sample_activity_schedules(base_sim_persons)
+    # 'Residential' in 'activities_to_lu', but not in lu_standard
+    static_land_uses_tmp = copy.deepcopy(static_land_uses)
+    static_land_uses_tmp['Residential'] = static_land_uses_tmp.get('Residential_Affordable', []) + static_land_uses_tmp.get('Residential_Market_Rate', [])
+    find_destination(base_sim_persons, land_uses=static_land_uses_tmp)
+    ods = generate_ods(base_sim_persons)
+    predict_modes_for_activities(ods,base_sim_persons)
+    generate_detailed_schedules(base_sim_persons)
     post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
 
 if base_floating_persons:
@@ -803,6 +1380,12 @@ if base_floating_persons:
 # =============================================================================
 # Handle Interactions
 # =============================================================================
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.axis('off')
+ax.axis('equal')
+plt.ion()
 
 lastId=0
 while True:
@@ -836,6 +1419,12 @@ while True:
         new_persons=[]
 #        new_households=[]  
         int_grid_land_uses=[get_standard_lu_from_input_lu(g[0]) for g in cityIO_grid_data]
+        # adding new land use information for interactive grids to static_land_uses
+        overall_land_uses = copy.deepcopy(static_land_uses)
+        for int_grid_idx, int_grid_lu in enumerate(int_grid_land_uses):
+            overall_land_uses.setdefault(int_grid_lu, []).append(int_to_meta_grid[int_grid_idx])
+        overall_land_uses_tmp = copy.deepcopy(overall_land_uses)
+        overall_land_uses_tmp['Residential'] = overall_land_uses_tmp.get('Residential_Affordable', []) + overall_land_uses_tmp.get('Residential_Market_Rate', [])
         for ht in housing_lus:
             ht_locs=[i for i in range(len(int_grid_land_uses)) if int_grid_land_uses[i]==ht]
             for htl in ht_locs:
@@ -878,9 +1467,27 @@ while True:
         get_route_costs(new_sim_persons)
         predict_modes(new_sim_persons)
         sample_activity_schedules(new_sim_persons)
+        
+        find_destination(new_sim_persons, land_uses=overall_land_uses_tmp)
+        new_ods = generate_ods(new_sim_persons)
+        predict_modes_for_activities(new_ods, new_sim_persons)
+        generate_detailed_schedules(new_sim_persons)
+        
         post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
+        # post_sched_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'sched')    #always return 413
 #        create_trips(new_sim_persons)
 #        post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')
         finish_time=time.time()
         print('Response time: '+ str(finish_time-start_time))
+        
+        # visualization
+        current_time_sec = 5
+        agents = get_realtime_agents(base_sim_persons+ new_sim_persons, current_time_sec)
+        points = draw_agents_inital(agents, ax, current_time_sec)
+        plt.pause(0.2)
+        for current_time_sec in [hour*3600+5 for hour in range(1,24)]:
+            agents = get_realtime_agents(base_sim_persons+ new_sim_persons, current_time_sec)
+            draw_agents_update(agents, points, current_time_sec)
+            plt.pause(0.2)
+            
         sleep(0.2)
