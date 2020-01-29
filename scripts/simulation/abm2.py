@@ -525,11 +525,6 @@ def get_path_coords_distances(nodes_to_link_attributes, path):
 
 def internal_route_costs(from_node_list, to_node_list, 
                          sim_net_floyd_result, nodes_to_link_attributes):
-    approx_speeds_met_s={'driving':30/3.6,
-        'cycling':15/3.6,
-        'walking':4/3.6,
-        'pt': 20/3.6 
-        }
 #     from_node_list= [sim_node_ids[n_ind] for n_ind in int_nodes_kdtree.query(start_coord, 3)[1]]
 #     to_node_list= [sim_node_ids[n_ind] for n_ind in int_nodes_kdtree.query(end_coord, 3)[1]]
     path=get_node_path_from_fw_try_multi(sim_net_floyd_result, from_node_list, to_node_list)
@@ -539,13 +534,15 @@ def internal_route_costs(from_node_list, to_node_list,
     for mode in range(4):
         routes[mode]={'route': {'driving':0, 'walking':0, 'waiting':0,
                       'cycling':0, 'pt':0}, 'external_time':0}
-    routes[0]['route']['driving']=(total_distance/approx_speeds_met_s['driving'])/60
-    routes[1]['route']['cycling']=(total_distance/approx_speeds_met_s['cycling'])/60
-    routes[2]['route']['walking']=(total_distance/approx_speeds_met_s['walking'])/60
-    routes[3]['route']['pt']=(total_distance/approx_speeds_met_s['pt'])/60
-    routes[3]['route']['walking']=(200/approx_speeds_met_s['walking'])/60
+    routes[0]['route']['driving']=(total_distance/SPEEDS_MET_S[0])/60
+    routes[1]['route']['cycling']=(total_distance/SPEEDS_MET_S[1])/60
+    routes[2]['route']['walking']=(total_distance/SPEEDS_MET_S[2])/60
+    routes[3]['route']['pt']=(total_distance/SPEEDS_MET_S[3])/60
+    routes[3]['route']['walking']=(200/SPEEDS_MET_S[2])/60
     routes['total_distance'] = total_distance
     routes['node_path'] = path
+    routes['cum_dist']=np.cumsum(distances)
+    routes['coords']=coords
     return routes
     
     
@@ -587,6 +584,8 @@ def external_route_costs(out_geoid, grid_node_list, direction):
         routes[m]['route']=best_route
         routes[m]['internal_route'] = best_interanl_route
         routes[m]['node_path'] =  portal_specific_internal_routes[best_portal]['node_path']
+        routes[m]['cum_dist'] =  portal_specific_internal_routes[best_portal]['cum_dist']
+        routes[m]['coords'] =  portal_specific_internal_routes[best_portal]['coords']
     return routes
 
 
@@ -606,7 +605,7 @@ def find_destination(persons, land_uses, sampleN=15):
     """
     for p_id, person in enumerate(persons):
         activities_hourly = person['activities']
-        activity_objs = [{'t': t*3600,  'activity': a} for t, a in enumerate(activities_hourly) if t == 0 or a != activities_hourly[t-1]]
+        activity_objs = [{'t': t*3600+ np.random.randint(3600),  'activity': a} for t, a in enumerate(activities_hourly) if t == 0 or a != activities_hourly[t-1]]
         for a_id, a_object in enumerate(activity_objs):
             t, a = a_object['t'], a_object['activity']
             if a == 'H':
@@ -622,7 +621,7 @@ def find_destination(persons, land_uses, sampleN=15):
                 else:
                     lu_type = np.random.choice(list(lu_config), p=list(lu_config.values()))
                 possible_lus = land_uses.get(lu_type, [])
-                if sampleN:
+                if ((sampleN) and len(possible_lus)>0):
                     possible_lus = np.random.choice(possible_lus, size=min(sampleN, len(possible_lus)), replace=False)
                 possible_lus_ll = [meta_grid['features'][idx]['properties']['centroid'] for idx in possible_lus]
                 if len(possible_lus) > 1:
@@ -747,19 +746,28 @@ def predict_modes_for_activities(ods, persons=[]):
             internal_route_mode = od['activity_routes'][chosen_mode]['route']
             external_time_sec = 0
             node_path = od['activity_routes']['node_path']
+            cum_dist = od['activity_routes']['cum_dist']
+            coords = od['activity_routes']['coords']
+            time_to_enter_site=0
         elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'meta_grid':     #travel in
             internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
             external_time_sec = od['activity_routes'][chosen_mode]['external_time']
             node_path = od['activity_routes'][chosen_mode]['node_path']
             od['o_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
             od['o_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
+            cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
+            coords = od['activity_routes'][chosen_mode]['coords']
+            time_to_enter_site=od['activity_routes'][chosen_mode]['external_time']
         elif od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'portal':     #travel out  
             internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
             external_time_sec = od['activity_routes'][chosen_mode]['external_time'] #or use external_time_sec=0?
             node_path = od['activity_routes'][chosen_mode]['node_path']
+            cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
+            coords = od['activity_routes'][chosen_mode]['coords']
+            time_to_enter_site=0
             od['d_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
             od['d_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
-            
+                        
         if chosen_mode == 0:
             internal_time_sec = int(internal_route_mode['driving']*60)
         elif chosen_mode == 1:
@@ -776,8 +784,11 @@ def predict_modes_for_activities(ods, persons=[]):
             person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['mode'] = chosen_mode
             person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['internal_time_sec'] = internal_time_sec
             person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['external_time_sec'] = external_time_sec
-            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['node_path'] = node_path   
-    
+            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['node_path'] = node_path
+#            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['cum_dist'] = cum_dist
+            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['coords'] = coords
+            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['cum_time_from_act_start']=[
+                    time_to_enter_site]+[time_to_enter_site+ cd/SPEEDS_MET_S[chosen_mode] for cd in cum_dist]
 
 def generate_detailed_schedules(persons):
     """ 
@@ -913,6 +924,18 @@ def post_sched_data(persons, destination_address):
         print('Detailed schedule: {}'.format(r))
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
+        
+def create_trips_layer(persons):
+    trips=[]
+    for p in persons:
+        for a in p['activity_objs']:
+            if 'coords' in a:
+                if len(a['coords'])>1:
+                    segments=[a['coords'][i]+[a['t']+ a['cum_time_from_act_start'][i]]
+                    for i in range(len(a['coords']))]
+                    trips.append({'segments': segments,
+                                  'mode': a['mode']})
+    return trips
 
     
 def get_realtime_route_position(node_path, period, current_time):
@@ -1131,10 +1154,10 @@ mode_graphs={0:'driving',
              2:'walking',
              3:'pt'}
 
-SPEEDS_MET_S={'driving':30/3.6,
-        'cycling':15/3.6,
-        'walking':4.8/3.6,
-        'pt': 4.8/3.6 # only used for grid use walking speed for pt
+SPEEDS_MET_S={0:30/3.6,
+        1:15/3.6,
+        2:4.8/3.6,
+        3: 20/3.6 
         }
 
 kgCO2PerMet={0: 0.45*0.8708/0.00162,
@@ -1369,8 +1392,9 @@ if base_sim_persons:
     find_destination(base_sim_persons, land_uses=static_land_uses_tmp)
     ods = generate_ods(base_sim_persons)
     predict_modes_for_activities(ods,base_sim_persons)
+#    trips=create_trips_layer(base_sim_persons)
     generate_detailed_schedules(base_sim_persons)
-    post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
+#    post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
 
 if base_floating_persons:
     get_LLs(base_floating_persons, ['work'])
@@ -1471,9 +1495,10 @@ while True:
         find_destination(new_sim_persons, land_uses=overall_land_uses_tmp)
         new_ods = generate_ods(new_sim_persons)
         predict_modes_for_activities(new_ods, new_sim_persons)
+        trips=create_trips_layer(base_sim_persons+ new_sim_persons)
         generate_detailed_schedules(new_sim_persons)
-        
-        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
+#        
+#        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
         # post_sched_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'sched')    #always return 413
 #        create_trips(new_sim_persons)
 #        post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')

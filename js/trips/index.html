@@ -40,13 +40,14 @@ class App
 
   animate() {
     
-    var loopLength = 4*60*60; // unit corresponds to the timestamp in source data
-    var animationSpeed = 240; // unit time per second
+    var loopLength = 16*60*60; // unit corresponds to the timestamp in source data
+    var animationSpeed = 60*15; // unit time per second
 
     const timestamp = Date.now() / 1000;
     const loopTime = loopLength / animationSpeed;
 
-    var time = 7*60*60+ Math.round(((timestamp % loopTime) / loopTime) * loopLength);
+    var time = 5*60*60+ Math.round(((timestamp % loopTime) / loopTime) * loopLength);
+    console.log(time/3600)
     // console.log(time)
     var trips_layer = new deck.TripsLayer({
       // type: 'TripsLayer',
@@ -78,8 +79,9 @@ var deckgl;
 var app;
 // const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/grasbrook/trips'
 // const ARC_DATA_URL = 'http://localhost:7777/abm_service/Hamburg/arcs/0';
-const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/corktown/trips'
-const GRID_DATA_URL ='https://cityio.media.mit.edu/api/table/mocho/site_geojson'
+// const TRIP_DATA_URL ='https://cityio.media.mit.edu/api/table/corktown/trips'
+const TRIP_DATA_URL ='sample_trips.json'
+// const GRID_DATA_URL ='https://cityio.media.mit.edu/api/table/mocho/site_geojson'
 // 
 
 const colors = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 0]];
