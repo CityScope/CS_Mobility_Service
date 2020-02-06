@@ -26,7 +26,10 @@ import copy
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-city=sys.argv[1]
+if len(sys.argv)>1:
+    city=sys.argv[1]
+else:
+    city='Detroit'
 
 # =============================================================================
 # Functions
@@ -66,9 +69,9 @@ def get_simulation_locations(persons):
     for p in persons:  
         for place in ['home', 'work']:
             geoid=p[place+'_geoid']
-            if 'g' in str(geoid):
+            if 'tui' in str(geoid):
                 p[place+'_sim']={'type': 'meta_grid', 
-                                 'ind': tui_cell_to_meta_grid[int(geoid[1:])]}
+                                 'ind': tui_cell_to_meta_grid[int(geoid[3:])]}
             elif p[place+'_geoid'] in sim_area_zone_list:
                 if place == 'work':
                     relevant_land_use_codes=employment_lus
@@ -90,8 +93,8 @@ def get_LLs(persons, places):
     for p in persons:  
         for place in places:
             geoid=p[place+'_geoid']
-            if 'g' in str(geoid):
-                ll=grid_points_ll[int(geoid[1:])]
+            if 'tui' in str(geoid):
+                ll=tui_points_ll[int(geoid[3:])]
             else:
                 ll=[all_geoid_centroids[geoid][0]+np.random.normal(0, 0.002, 1)[0], 
                     all_geoid_centroids[geoid][1]+np.random.normal(0, 0.002, 1)[0]]
@@ -386,7 +389,7 @@ def home_location_choices(houses, persons):
     valid_puma_objs = [puma_obj_dict[puma] for puma in valid_pumas]
     puma_to_houses = {puma: [h for h in houses if h['puma10']==puma] for puma in valid_pumas}
     for h in houses:        # updating number of houses in each puma given new houses
-        if h['home_geoid'].startswith('g'):
+        if h['home_geoid'].startswith('tui'):
             puma_index = valid_pumas.index(h['puma10'])
             valid_puma_objs[puma_index]['num_houses'] += 1
     # stage1: PUMA choice
@@ -518,7 +521,8 @@ def get_path_coords_distances(nodes_to_link_attributes, path):
             to_node=path[node_ind+1]
             link_attributes=nodes_to_link_attributes['{}_{}'.format(from_node, to_node)]
             distances+=[link_attributes['distance']]
-            coords+=[link_attributes['from_coord']]
+            coords+=[[reduce_precision(link_attributes['from_coord'][0], 5),
+                     reduce_precision(link_attributes['from_coord'][1], 5)]]
         coords+= [link_attributes['to_coord']]
         # add the final coordinate of the very last segment
     return coords, distances
@@ -925,17 +929,29 @@ def post_sched_data(persons, destination_address):
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
         
+def reduce_precision(number, decimal_places):
+    return int(number*10**decimal_places)/10**decimal_places
+        
 def create_trips_layer(persons):
     trips=[]
     for p in persons:
         for a in p['activity_objs']:
             if 'coords' in a:
                 if len(a['coords'])>1:
-                    segments=[a['coords'][i]+[a['t']+ a['cum_time_from_act_start'][i]]
-                    for i in range(len(a['coords']))]
-                    trips.append({'segments': segments,
-                                  'mode': a['mode']})
+#                    segments=[a['coords'][i]+[a['t']+ a['cum_time_from_act_start'][i]]
+#                       for i in range(len(a['coords']))]
+                    trips.append({'path': a['coords'],
+                                  'timestamps': [int(ti + a['t']) for ti in a['cum_time_from_act_start']],
+                                  'mode': [a['mode'], p['type']]})
     return trips
+
+def post_trips_data(trips_data, destination_address):
+    trips_str = json.dumps(trips_data)
+    try:
+        r = requests.post(destination_address, data = trips_str)
+        print('Trips Layer: {}'.format(r))
+    except requests.exceptions.RequestException as e:
+        print('Couldnt send to cityio')
 
     
 def get_realtime_route_position(node_path, period, current_time):
@@ -1138,7 +1154,7 @@ INT_NET_DF_FLOYD_PATH='./scripts/cities/'+city+'/clean/sim_net_df_floyd.csv'
 INT_NET_COORDINATES_PATH='./scripts/cities/'+city+'/clean/sim_net_node_coords.json'
 
 META_GRID_SAMPLE_PATH='./scripts/cities/'+city+'/clean/meta_grid.geojson'
-GRID_INT_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
+TUI_GRID_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
 
 PUMA_SHAPE_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas.geojson'
 PUMAS_INCLUDED_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas_included.json'
@@ -1185,12 +1201,12 @@ table_name_map={'Boston':"mocho",
      'Hamburg':"grasbrook",
      'Detroit': "corktown"}
 host='https://cityio.media.mit.edu/'
-cityIO_grid_url=host+'api/table/'+table_name_map[city]
+CITYIO_GET_URL=host+'api/table/'+table_name_map[city]
 UPDATE_FREQ=1 # seconds
 CITYIO_SAMPLE_PATH='scripts/cities/'+city+'/clean/sample_cityio_data.json' #cityIO backup data
 
 # destination for output files
-CITYIO_OUTPUT_PATH=host+'api/table/update/'+table_name_map[city]+'/'
+CITYIO_POST_URL=host+'api/table/update/'+table_name_map[city]+'/'
 
 # activity full name lookup
 # "S" is short for "Buy services" before and "Shopping" now
@@ -1283,7 +1299,7 @@ for ind, geo_id in enumerate(geoid_order_all):
 # Get the grid data
 # Interactive grid parameters
 #try:
-#    with urllib.request.urlopen(cityIO_grid_url+'/header/spatial') as url:
+#    with urllib.request.urlopen(CITYIO_GET_URL+'/header/spatial') as url:
 #    #get the latest grid data
 #        cityIO_spatial_data=json.loads(url.read().decode())
 #except:
@@ -1293,7 +1309,7 @@ for ind, geo_id in enumerate(geoid_order_all):
     
 # Full meta grid geojson      
 try:
-    with urllib.request.urlopen(cityIO_grid_url+'/meta_grid') as url:
+    with urllib.request.urlopen(CITYIO_GET_URL+'/meta_grid') as url:
     #get the latest grid data
         meta_grid=json.loads(url.read().decode())
 except:
@@ -1327,7 +1343,7 @@ meta_grid_ll=[meta_grid['features'][i][
         'geometry']['coordinates'][0][0
         ] for i in range(len(meta_grid['features']))]
         
-grid_points_ll=[meta_grid_ll[tui_cell_to_meta_grid[int_grid_cell]]
+tui_points_ll=[meta_grid_ll[tui_cell_to_meta_grid[int_grid_cell]]
                  for int_grid_cell in tui_cell_to_meta_grid]
 
 # create a lookup from interactive grid to puma
@@ -1342,11 +1358,11 @@ for feature in puma_shape['features']:
             puma_path_dict[feature["properties"]["GEOID10"][2:]] = mplPath.Path(feature["geometry"]["coordinates"][0])
         elif feature['geometry']['type'] == 'MultiPolygon':
             puma_path_dict[feature["properties"]["GEOID10"][2:]] = mplPath.Path(feature["geometry"]["coordinates"][0][0])
-int_grid_to_puma = {'g'+str(grid_id): None for grid_id in range(len(grid_points_ll))}
-for grid_id, grid_point_ll in enumerate(grid_points_ll):
+int_grid_to_puma = {'tui'+str(grid_id): None for grid_id in range(len(tui_points_ll))}
+for grid_id, grid_point_ll in enumerate(tui_points_ll):
     for puma_id, puma_path in puma_path_dict.items():
         if puma_path.contains_point((grid_point_ll[0], grid_point_ll[1])):
-            int_grid_to_puma['g'+str(grid_id)] = puma_id
+            int_grid_to_puma['tui'+str(grid_id)] = puma_id
             break
             
 # create puma objects
@@ -1359,10 +1375,10 @@ for puma in puma_df.index:
     this_obj['centroid'] = centroid
     puma_obj_dict[puma] = this_obj
 
-#graphs=createGridGraphs(grid_points_ll, graphs, cityIO_spatial_data['nrows'], 
+#graphs=createGridGraphs(tui_points_ll, graphs, cityIO_spatial_data['nrows'], 
 #                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
 
-sim_area_zone_list+=['g'+str(i) for i in range(len(grid_points_ll))]
+sim_area_zone_list+=['tui'+str(i) for i in range(len(tui_points_ll))]
                    
 # =============================================================================
 # Population
@@ -1392,14 +1408,15 @@ if base_sim_persons:
     find_destination(base_sim_persons, land_uses=static_land_uses_tmp)
     ods = generate_ods(base_sim_persons)
     predict_modes_for_activities(ods,base_sim_persons)
-#    trips=create_trips_layer(base_sim_persons)
+    trips=create_trips_layer(base_sim_persons)
+    post_trips_data(trips, CITYIO_POST_URL+'ABM')
 #    generate_detailed_schedules(base_sim_persons)
-    post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
+#    post_od_data(base_sim_persons, CITYIO_POST_URL+'od')
 
 if base_floating_persons:
     get_LLs(base_floating_persons, ['work'])
 #    create_trips(base_sim_persons)
-#    post_trips_data(base_sim_persons, CITYIO_OUTPUT_PATH+'trips')
+#    post_trips_data(base_sim_persons, CITYIO_POST_URL+'trips')
 
 # =============================================================================
 # Handle Interactions
@@ -1415,7 +1432,7 @@ lastId=0
 while True:
 #check if grid data changed
     try:
-        with urllib.request.urlopen(cityIO_grid_url+'/meta/hashes/grid') as url:
+        with urllib.request.urlopen(CITYIO_GET_URL+'/meta/hashes/grid') as url:
             hash_id=json.loads(url.read().decode())
     except:
         print('Cant access cityIO')
@@ -1424,7 +1441,7 @@ while True:
         sleep(1)
     else:
         try:
-            with urllib.request.urlopen(cityIO_grid_url+'/grid') as url:
+            with urllib.request.urlopen(CITYIO_GET_URL+'/grid') as url:
                 cityIO_grid_data=json.loads(url.read().decode())
         except:
             print('Using static cityIO grid file')
@@ -1442,30 +1459,31 @@ while True:
         new_houses=[]
         new_persons=[]
 #        new_households=[]  
-        int_grid_land_uses=[get_standard_lu_from_input_lu(g[0]) for g in cityIO_grid_data]
+        tui_grid_land_uses=[get_standard_lu_from_input_lu(g[0]) for g in cityIO_grid_data]
+        # TODO: also web_grid_land_uses
         # adding new land use information for interactive grids to static_land_uses
         overall_land_uses = copy.deepcopy(static_land_uses)
-        for int_grid_idx, int_grid_lu in enumerate(int_grid_land_uses):
+        for int_grid_idx, int_grid_lu in enumerate(tui_grid_land_uses):
             overall_land_uses.setdefault(int_grid_lu, []).append(tui_cell_to_meta_grid[int_grid_idx])
             # append the new locations for each land uses, but if the lu does not yet exist in the dict,
             # add it with a value of []
         overall_land_uses_tmp = copy.deepcopy(overall_land_uses)
         overall_land_uses_tmp['Residential'] = overall_land_uses_tmp.get('Residential_Affordable', []) + overall_land_uses_tmp.get('Residential_Market_Rate', [])
         for ht in housing_lus:
-            ht_locs=[i for i in range(len(int_grid_land_uses)) if int_grid_land_uses[i]==ht]
+            ht_locs=[i for i in range(len(tui_grid_land_uses)) if tui_grid_land_uses[i]==ht]
             for htl in ht_locs:
                 add_house=housing_lus[ht].copy()
-                add_house['home_geoid']='g'+str(htl)
-                add_house['centroid']=grid_points_ll[htl]
+                add_house['home_geoid']='tui'+str(htl)
+                add_house['centroid']=tui_points_ll[htl]
                 new_houses.append(add_house)        
 #        # for each office unit, add a (homeless) person
         random.seed(0)
         for et in employment_lus:
-            et_locs=[i for i in range(len(int_grid_land_uses)) if int_grid_land_uses[i]==et]
+            et_locs=[i for i in range(len(tui_grid_land_uses)) if tui_grid_land_uses[i]==et]
             for etl in et_locs:
                 for i in range(NEW_PERSONS_PER_BLD):
                     add_person=random.choice(base_floating_persons).copy()
-                    add_person['work_geoid']='g'+str(etl)
+                    add_person['work_geoid']='tui'+str(etl)
                     new_persons.append(add_person)
         get_LLs(new_persons, ['work'])
         floating_persons=base_floating_persons+new_persons
@@ -1485,25 +1503,22 @@ while True:
         new_sim_persons=[p for p in floating_persons if
                          (p['home_geoid'] in sim_area_zone_list or
                           p['work_geoid'] in sim_area_zone_list)]
-        pop_diversity=get_pop_diversity(base_sim_persons+ new_sim_persons)
-        lu_diversity=get_lu_diversity(int_grid_land_uses)
-#        post_diversity_indicators(pop_diversity, lu_diversity, CITYIO_OUTPUT_PATH+'ind_diversity')
+#        pop_diversity=get_pop_diversity(base_sim_persons+ new_sim_persons)
+#        lu_diversity=get_lu_diversity(tui_grid_land_uses)
+#        post_diversity_indicators(pop_diversity, lu_diversity, CITYIO_POST_URL+'ind_diversity')
         get_LLs(new_sim_persons, ['home', 'work'])
         get_simulation_locations(new_sim_persons)
-        get_route_costs(new_sim_persons)
-        predict_modes(new_sim_persons)
-        sample_activity_schedules(new_sim_persons)
-        
+        get_route_costs(new_sim_persons) # TODO: not needed
+        predict_modes(new_sim_persons) # TODO: not needed
+        sample_activity_schedules(new_sim_persons)     
         find_destination(new_sim_persons, land_uses=overall_land_uses_tmp)
         new_ods = generate_ods(new_sim_persons)
         predict_modes_for_activities(new_ods, new_sim_persons)
-        trips=create_trips_layer(base_sim_persons+ new_sim_persons)
-#        generate_detailed_schedules(new_sim_persons)
-#        
-#        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
-        # post_sched_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'sched')    #always return 413
-#        create_trips(new_sim_persons)
-#        post_trips_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'trips')
+        trips=create_trips_layer(base_sim_persons)
+#        post_trips_data(trips, CITYIO_POST_URL+'ABM')
+#        generate_detailed_schedules(new_sim_persons)       
+#        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_POST_URL+'od')
+        # post_sched_data(base_sim_persons+ new_sim_persons, CITYIO_POST_URL+'sched')    #always return 413
         finish_time=time.time()
         print('Response time: '+ str(finish_time-start_time))
         
