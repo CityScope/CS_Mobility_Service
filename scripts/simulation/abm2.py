@@ -68,7 +68,7 @@ def get_simulation_locations(persons):
             geoid=p[place+'_geoid']
             if 'g' in str(geoid):
                 p[place+'_sim']={'type': 'meta_grid', 
-                                 'ind': int_to_meta_grid[int(geoid[1:])]}
+                                 'ind': tui_cell_to_meta_grid[int(geoid[1:])]}
             elif p[place+'_geoid'] in sim_area_zone_list:
                 if place == 'work':
                     relevant_land_use_codes=employment_lus
@@ -1282,14 +1282,14 @@ for ind, geo_id in enumerate(geoid_order_all):
 # =============================================================================
 # Get the grid data
 # Interactive grid parameters
-try:
-    with urllib.request.urlopen(cityIO_grid_url+'/header/spatial') as url:
-    #get the latest grid data
-        cityIO_spatial_data=json.loads(url.read().decode())
-except:
-    print('Using static cityIO grid file')
-    cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
-    cityIO_spatial_data=cityIO_data['header']['spatial']
+#try:
+#    with urllib.request.urlopen(cityIO_grid_url+'/header/spatial') as url:
+#    #get the latest grid data
+#        cityIO_spatial_data=json.loads(url.read().decode())
+#except:
+#    print('Using static cityIO grid file')
+#    cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
+#    cityIO_spatial_data=cityIO_data['header']['spatial']
     
 # Full meta grid geojson      
 try:
@@ -1302,11 +1302,11 @@ except:
     
 # create a lookup from interactive grid to meta_grid
 # and a dict of static land uses to their locations in the meta_grid
-int_to_meta_grid={}
+tui_cell_to_meta_grid={}
 static_land_uses={}
 for fi, f in enumerate(meta_grid['features']):
     if f['properties']['interactive']:
-        int_to_meta_grid[int(f['properties']['interactive_id'])]=fi
+        tui_cell_to_meta_grid[int(f['properties']['interactive_id'])]=fi
     else:
         this_land_use_input=f['properties']['land_use']
         this_land_use_standard=get_standard_lu_from_base(this_land_use_input)
@@ -1327,8 +1327,8 @@ meta_grid_ll=[meta_grid['features'][i][
         'geometry']['coordinates'][0][0
         ] for i in range(len(meta_grid['features']))]
         
-grid_points_ll=[meta_grid_ll[int_to_meta_grid[int_grid_cell]]
-                 for int_grid_cell in int_to_meta_grid]
+grid_points_ll=[meta_grid_ll[tui_cell_to_meta_grid[int_grid_cell]]
+                 for int_grid_cell in tui_cell_to_meta_grid]
 
 # create a lookup from interactive grid to puma
 puma_shape=json.load(open(PUMA_SHAPE_PATH))
@@ -1393,8 +1393,8 @@ if base_sim_persons:
     ods = generate_ods(base_sim_persons)
     predict_modes_for_activities(ods,base_sim_persons)
 #    trips=create_trips_layer(base_sim_persons)
-    generate_detailed_schedules(base_sim_persons)
-#    post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
+#    generate_detailed_schedules(base_sim_persons)
+    post_od_data(base_sim_persons, CITYIO_OUTPUT_PATH+'od')
 
 if base_floating_persons:
     get_LLs(base_floating_persons, ['work'])
@@ -1405,11 +1405,11 @@ if base_floating_persons:
 # Handle Interactions
 # =============================================================================
 
-fig = plt.figure()
-ax = fig.add_subplot(111)
-ax.axis('off')
-ax.axis('equal')
-plt.ion()
+#fig = plt.figure()
+#ax = fig.add_subplot(111)
+#ax.axis('off')
+#ax.axis('equal')
+#plt.ion()
 
 lastId=0
 while True:
@@ -1434,10 +1434,10 @@ while True:
         lastId=hash_id
 ## =============================================================================
 ##         FAKE DATA FOR SCENAIO EXPLORATION
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(int_to_meta_grid))] # all employment
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(int_to_meta_grid))] # all housing
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(int_to_meta_grid))] # random mix
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(int_to_meta_grid))] # affordable + employment
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(tui_cell_to_meta_grid))] # all employment
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(tui_cell_to_meta_grid))] # all housing
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(tui_cell_to_meta_grid))] # random mix
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(tui_cell_to_meta_grid))] # affordable + employment
 ## =============================================================================
         new_houses=[]
         new_persons=[]
@@ -1446,7 +1446,9 @@ while True:
         # adding new land use information for interactive grids to static_land_uses
         overall_land_uses = copy.deepcopy(static_land_uses)
         for int_grid_idx, int_grid_lu in enumerate(int_grid_land_uses):
-            overall_land_uses.setdefault(int_grid_lu, []).append(int_to_meta_grid[int_grid_idx])
+            overall_land_uses.setdefault(int_grid_lu, []).append(tui_cell_to_meta_grid[int_grid_idx])
+            # append the new locations for each land uses, but if the lu does not yet exist in the dict,
+            # add it with a value of []
         overall_land_uses_tmp = copy.deepcopy(overall_land_uses)
         overall_land_uses_tmp['Residential'] = overall_land_uses_tmp.get('Residential_Affordable', []) + overall_land_uses_tmp.get('Residential_Market_Rate', [])
         for ht in housing_lus:
@@ -1485,7 +1487,7 @@ while True:
                           p['work_geoid'] in sim_area_zone_list)]
         pop_diversity=get_pop_diversity(base_sim_persons+ new_sim_persons)
         lu_diversity=get_lu_diversity(int_grid_land_uses)
-        post_diversity_indicators(pop_diversity, lu_diversity, CITYIO_OUTPUT_PATH+'ind_diversity')
+#        post_diversity_indicators(pop_diversity, lu_diversity, CITYIO_OUTPUT_PATH+'ind_diversity')
         get_LLs(new_sim_persons, ['home', 'work'])
         get_simulation_locations(new_sim_persons)
         get_route_costs(new_sim_persons)
@@ -1496,7 +1498,7 @@ while True:
         new_ods = generate_ods(new_sim_persons)
         predict_modes_for_activities(new_ods, new_sim_persons)
         trips=create_trips_layer(base_sim_persons+ new_sim_persons)
-        generate_detailed_schedules(new_sim_persons)
+#        generate_detailed_schedules(new_sim_persons)
 #        
 #        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'od')
         # post_sched_data(base_sim_persons+ new_sim_persons, CITYIO_OUTPUT_PATH+'sched')    #always return 413
@@ -1506,13 +1508,13 @@ while True:
         print('Response time: '+ str(finish_time-start_time))
         
         # visualization
-        current_time_sec = 5
-        agents = get_realtime_agents(base_sim_persons+ new_sim_persons, current_time_sec)
-        points = draw_agents_inital(agents, ax, current_time_sec)
-        plt.pause(0.2)
-        for current_time_sec in [hour*3600+5 for hour in range(1,24)]:
-            agents = get_realtime_agents(base_sim_persons+ new_sim_persons, current_time_sec)
-            draw_agents_update(agents, points, current_time_sec)
-            plt.pause(0.2)
+#        current_time_sec = 5
+#        agents = get_realtime_agents(base_sim_persons+ new_sim_persons, current_time_sec)
+#        points = draw_agents_inital(agents, ax, current_time_sec)
+#        plt.pause(0.2)
+#        for current_time_sec in [hour*3600+5 for hour in range(1,24)]:
+#            agents = get_realtime_agents(base_sim_persons+ new_sim_persons, current_time_sec)
+#            draw_agents_update(agents, points, current_time_sec)
+#            plt.pause(0.2)
             
         sleep(0.2)
