@@ -1,0 +1,198 @@
+<html>
+
+<head>
+    <title>Trips Example</title>
+    <!-- <script src="https://unpkg.com/deck.gl@^6.2.0-beta.3/deckgl.min.js"></script> -->
+<!--     <script src="https://unpkg.com/@deck.gl/core@~7.0.0/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/layers@~7.0.0/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/geo-layers@~7.0.0/dist.min.js"></script> -->
+    <script src="https://unpkg.com/deck.gl@~7.0.0/dist.min.js"></script>
+    <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v0.50.0/mapbox-gl.js"></script>
+    <script src='./token.js' type='text/javascript'></script>
+    <link rel="stylesheet" type="text/css" href="https://api.tiles.mapbox.com/mapbox-gl-js/v0.50.0/mapbox-gl.css">
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <style type="text/css">
+    body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+    }
+    </style>
+</head>
+
+<body>
+</body>
+<script type="text/javascript">
+// var { MapboxLayer, TripsLayer} = deck;
+
+class App
+{
+  constructor(props) {
+    this.stateInfo = {
+      time: 0
+    };
+  }
+
+  get state()
+  {
+    return this.stateInfo;
+  }
+
+  animate() {
+    
+
+    timestamp = Date.now() / 1000;
+    loopTime = loopLength / animationSpeed;
+
+    time = 5*60*60+ Math.round(((timestamp % loopTime) / loopTime) * loopLength);
+    console.log(time/3600);
+    //restart?
+    if (time<time_at_index){
+      current_stays=[]
+      current_index=0
+      time_at_index=all_stays_data[current_index]['start_time']}
+
+
+    // remove expired
+    for (var stay_i = 0; stay_i < current_stays.length; stay_i++){
+      if (current_stays[stay_i]['end_time']<time) {
+        current_stays.splice(stay_i, 1)}
+    }
+
+    // add new
+    while (time>time_at_index){
+      current_index+=1
+      time_at_index=all_stays_data[current_index]['start_time']
+      current_stays.push(all_stays_data[current_index])
+    }
+
+    var trips_layer = new deck.TripsLayer({
+      // type: 'TripsLayer',
+      id: 'trips',
+      data: TRIP_DATA_URL,
+      getPath: d => d.segments,
+      getColor: d => colors[d.mode[0]],
+      opacity: PROPS.opacity,
+      widthMinPixels: PROPS.widthMinPixels,
+      rounded:PROPS.rounded,
+      trailLength: PROPS.trailLength,
+      currentTime: time
+    });
+
+    var stays_layer = new deck.HexagonLayer({
+      data: current_stays,
+      id: 'stays',
+      pickable: false,
+      extruded: true,
+      radius: 50,
+      colorRange: [[255,255,212, 100],
+                  [254,227,145, 100],
+                  [254,196,79, 100],
+                  [254,153,41, 100],
+                  [217,95,14, 100],
+                  [153,52,4, 100]],
+      getPosition: d => d.coords,
+      elevationScale: 1
+    });
+
+    // deckgl.setProps({layers: [trips_layer, arcsLayer]})
+    deckgl.setProps({layers: [trips_layer, stays_layer]})
+
+    window.requestAnimationFrame(this.animate.bind(this));
+  }
+}
+
+// function getBldColor(usage){
+//   return bld_colors[usage]
+// }
+
+var arcs=[]
+var map;
+var arcsLayer;
+var deckgl;
+var app;
+
+const loopLength = 16*60*60; // unit corresponds to the timestamp in source data
+const animationSpeed = 60*5; // unit time per second
+
+var timestamp = Date.now() / 1000;
+var loopTime = loopLength / animationSpeed;
+
+var time = 5*60*60+ Math.round(((timestamp % loopTime) / loopTime) * loopLength);
+
+var current_index=0
+var time_at_index
+
+var all_stays_data
+var current_stays
+
+const TRIP_DATA_URL ='sample_trips.json'
+const STAY_DATA_URL ='stays.json'
+
+
+
+const colors = [[255, 0, 0], [0, 0, 255], [0, 255, 0], [255, 255, 0]];
+const bld_line_colors = [[158,188,218, 150],[158,188,218, 150], [136,86,167, 150], [255,247,188, 150], [254,196,79, 150]]
+const bld_fill_colors = [[158,188,218, 20],[158,188,218, 20], [136,86,167, 20], [255,247,188, 20], [254,196,79, 20]]
+
+var WIDTH_SCALE = d3.scaleLinear().domain([0, 100]).range([3, 10]);
+
+const PROPS ={
+    opacity: 1,
+    widthMinPixels: 3,
+    rounded:true,
+    trailLength: 100}
+
+current_stays_data=[];
+
+const INITIAL_VIEW_STATE = {
+  longitude: -83.06,
+  latitude: 42.33, 
+  zoom: 13,
+  maxZoom: 25,
+  pitch: 60,
+  bearing: 0
+};
+
+
+var deckgl
+var app
+
+d3.json("./stays.json").then(function(data) {
+    all_stays_data=data;
+
+    // initialise stays layer
+    time_at_index=all_stays_data[current_index]['start_time']
+
+    while (time>time_at_index){
+      current_index+=1
+      time_at_index=all_stays_data[current_index]['start_time']
+    }
+    console.log(current_index)
+    current_stays=[]
+
+    deckgl = new deck.DeckGL({
+    mapboxApiAccessToken:MAPBOX_TOKEN,
+    mapStyle: 'mapbox://styles/mapbox/dark-v9',
+    longitude: INITIAL_VIEW_STATE.longitude,
+    latitude: INITIAL_VIEW_STATE.latitude,
+    zoom: INITIAL_VIEW_STATE.zoom,
+    minZoom: INITIAL_VIEW_STATE.minZoom,
+    maxZoom: INITIAL_VIEW_STATE.maxZoom,
+    pitch: INITIAL_VIEW_STATE.pitch,
+    layers: []
+  });
+
+
+
+  app = new App();
+  app.animate(0);
+});
+
+
+
+ 
+
+
+</script>
+</html>
