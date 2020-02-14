@@ -99,13 +99,7 @@ def createGridGraphs(grid_coords_ll, graphs, nrows, ncols, cell_size):
 # =============================================================================
 # Constants
 # =============================================================================
-city='Hamburg'
-
-table_name_map={'Boston':"mocho",
-     'Hamburg':"grasbrook",
-     'Detroit': "corktown"}
-host='https://cityio.media.mit.edu/'
-cityIO_grid_url=host+'api/table/'+table_name_map[city]
+city='Detroit'
 
 ALL_ZONES_PATH='./scripts/cities/'+city+'/clean/model_area.geojson'
 PORTALS_PATH='./scripts/cities/'+city+'/clean/portals.geojson'
@@ -119,11 +113,6 @@ PED_EDGES_PATH='./scripts/cities/'+city+'/clean/osm_ped_network_edges.csv'
 
 
 ROUTE_COSTS_PATH='./scripts/cities/'+city+'/clean/route_costs.json'
-INTERNAL_COSTS_PATH='./scripts/cities/'+city+'/clean/internal_route_costs.json'
-PORTAL_INTERNAL_COSTS_PATH='./scripts/cities/'+city+'/clean/portal_internal_route_costs.json'
-SIM_GRAPHS_PATH='./scripts/cities/'+city+'/clean/sim_area_nets.p'
-SIM_NET_GEOJSON_PATH='./scripts/cities/'+city+'/clean/'
-NEIGHBOURS_PATH='./scripts/cities/'+city+'/clean/neighbours.json'
 
 SPEEDS_MET_S={'driving':30/3.6,
         'cycling':15/3.6,

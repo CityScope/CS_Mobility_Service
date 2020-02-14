@@ -118,129 +118,140 @@ def get_LLs(persons, places):
 #    routes[3]['route']['walking']=(200/approx_speeds_met_s['walking'])/60
 #    return routes
     
-        
-def get_route_costs(persons):
-    """ takes a list of person objects 
-    and finds the travel time costs of travel by each mode
-    modifies in place
-    """
-    for p in persons:
-        p['routes']={}
+def get_person_type(persons):
+    for ip, p in enumerate(persons):
         if ((p['home_sim']['type']=='meta_grid') and  (p['work_sim']['type']=='meta_grid')):
             p['type']=0 # lives and works on site
-#            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
-#            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
-            home_node_list=meta_grid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
-            work_node_list=meta_grid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
-
-#            p['routes']=approx_route_costs(home_coord, work_coord)
-            p['routes']=internal_route_costs(home_node_list, work_node_list, 
-                         sim_net_floyd_result, nodes_to_link_attributes)
         elif p['work_sim']['type']=='meta_grid':
             p['type']=1 # commute_in
-#            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
-            work_node_list=meta_grid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
-            for m in range(4):
-                p['routes'][m]={}
-                best_portal_route_time=float('inf')
-                for portal in range(len(portals['features'])):
-#                    portal_coord=portals['features'][portal]['properties']['centroid']
-                    portal_node_list=portals['features'][portal]['properties']['closest_nodes']
-#                    internal_portal_route=approx_route_costs(portal_coord, work_coord)[m]
-                    internal_portal_route=internal_route_costs(portal_node_list, work_node_list, 
-                         sim_net_floyd_result, nodes_to_link_attributes)[m]
-                    external_portal_route=ext_route_costs[mode_graphs[m]][str(p['home_geoid'])][str(portal)]
-                    external_time=sum([external_portal_route[c] for c in external_portal_route])
-                    full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
-                                       c in ['driving', 'walking', 'waiting','cycling', 'pt']}
-                    total_portal_route_time=sum([full_portal_route[c] for c in full_portal_route])
-                    if total_portal_route_time<best_portal_route_time:
-                        best_portal=portal
-                        best_route=full_portal_route
-                        best_external_time=external_time
-                        best_portal_route_time=total_portal_route_time                    
-                p['routes'][m]['portal']=best_portal
-                p['routes'][m]['external_time']= int(best_external_time*60)
-                p['routes'][m]['route']=best_route
         elif p['home_sim']['type']=='meta_grid':
             p['type']=2 # commute_out
-#            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
-            home_node_list=meta_grid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
-
-            for m in range(4):
-                p['routes'][m]={}
-                best_portal_route_time=float('inf')
-                for portal in range(len(portals['features'])):
-#                    portal_coord=portals['features'][portal]['properties']['centroid']
-                    portal_node_list=portals['features'][portal]['properties']['closest_nodes']
-#                    internal_portal_route=approx_route_costs(home_coord, portal_coord)[m]
-                    internal_portal_route=internal_route_costs(home_node_list, portal_node_list, 
-                         sim_net_floyd_result, nodes_to_link_attributes)[m]
-                    external_portal_route=ext_route_costs[mode_graphs[m]][str(p['work_geoid'])][str(portal)]
-                    external_time=sum([external_portal_route[c] for c in external_portal_route])
-                    full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
-                                       c in ['driving', 'walking', 'waiting','cycling', 'pt']}
-                    total_portal_route_time=sum([full_portal_route[c] for c in full_portal_route])
-                    if total_portal_route_time<best_portal_route_time:
-                        best_portal=portal
-                        best_route=full_portal_route
-                        best_external_time=external_time
-                        best_portal_route_time=total_portal_route_time                    
-                p['routes'][m]['portal']=best_portal
-                p['routes'][m]['external_time']= 0
-                p['routes'][m]['route']=best_route
-                
-def predict_modes(persons):
-    """ takes list of person objects and 
-    predicts transport modes for each person's commute
-    modifies in place
-    """
-    feature_df=pd.DataFrame(persons)  
-#    feature_df['bach_degree_yes']=feature_df['SCHL']>20
-#    feature_df['bach_degree_no']=~feature_df['bach_degree_yes']
-    for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
-                 'bach_degree', 'race', 'cars']:
-        new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
-        feature_df=pd.concat([feature_df, new_dummys],  axis=1)
-    # TODO: better method of predicting travel times
-    # routing engine or feedback from simulation
-    feature_df['drive_time_minutes']=  feature_df.apply(lambda row: row['routes'][0]['route']['driving'], axis=1)     
-    feature_df['cycle_time_minutes']=  feature_df.apply(lambda row: row['routes'][1]['route']['cycling'], axis=1)     
-    feature_df['walk_time_minutes']=  feature_df.apply(lambda row: row['routes'][2]['route']['walking'], axis=1)     
-    feature_df['PT_time_minutes']=  feature_df.apply(lambda row: row['routes'][3]['route']['pt'], axis=1)
-    feature_df['walk_time_PT_minutes']=feature_df.apply(lambda row: row['routes'][3]['route']['walking'], axis=1)  
-    feature_df['drive_time_PT_minutes']=0 
-    # TODO: below should come directly from the path-finding
-    feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1) 
-    # TODO: change below if modelling housing sales as well
-    feature_df['tenure_owned']=False
-    feature_df['tenure_other']=False
-    feature_df['purpose_HBW']=1
-    feature_df['purpose_NHB']=0
-    feature_df['purpose_HBO']=0
-    feature_df['race_asian']=0
-    for rff in rf_features:
-        # feature_df[']
-        assert rff in feature_df.columns, str(rff) +' not in data.'
-#    assert all([rff in feature_df.columns for rff in rf_features]
-#    ),"Features in table dont match features in RF model"   
-    feature_df=feature_df[rf_features]#reorder columns to match rf model
-    mode_probs=mode_rf.predict_proba(feature_df)
-    for i,p in enumerate(persons): 
-        chosen_mode=int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0])
-        p['mode']=chosen_mode
-        if p['home_sim']['type']=='portal': 
-            p['home_sim']['ind']=p['routes'][chosen_mode]['portal']
-            p['home_sim']['ll']=portals['features'][p['home_sim']['ind']]['properties']['centroid']
-            p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
-        elif p['work_sim']['type']=='portal': 
-            p['work_sim']['ind']=p['routes'][chosen_mode]['portal']
-            p['work_sim']['ll']=portals['features'][p['work_sim']['ind']]['properties']['centroid']
-            p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
         else:
-            p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
-            p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
-        p['external_time']=p['routes'][chosen_mode]['external_time']
+            print('None')
+               
+#def get_route_costs(persons):
+#    """ takes a list of person objects 
+#    and finds the travel time costs of travel by each mode
+#    modifies in place
+#    """
+#    for ip, p in enumerate(persons):
+#        p['routes']={}
+#        if ((p['home_sim']['type']=='meta_grid') and  (p['work_sim']['type']=='meta_grid')):
+#            p['type']=0 # lives and works on site
+##            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+##            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+#            home_node_list=meta_grid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
+#            work_node_list=meta_grid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
+#
+##            p['routes']=approx_route_costs(home_coord, work_coord)
+#            p['routes']=internal_route_costs(home_node_list, work_node_list, 
+#                         sim_net_floyd_result, nodes_to_link_attributes)
+#        elif p['work_sim']['type']=='meta_grid':
+#            p['type']=1 # commute_in
+##            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+#            work_node_list=meta_grid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
+#            for m in range(4):
+#                best_portal=0 # TODO: fix this. Needs to be here in case all route costs are infinite
+#                p['routes'][m]={}
+#                best_portal_route_time=float('inf')
+#                for portal in range(len(portals['features'])):
+##                    portal_coord=portals['features'][portal]['properties']['centroid']
+#                    portal_node_list=portals['features'][portal]['properties']['closest_nodes']
+##                    internal_portal_route=approx_route_costs(portal_coord, work_coord)[m]
+#                    internal_portal_route=internal_route_costs(portal_node_list, work_node_list, 
+#                         sim_net_floyd_result, nodes_to_link_attributes)[m]
+#                    external_portal_route=ext_route_costs[mode_graphs[m]][str(p['home_geoid'])][str(portal)]
+#                    external_time=sum([external_portal_route[c] for c in external_portal_route])
+#                    full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
+#                                       c in ['driving', 'walking', 'waiting','cycling', 'pt']}
+#                    total_portal_route_time=sum([full_portal_route[c] for c in full_portal_route])
+#                    if total_portal_route_time<best_portal_route_time:
+#                        best_portal=portal
+#                        best_route=full_portal_route
+#                        best_external_time=external_time
+#                        best_portal_route_time=total_portal_route_time                    
+#                p['routes'][m]['portal']=best_portal
+#                p['routes'][m]['external_time']= int(best_external_time*60)
+#                p['routes'][m]['route']=best_route
+#        elif p['home_sim']['type']=='meta_grid':
+#            p['type']=2 # commute_out
+##            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+#            home_node_list=meta_grid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
+#            for m in range(4):
+#                best_portal=0 # TODO: fix this. Needs to be here in case all route costs are infinite
+#                p['routes'][m]={}
+#                best_portal_route_time=float('inf')
+#                for portal in range(len(portals['features'])):
+##                    portal_coord=portals['features'][portal]['properties']['centroid']
+#                    portal_node_list=portals['features'][portal]['properties']['closest_nodes']
+##                    internal_portal_route=approx_route_costs(home_coord, portal_coord)[m]
+#                    internal_portal_route=internal_route_costs(home_node_list, portal_node_list, 
+#                         sim_net_floyd_result, nodes_to_link_attributes)[m]
+#                    external_portal_route=ext_route_costs[mode_graphs[m]][str(p['work_geoid'])][str(portal)]
+#                    external_time=sum([external_portal_route[c] for c in external_portal_route])
+#                    full_portal_route={c: internal_portal_route['route'][c] + external_portal_route[c] for
+#                                       c in ['driving', 'walking', 'waiting','cycling', 'pt']}
+#                    total_portal_route_time=sum([full_portal_route[c] for c in full_portal_route])
+#                    if total_portal_route_time<best_portal_route_time:
+#                        best_portal=portal
+#                        best_route=full_portal_route
+#                        best_external_time=external_time
+#                        best_portal_route_time=total_portal_route_time                    
+#                p['routes'][m]['portal']=best_portal
+#                p['routes'][m]['external_time']= 0
+#                p['routes'][m]['route']=best_route
+#                
+#def predict_modes(persons):
+#    """ takes list of person objects and 
+#    predicts transport modes for each person's commute
+#    modifies in place
+#    """
+#    feature_df=pd.DataFrame(persons)  
+##    feature_df['bach_degree_yes']=feature_df['SCHL']>20
+##    feature_df['bach_degree_no']=~feature_df['bach_degree_yes']
+#    for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
+#                 'bach_degree', 'race', 'cars']:
+#        new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
+#        feature_df=pd.concat([feature_df, new_dummys],  axis=1)
+#    # TODO: better method of predicting travel times
+#    # routing engine or feedback from simulation
+#    feature_df['drive_time_minutes']=  feature_df.apply(lambda row: row['routes'][0]['route']['driving'], axis=1)     
+#    feature_df['cycle_time_minutes']=  feature_df.apply(lambda row: row['routes'][1]['route']['cycling'], axis=1)     
+#    feature_df['walk_time_minutes']=  feature_df.apply(lambda row: row['routes'][2]['route']['walking'], axis=1)     
+#    feature_df['PT_time_minutes']=  feature_df.apply(lambda row: row['routes'][3]['route']['pt'], axis=1)
+#    feature_df['walk_time_PT_minutes']=feature_df.apply(lambda row: row['routes'][3]['route']['walking'], axis=1)  
+#    feature_df['drive_time_PT_minutes']=0 
+#    # TODO: below should come directly from the path-finding
+#    feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1) 
+#    # TODO: change below if modelling housing sales as well
+#    feature_df['tenure_owned']=False
+#    feature_df['tenure_other']=False
+#    feature_df['purpose_HBW']=1
+#    feature_df['purpose_NHB']=0
+#    feature_df['purpose_HBO']=0
+#    feature_df['race_asian']=0
+#    for rff in rf_features:
+#        # feature_df[']
+#        assert rff in feature_df.columns, str(rff) +' not in data.'
+##    assert all([rff in feature_df.columns for rff in rf_features]
+##    ),"Features in table dont match features in RF model"   
+#    feature_df=feature_df[rf_features]#reorder columns to match rf model
+#    mode_probs=mode_rf.predict_proba(feature_df)
+#    for i,p in enumerate(persons): 
+#        chosen_mode=int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0])
+#        p['mode']=chosen_mode
+#        if p['home_sim']['type']=='portal': 
+#            p['home_sim']['ind']=p['routes'][chosen_mode]['portal']
+#            p['home_sim']['ll']=portals['features'][p['home_sim']['ind']]['properties']['centroid']
+#            p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+#        elif p['work_sim']['type']=='portal': 
+#            p['work_sim']['ind']=p['routes'][chosen_mode]['portal']
+#            p['work_sim']['ll']=portals['features'][p['work_sim']['ind']]['properties']['centroid']
+#            p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+#        else:
+#            p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+#            p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+#        p['external_time']=p['routes'][chosen_mode]['external_time']
         
         
 def sample_activity_schedules(persons):
@@ -500,8 +511,8 @@ def get_node_path_from_fw_try_multi(sim_net_floyd_result, from_list, to_list):
                 return node_path
             except:
                 pass
-    print('No path found')
-    return []     
+#    print('No path found')
+    return None     
   
 def get_node_path_from_fw(sim_net_floyd_result, from_node, to_node):
     if from_node==to_node:
@@ -532,8 +543,11 @@ def internal_route_costs(from_node_list, to_node_list,
 #     from_node_list= [sim_node_ids[n_ind] for n_ind in int_nodes_kdtree.query(start_coord, 3)[1]]
 #     to_node_list= [sim_node_ids[n_ind] for n_ind in int_nodes_kdtree.query(end_coord, 3)[1]]
     path=get_node_path_from_fw_try_multi(sim_net_floyd_result, from_node_list, to_node_list)
-    coords, distances=get_path_coords_distances(nodes_to_link_attributes, path)
-    total_distance=sum(distances)
+    if path is None:
+        coords, distances, total_distance=[], [], float('inf')
+    else:
+        coords, distances=get_path_coords_distances(nodes_to_link_attributes, path)
+        total_distance=sum(distances)
     routes={}
     for mode in range(4):
         routes[mode]={'route': {'driving':0, 'walking':0, 'waiting':0,
@@ -570,6 +584,7 @@ def external_route_costs(out_geoid, grid_node_list, direction):
     for m in range(4):
         routes[m] = {}
         best_portal_route_time = np.inf
+        best_portal=None
         for portal in portal_specific_internal_routes:
             internal_portal_route = portal_specific_internal_routes[portal][m]
             external_portal_route = ext_route_costs[mode_graphs[m]][str(out_geoid)][str(portal)]
@@ -582,14 +597,15 @@ def external_route_costs(out_geoid, grid_node_list, direction):
                 best_route=full_portal_route
                 best_interanl_route = internal_portal_route
                 best_external_time=external_time
-                best_portal_route_time=total_portal_route_time   
-        routes[m]['portal']=best_portal
-        routes[m]['external_time']= int(best_external_time*60)
-        routes[m]['route']=best_route
-        routes[m]['internal_route'] = best_interanl_route
-        routes[m]['node_path'] =  portal_specific_internal_routes[best_portal]['node_path']
-        routes[m]['cum_dist'] =  portal_specific_internal_routes[best_portal]['cum_dist']
-        routes[m]['coords'] =  portal_specific_internal_routes[best_portal]['coords']
+                best_portal_route_time=total_portal_route_time  
+        if best_portal is not None:
+            routes[m]['portal']=best_portal
+            routes[m]['external_time']= int(best_external_time*60)
+            routes[m]['route']=best_route
+            routes[m]['internal_route'] = best_interanl_route
+            routes[m]['node_path'] =  portal_specific_internal_routes[best_portal]['node_path']
+            routes[m]['cum_dist'] =  portal_specific_internal_routes[best_portal]['cum_dist']
+            routes[m]['coords'] =  portal_specific_internal_routes[best_portal]['coords']
     return routes
 
 
@@ -694,22 +710,24 @@ def generate_ods(persons):
             activity_routes = external_route_costs(out_geoid, d_node_list, direction='in')
         else:
             continue    # omit ods with both o and d outside
-        purpose_HBW, purpose_HBO, purpose_NHB = 0, 0, 0
-        if od['o_activity'] + od['d_activity'] in ['HW', 'WH']:
-            od['purpose'] = 'HBW'
-            purpose_HBW = 1
-        elif 'H' in [od['o_activity'] , od['d_activity']]:
-            od['purpose'] = 'HBO'
-            purpose_HBO = 1
-        else:
-            od['purpose'] = 'NHB'
-            purpose_NHB = 1
-        assert purpose_HBW + purpose_HBO + purpose_NHB == 1
-        od['purpose_HBW'] = purpose_HBW
-        od['purpose_HBO'] = purpose_HBO
-        od['purpose_NHB'] = purpose_NHB 
-        od['activity_routes'] = activity_routes
-        valid_ods.append(od)
+        if len(activity_routes[0])>0:
+            # ommits ODs where all routes were inf cost
+            purpose_HBW, purpose_HBO, purpose_NHB = 0, 0, 0
+            if od['o_activity'] + od['d_activity'] in ['HW', 'WH']:
+                od['purpose'] = 'HBW'
+                purpose_HBW = 1
+            elif 'H' in [od['o_activity'] , od['d_activity']]:
+                od['purpose'] = 'HBO'
+                purpose_HBO = 1
+            else:
+                od['purpose'] = 'NHB'
+                purpose_NHB = 1
+            assert purpose_HBW + purpose_HBO + purpose_NHB == 1
+            od['purpose_HBW'] = purpose_HBW
+            od['purpose_HBO'] = purpose_HBO
+            od['purpose_NHB'] = purpose_NHB 
+            od['activity_routes'] = activity_routes
+            valid_ods.append(od)
     return valid_ods
 
 
@@ -728,6 +746,7 @@ def predict_modes_for_activities(ods, persons=[]):
                  'bach_degree', 'race', 'cars']:
         new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
         feature_df=pd.concat([feature_df, new_dummys],  axis=1)
+    feature_df=feature_df.loc[len(feature_df['activity_routes'][0])>0]
     feature_df['drive_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][0]['route']['driving'], axis=1)     
     feature_df['cycle_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][1]['route']['cycling'], axis=1)     
     feature_df['walk_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][2]['route']['walking'], axis=1)     
@@ -931,15 +950,26 @@ def post_sched_data(persons, destination_address):
         
 def reduce_precision(number, decimal_places):
     return int(number*10**decimal_places)/10**decimal_places
-        
+
+def create_trips_layer_v7(persons):
+    trips=[]
+    for p in persons:
+        for a in p['activity_objs']:
+            if 'coords' in a:
+                if len(a['coords'])>1:
+                    segments=[a['coords'][i]+[a['t']+ a['cum_time_from_act_start'][i]]
+                       for i in range(len(a['coords']))]  
+                    trips.append({'mode': [a['mode'], p['type']],
+                                 'segments': segments})
+    return trips
+    
+    
 def create_trips_layer(persons):
     trips=[]
     for p in persons:
         for a in p['activity_objs']:
             if 'coords' in a:
                 if len(a['coords'])>1:
-#                    segments=[a['coords'][i]+[a['t']+ a['cum_time_from_act_start'][i]]
-#                       for i in range(len(a['coords']))]
                     trips.append({'path': a['coords'],
                                   'timestamps': [int(ti + a['t']) for ti in a['cum_time_from_act_start']],
                                   'mode': [a['mode'], p['type']]})
@@ -953,6 +983,26 @@ def post_trips_data(trips_data, destination_address):
     except requests.exceptions.RequestException as e:
         print('Couldnt send to cityio')
 
+def create_stay_data(persons):
+    stays=[]
+    for p in persons:
+        for a_ind in range(len(p['activity_objs'])):
+            if not p['activity_objs'][a_ind]['place_sim']['type']=='portal':
+                if a_ind==0:
+                    # first activity- no travel time t get there
+                    start_time=p['activity_objs'][a_ind]['t']
+                else:
+                    start_time=p['activity_objs'][a_ind]['t']+ p['activity_objs'][a_ind]['cum_time_from_act_start'][-1]
+                if len(p['activity_objs'])>(a_ind+1):
+                    end_time=p['activity_objs'][a_ind+1]['t']
+                else:
+                    # last activity
+                    end_time=24*60*60
+                stays.append({'start_time': start_time,
+                             'end_time': end_time,
+                             'coords': p['activity_objs'][a_ind]['place_sim']['ll']})
+    return stays
+                
     
 def get_realtime_route_position(node_path, period, current_time):
     """ 
@@ -1309,7 +1359,7 @@ for ind, geo_id in enumerate(geoid_order_all):
     
 # Full meta grid geojson      
 try:
-    with urllib.request.urlopen(CITYIO_GET_URL+'/meta_grid') as url:
+    with urllib.request.urlopen(CITYIO_GET_URL+'/GEOGRID') as url:
     #get the latest grid data
         meta_grid=json.loads(url.read().decode())
 except:
@@ -1321,8 +1371,8 @@ except:
 tui_cell_to_meta_grid={}
 static_land_uses={}
 for fi, f in enumerate(meta_grid['features']):
-    if f['properties']['interactive']:
-        tui_cell_to_meta_grid[int(f['properties']['interactive_id'])]=fi
+    if f['properties']['tui_id'] is not None:
+        tui_cell_to_meta_grid[int(f['properties']['tui_id'])]=fi
     else:
         this_land_use_input=f['properties']['land_use']
         this_land_use_standard=get_standard_lu_from_base(this_land_use_input)
@@ -1399,8 +1449,9 @@ for h in base_vacant_houses:
 if base_sim_persons: 
     get_simulation_locations(base_sim_persons)
     get_LLs(base_sim_persons, ['home', 'work'])
-    get_route_costs(base_sim_persons)
-    predict_modes(base_sim_persons)
+    get_person_type(base_sim_persons)
+#    get_route_costs(base_sim_persons)
+#    predict_modes(base_sim_persons)
     sample_activity_schedules(base_sim_persons)
     # 'Residential' in 'activities_to_lu', but not in lu_standard
     static_land_uses_tmp = copy.deepcopy(static_land_uses)
@@ -1409,6 +1460,7 @@ if base_sim_persons:
     ods = generate_ods(base_sim_persons)
     predict_modes_for_activities(ods,base_sim_persons)
     trips=create_trips_layer(base_sim_persons)
+    # stays=create_stay_data(base_sim_persons)
     post_trips_data(trips, CITYIO_POST_URL+'ABM')
 #    generate_detailed_schedules(base_sim_persons)
 #    post_od_data(base_sim_persons, CITYIO_POST_URL+'od')
@@ -1453,7 +1505,7 @@ while True:
 ##         FAKE DATA FOR SCENAIO EXPLORATION
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(tui_cell_to_meta_grid))] # all employment
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(tui_cell_to_meta_grid))] # all housing
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(tui_cell_to_meta_grid))] # random mix
+        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(tui_cell_to_meta_grid))] # random mix
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(tui_cell_to_meta_grid))] # affordable + employment
 ## =============================================================================
         new_houses=[]
@@ -1508,14 +1560,16 @@ while True:
 #        post_diversity_indicators(pop_diversity, lu_diversity, CITYIO_POST_URL+'ind_diversity')
         get_LLs(new_sim_persons, ['home', 'work'])
         get_simulation_locations(new_sim_persons)
-        get_route_costs(new_sim_persons) # TODO: not needed
-        predict_modes(new_sim_persons) # TODO: not needed
+        get_person_type(new_sim_persons)
+#        get_route_costs(new_sim_persons) # TODO: not needed
+#        predict_modes(new_sim_persons) # TODO: not needed
         sample_activity_schedules(new_sim_persons)     
         find_destination(new_sim_persons, land_uses=overall_land_uses_tmp)
         new_ods = generate_ods(new_sim_persons)
         predict_modes_for_activities(new_ods, new_sim_persons)
-        trips=create_trips_layer(base_sim_persons)
-#        post_trips_data(trips, CITYIO_POST_URL+'ABM')
+        trips=create_trips_layer(base_sim_persons+new_sim_persons)
+        # stays=create_stay_data(base_sim_persons)
+        post_trips_data(trips, CITYIO_POST_URL+'ABM')
 #        generate_detailed_schedules(new_sim_persons)       
 #        post_od_data(base_sim_persons+ new_sim_persons, CITYIO_POST_URL+'od')
         # post_sched_data(base_sim_persons+ new_sim_persons, CITYIO_POST_URL+'sched')    #always return 413

@@ -287,7 +287,7 @@ all_persons.to_csv(ALL_SYNTH_PERSONS_PATH, index=False)
 
 #all_households=pd.read_csv(ALL_SYNTH_HH_PATH)
 #all_persons=pd.read_csv(ALL_SYNTH_PERSONS_PATH)
-#all_households['home_geoid']=synth_hh_df['home_geoid'].astype('str')
+#all_households['home_geoid']=all_households['home_geoid'].astype('str')
 # =============================================================================
 #  Combine with O-D data to create sample of people living/ working in Sim Area
 # =============================================================================
