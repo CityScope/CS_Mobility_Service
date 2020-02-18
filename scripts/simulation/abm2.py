@@ -63,15 +63,21 @@ def approx_shape_centroid(geometry):
     
 def get_simulation_locations(persons):
     """
-    For each agent, based on their actual home and work zones (geoids or int grid cells)
+    For each agent, based on their actual home and work zones (zone geoids or geogrid cells)
     a "simulation" home and a workplace are assigned which may be metagrid cells or portals
+    if the location is a geogrid cell, the assigned location is {type: geogrid, id grid_cell_id}
+    if location is a portal, only the 'type' of 'portal' is assigned 
+    and the portal id will be identified later based on the route attributes
     """
+    # TODO: new persons have geo of grid_
+    # then no lookup required- remove tui_cell_to_meta_grid
+    # remove distinction between static and tui land uses- just keep 1 list
     for p in persons:  
         for place in ['home', 'work']:
             geoid=p[place+'_geoid']
-            if 'tui' in str(geoid):
-                p[place+'_sim']={'type': 'meta_grid', 
-                                 'ind': tui_cell_to_meta_grid[int(geoid[3:])]}
+            if 'grid' in str(geoid):
+                p[place+'_sim']={'type': 'geogrid', 
+                                 'ind': int(geoid[4:])}
             elif p[place+'_geoid'] in sim_area_zone_list:
                 if place == 'work':
                     relevant_land_use_codes=employment_lus
@@ -79,22 +85,25 @@ def get_simulation_locations(persons):
                     relevant_land_use_codes=housing_lus
                 possible_locations=[static_land_uses[rlu] for rlu in relevant_land_use_codes if rlu in static_land_uses]
                 possible_locations=[item for sublist in possible_locations for item in sublist]
-                p[place+'_sim']={'type': 'meta_grid', 
+                p[place+'_sim']={'type': 'geogrid', 
                                  'ind': random.choice(possible_locations)}
             else:
                 p[place+'_sim']={'type': 'portal'}
 
 
 def get_LLs(persons, places):
+    # TODO: remove function only used in HLC and OD end-point (supposed to be removed from GAMA model anyway)
     """ takes a list of person objects and 
     finds home and work coordinates for them
     modifies in place
     """
+    # TODO: if grid in 
+    # grid_points, not tui points
     for p in persons:  
         for place in places:
             geoid=p[place+'_geoid']
-            if 'tui' in str(geoid):
-                ll=tui_points_ll[int(geoid[3:])]
+            if 'grid' in str(geoid):
+                ll=geogrid['features'][int(geoid[4:])]['properties']['centroid']
             else:
                 ll=[all_geoid_centroids[geoid][0]+np.random.normal(0, 0.002, 1)[0], 
                     all_geoid_centroids[geoid][1]+np.random.normal(0, 0.002, 1)[0]]
@@ -120,11 +129,11 @@ def get_LLs(persons, places):
     
 def get_person_type(persons):
     for ip, p in enumerate(persons):
-        if ((p['home_sim']['type']=='meta_grid') and  (p['work_sim']['type']=='meta_grid')):
+        if ((p['home_sim']['type']=='geogrid') and  (p['work_sim']['type']=='geogrid')):
             p['type']=0 # lives and works on site
-        elif p['work_sim']['type']=='meta_grid':
+        elif p['work_sim']['type']=='geogrid':
             p['type']=1 # commute_in
-        elif p['home_sim']['type']=='meta_grid':
+        elif p['home_sim']['type']=='geogrid':
             p['type']=2 # commute_out
         else:
             print('None')
@@ -136,20 +145,20 @@ def get_person_type(persons):
 #    """
 #    for ip, p in enumerate(persons):
 #        p['routes']={}
-#        if ((p['home_sim']['type']=='meta_grid') and  (p['work_sim']['type']=='meta_grid')):
+#        if ((p['home_sim']['type']=='geogrid') and  (p['work_sim']['type']=='geogrid')):
 #            p['type']=0 # lives and works on site
-##            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
-##            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
-#            home_node_list=meta_grid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
-#            work_node_list=meta_grid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
+##            home_coord=geogrid['features'][p['home_sim']['ind']]['properties']['centroid']
+##            work_coord=geogrid['features'][p['work_sim']['ind']]['properties']['centroid']
+#            home_node_list=geogrid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
+#            work_node_list=geogrid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
 #
 ##            p['routes']=approx_route_costs(home_coord, work_coord)
 #            p['routes']=internal_route_costs(home_node_list, work_node_list, 
 #                         sim_net_floyd_result, nodes_to_link_attributes)
-#        elif p['work_sim']['type']=='meta_grid':
+#        elif p['work_sim']['type']=='geogrid':
 #            p['type']=1 # commute_in
-##            work_coord=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
-#            work_node_list=meta_grid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
+##            work_coord=geogrid['features'][p['work_sim']['ind']]['properties']['centroid']
+#            work_node_list=geogrid['features'][p['work_sim']['ind']]['properties']['closest_nodes']
 #            for m in range(4):
 #                best_portal=0 # TODO: fix this. Needs to be here in case all route costs are infinite
 #                p['routes'][m]={}
@@ -173,10 +182,10 @@ def get_person_type(persons):
 #                p['routes'][m]['portal']=best_portal
 #                p['routes'][m]['external_time']= int(best_external_time*60)
 #                p['routes'][m]['route']=best_route
-#        elif p['home_sim']['type']=='meta_grid':
+#        elif p['home_sim']['type']=='geogrid':
 #            p['type']=2 # commute_out
-##            home_coord=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
-#            home_node_list=meta_grid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
+##            home_coord=geogrid['features'][p['home_sim']['ind']]['properties']['centroid']
+#            home_node_list=geogrid['features'][p['home_sim']['ind']]['properties']['closest_nodes']
 #            for m in range(4):
 #                best_portal=0 # TODO: fix this. Needs to be here in case all route costs are infinite
 #                p['routes'][m]={}
@@ -243,14 +252,14 @@ def get_person_type(persons):
 #        if p['home_sim']['type']=='portal': 
 #            p['home_sim']['ind']=p['routes'][chosen_mode]['portal']
 #            p['home_sim']['ll']=portals['features'][p['home_sim']['ind']]['properties']['centroid']
-#            p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+#            p['work_sim']['ll']=geogrid['features'][p['work_sim']['ind']]['properties']['centroid']
 #        elif p['work_sim']['type']=='portal': 
 #            p['work_sim']['ind']=p['routes'][chosen_mode]['portal']
 #            p['work_sim']['ll']=portals['features'][p['work_sim']['ind']]['properties']['centroid']
-#            p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
+#            p['home_sim']['ll']=geogrid['features'][p['home_sim']['ind']]['properties']['centroid']
 #        else:
-#            p['home_sim']['ll']=meta_grid['features'][p['home_sim']['ind']]['properties']['centroid']
-#            p['work_sim']['ll']=meta_grid['features'][p['work_sim']['ind']]['properties']['centroid']
+#            p['home_sim']['ll']=geogrid['features'][p['home_sim']['ind']]['properties']['centroid']
+#            p['work_sim']['ll']=geogrid['features'][p['work_sim']['ind']]['properties']['centroid']
 #        p['external_time']=p['routes'][chosen_mode]['external_time']
         
         
@@ -280,26 +289,27 @@ def get_standard_lu_from_input_lu(input_index):
     return np.random.choice([k for k in possible_standard_lus],
                                  1, p=[v for v in possible_standard_lus.values()])[0]
     
-def post_od_data(persons, destination_address):
-    od_str=json.dumps([{'home_ll': p['home_sim']['ll'],
-                       'work_ll': p['work_sim']['ll'],
-                       'home_sim': p['home_sim'],
-                       'work_sim': p['work_sim'],
-                       'type': p['type'],
-                       'mode': p['mode'],
-                       'activities': p['activities'],
-                       'motif': p['motif_name'],
-#                       'activity_start_times':p['start_times'],
-                       'start_time': 6*3600+random.randint(0,3*3600)+p['external_time']
-                       } for p in persons if len(p['activities'])>1])
-    try:
-        r = requests.post(destination_address, data = od_str)
-        print('OD: {}'.format(r))
-    except requests.exceptions.RequestException as e:
-        print('Couldnt send to cityio')
+#def post_od_data(persons, destination_address):
+#    od_str=json.dumps([{'home_ll': p['home_sim']['ll'],
+#                       'work_ll': p['work_sim']['ll'],
+#                       'home_sim': p['home_sim'],
+#                       'work_sim': p['work_sim'],
+#                       'type': p['type'],
+#                       'mode': p['mode'],
+#                       'activities': p['activities'],
+#                       'motif': p['motif_name'],
+##                       'activity_start_times':p['start_times'],
+#                       'start_time': 6*3600+random.randint(0,3*3600)+p['external_time']
+#                       } for p in persons if len(p['activities'])>1])
+#    try:
+#        r = requests.post(destination_address, data = od_str)
+#        print('OD: {}'.format(r))
+#    except requests.exceptions.RequestException as e:
+#        print('Couldnt send to cityio')
     
               
 def create_long_record_puma(person, puma):
+    # TODO: dont use work_ll- lookup the location from geogrid locations and zone locations
     """ takes a puma object and a household object and 
     creates a row for the MNL long data frame 
     """
@@ -395,12 +405,13 @@ def home_location_choices(houses, persons):
     chooses a housing unit for each person
     modifies the house and person objects in place
     """
+    # TODO: 'tui' to 'grid'
     # preparing
     valid_pumas = list(set([h['puma10'] for h in houses]))
     valid_puma_objs = [puma_obj_dict[puma] for puma in valid_pumas]
     puma_to_houses = {puma: [h for h in houses if h['puma10']==puma] for puma in valid_pumas}
     for h in houses:        # updating number of houses in each puma given new houses
-        if h['home_geoid'].startswith('tui'):
+        if h['home_geoid'].startswith('grid'):
             puma_index = valid_pumas.index(h['puma10'])
             valid_puma_objs[puma_index]['num_houses'] += 1
     # stage1: PUMA choice
@@ -451,47 +462,47 @@ def home_location_choices(houses, persons):
         persons[p_ind]['house_id']=house_id
         persons[p_ind]['home_geoid']=houses[house_id]['home_geoid']
 
-def shannon_equitability(species_pop, species_set):
-    diversity=0
-    pop_size=len(species_pop)
-    if pop_size>0:
-        for species in species_set:
-            pj=species_pop.count(species)/len(species_pop)
-            if not pj==0:
-                diversity+= -pj*np.log(pj)
-        equitability=diversity/np.log(len(species_set))
-        return equitability
-    else:
-        return 0
-            
-def get_pop_diversity(persons):
-    diversity={}
-    dims=['age', 'income']
-    for d in dims:
-        dim_all_persons=[p[d] for p in persons]
-        diversity[d]=shannon_equitability(dim_all_persons, set(dim_all_persons))
-    return diversity
+#def shannon_equitability(species_pop, species_set):
+#    diversity=0
+#    pop_size=len(species_pop)
+#    if pop_size>0:
+#        for species in species_set:
+#            pj=species_pop.count(species)/len(species_pop)
+#            if not pj==0:
+#                diversity+= -pj*np.log(pj)
+#        equitability=diversity/np.log(len(species_set))
+#        return equitability
+#    else:
+#        return 0
+#            
+#def get_pop_diversity(persons):
+#    diversity={}
+#    dims=['age', 'income']
+#    for d in dims:
+#        dim_all_persons=[p[d] for p in persons]
+#        diversity[d]=shannon_equitability(dim_all_persons, set(dim_all_persons))
+#    return diversity
         
-def get_lu_diversity(grid_data):
-    # TODO: incorporate num floors
-    lu_diversity={}
-    housing_pop=[lu for lu in grid_data if lu in housing_lus]
-    lu_diversity['housing']=shannon_equitability(housing_pop, set(housing_lus))
-    office_pop=[lu for lu in grid_data if lu in employment_lus]
-    lu_diversity['office']=shannon_equitability(office_pop, set(employment_lus))
-    return lu_diversity
+#def get_lu_diversity(grid_data):
+#    # TODO: incorporate num floors
+#    lu_diversity={}
+#    housing_pop=[lu for lu in grid_data if lu in housing_lus]
+#    lu_diversity['housing']=shannon_equitability(housing_pop, set(housing_lus))
+#    office_pop=[lu for lu in grid_data if lu in employment_lus]
+#    lu_diversity['office']=shannon_equitability(office_pop, set(employment_lus))
+#    return lu_diversity
 
-def post_diversity_indicators(pop_diversity, lu_diversity, destination_address):
-    all_diversity={}
-    for var in pop_diversity:
-        all_diversity[var]=pop_diversity[var]
-    for var in lu_diversity:
-        all_diversity[var]=lu_diversity[var]
-    try:
-        r = requests.post(destination_address, data = json.dumps(all_diversity))
-        print('Diversity Indicators: {}'.format(r))
-    except requests.exceptions.RequestException as e:
-        print('Couldnt send diversity indicators to cityio')
+#def post_diversity_indicators(pop_diversity, lu_diversity, destination_address):
+#    all_diversity={}
+#    for var in pop_diversity:
+#        all_diversity[var]=pop_diversity[var]
+#    for var in lu_diversity:
+#        all_diversity[var]=lu_diversity[var]
+#    try:
+#        r = requests.post(destination_address, data = json.dumps(all_diversity))
+#        print('Diversity Indicators: {}'.format(r))
+#    except requests.exceptions.RequestException as e:
+#        print('Couldnt send diversity indicators to cityio')
         
 #def get_path_from_fw_multi(fw_result, sim_net_list, from_node_list, to_node_list):
 #    for fn in from_node_list:
@@ -502,6 +513,7 @@ def post_diversity_indicators(pop_diversity, lu_diversity, destination_address):
 #                pass
 #    print('No path found')
 #    return None, None, None
+        
 def get_node_path_from_fw_try_multi(sim_net_floyd_result, from_list, to_list):
     for fn in from_list:
         for tn in to_list:
@@ -540,11 +552,9 @@ def get_path_coords_distances(nodes_to_link_attributes, path):
 
 def internal_route_costs(from_node_list, to_node_list, 
                          sim_net_floyd_result, nodes_to_link_attributes):
-#     from_node_list= [sim_node_ids[n_ind] for n_ind in int_nodes_kdtree.query(start_coord, 3)[1]]
-#     to_node_list= [sim_node_ids[n_ind] for n_ind in int_nodes_kdtree.query(end_coord, 3)[1]]
     path=get_node_path_from_fw_try_multi(sim_net_floyd_result, from_node_list, to_node_list)
     if path is None:
-        coords, distances, total_distance=[], [], float('inf')
+        coords, distances, total_distance=[], [], float('1e10')
     else:
         coords, distances=get_path_coords_distances(nodes_to_link_attributes, path)
         total_distance=sum(distances)
@@ -623,6 +633,9 @@ def find_destination(persons, land_uses, sampleN=15):
     land_uses: a lookup dict, key: land use code, value: meta grid indices
     sampleN: the number of alternatives when choosing among meta grids, sampleN=None for all meta grids
     """
+    # TODO: meta_grid to geogrid
+    # ensure the input list of land uses is the definitve list
+    # 'type': 'portal', 'geoid': geoid ??
     for p_id, person in enumerate(persons):
         activities_hourly = person['activities']
         activity_objs = [{'t': t*3600+ np.random.randint(3600),  'activity': a} for t, a in enumerate(activities_hourly) if t == 0 or a != activities_hourly[t-1]]
@@ -643,27 +656,27 @@ def find_destination(persons, land_uses, sampleN=15):
                 possible_lus = land_uses.get(lu_type, [])
                 if ((sampleN) and len(possible_lus)>0):
                     possible_lus = np.random.choice(possible_lus, size=min(sampleN, len(possible_lus)), replace=False)
-                possible_lus_ll = [meta_grid['features'][idx]['properties']['centroid'] for idx in possible_lus]
+                possible_lus_ll = [geogrid['features'][idx]['properties']['centroid'] for idx in possible_lus]
                 if len(possible_lus) > 1:
                     if a_id > 0:
                         last_place_sim = activity_objs[a_id-1]['place_sim']
                     else:
                         last_place_sim = person['home_sim']   # in case that "Home" is not the first activity, should not happen
                         last_place_sim['geo_id'] = person['home_geoid']
-                    if last_place_sim['type'] == 'meta_grid':
-                        last_node_list = meta_grid['features'][last_place_sim['ind']]['properties']['closest_nodes']
-                        dist = [internal_route_costs(last_node_list, meta_grid['features'][this_grid]['properties']['closest_nodes'], 
+                    if last_place_sim['type'] == 'geogrid':
+                        last_node_list = geogrid['features'][last_place_sim['ind']]['properties']['closest_nodes']
+                        dist = [internal_route_costs(last_node_list, geogrid['features'][this_grid]['properties']['closest_nodes'], 
                             sim_net_floyd_result, nodes_to_link_attributes)['total_distance'] for this_grid in possible_lus]
                     else:
                         # too much time to calculate network distance between a outside geoid and in-site metagrid, use straighline for approx.
-                        # dist = [external_routes(last_place_sim['geo_id'], meta_grid['features'][this_grid]['properties']['closest_nodes'],
+                        # dist = [external_routes(last_place_sim['geo_id'], geogrid['features'][this_grid]['properties']['closest_nodes'],
                             # direction='in')[0]['route']['driving']*30/60 for this_grid in possible_lus]
                         dist = [get_haversine_distance(all_geoid_centroids[last_place_sim['geo_id']], this_grid_ll) 
                             for this_grid_ll in possible_lus_ll]
                     prob, chosen_idx = huff_model(dist, beta=2, predict_y=True, topN=5, alt_names=possible_lus)
-                    place = {'type': 'meta_grid', 'ind': chosen_idx[0], 'll': meta_grid['features'][chosen_idx[0]]['properties']['centroid']}
+                    place = {'type': 'geogrid', 'ind': chosen_idx[0], 'll': geogrid['features'][chosen_idx[0]]['properties']['centroid']}
                 elif len(possible_lus) == 1:
-                    place = {'type': 'meta_grid', 'ind': possible_lus[0], 'll': possible_lus_ll[0]}
+                    place = {'type': 'geogrid', 'ind': possible_lus[0], 'll': possible_lus_ll[0]}
                 elif len(possible_lus) == 0:
                     # no available land use in site, randomly find a destination outside
                     geo_id = np.random.choice(external_lu[lu_type])
@@ -689,23 +702,25 @@ def generate_ods(persons):
         'node_path': a list of network nodes from o to d
         ...
     """
+    # TODO: does trip purpose get used
+    # TODO: meta_grid to geogrid
     all_ods = [dict(p, o_loc=p['activity_objs'][idx]['place_sim'], d_loc=p['activity_objs'][idx+1]['place_sim'],
             o_activity=p['activity_objs'][idx]['activity'], d_activity=p['activity_objs'][idx+1]['activity'], 
             start_time=p['start_times'][idx], stay_until_time=p['start_times'][idx+1], od_id=idx)
             for p in persons for idx in range(0, len(p['activity_objs'])-1)]
     valid_ods = []
     for od in all_ods:
-        if od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'meta_grid':
-            o_node_list = meta_grid['features'][od['o_loc']['ind']]['properties']['closest_nodes']
-            d_node_list = meta_grid['features'][od['d_loc']['ind']]['properties']['closest_nodes']
+        if od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'geogrid':
+            o_node_list = geogrid['features'][od['o_loc']['ind']]['properties']['closest_nodes']
+            d_node_list = geogrid['features'][od['d_loc']['ind']]['properties']['closest_nodes']
             activity_routes = internal_route_costs(o_node_list, d_node_list, 
                 sim_net_floyd_result, nodes_to_link_attributes)
-        elif od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'portal':
-            o_node_list = meta_grid['features'][od['o_loc']['ind']]['properties']['closest_nodes']
+        elif od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'portal':
+            o_node_list = geogrid['features'][od['o_loc']['ind']]['properties']['closest_nodes']
             out_geoid = od['d_loc']['geo_id']
             activity_routes = external_route_costs(out_geoid, o_node_list, direction='out')
-        elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'meta_grid':
-            d_node_list = meta_grid['features'][od['d_loc']['ind']]['properties']['closest_nodes']
+        elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'geogrid':
+            d_node_list = geogrid['features'][od['d_loc']['ind']]['properties']['closest_nodes']
             out_geoid = od['o_loc']['geo_id']
             activity_routes = external_route_costs(out_geoid, d_node_list, direction='in')
         else:
@@ -740,13 +755,14 @@ def predict_modes_for_activities(ods, persons=[]):
     ods: a list of od objects, returned by "generate_ods"
     persons: a list of persons who generate ods, modified in place to add new information of ods
     """
+    # TODO check the lookup with new persons
     person_lookup = {p['person_id']: p for p in persons}
     feature_df=pd.DataFrame(ods)  
     for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
                  'bach_degree', 'race', 'cars']:
         new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
         feature_df=pd.concat([feature_df, new_dummys],  axis=1)
-    feature_df=feature_df.loc[len(feature_df['activity_routes'][0])>0]
+#    feature_df=feature_df.loc[len(feature_df['activity_routes'][0])>0]
     feature_df['drive_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][0]['route']['driving'], axis=1)     
     feature_df['cycle_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][1]['route']['cycling'], axis=1)     
     feature_df['walk_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][2]['route']['walking'], axis=1)     
@@ -754,25 +770,26 @@ def predict_modes_for_activities(ods, persons=[]):
     feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['activity_routes'][3]['route']['walking'], axis=1)  
     feature_df['drive_time_PT_minutes']=0 
     feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1) 
-    # TODO: change below if modelling housing sales as well
     feature_df['tenure_owned']=False
     feature_df['tenure_other']=False
     feature_df['race_asian']=0
     for rff in rf_features:
         assert rff in feature_df.columns, str(rff) +' not in data.'
     feature_df=feature_df[rf_features] #reorder columns to match rf model
+    
     mode_probs=mode_rf.predict_proba(feature_df)
     for i,od in enumerate(ods): 
         chosen_mode=int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0])
         od['mode']=chosen_mode
-        if od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'meta_grid':
+        # TODO why 'v'?
+        if od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'geogrid':
             internal_route_mode = od['activity_routes'][chosen_mode]['route']
             external_time_sec = 0
             node_path = od['activity_routes']['node_path']
             cum_dist = od['activity_routes']['cum_dist']
             coords = od['activity_routes']['coords']
             time_to_enter_site=0
-        elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'meta_grid':     #travel in
+        elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'geogrid':     #travel in
             internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
             external_time_sec = od['activity_routes'][chosen_mode]['external_time']
             node_path = od['activity_routes'][chosen_mode]['node_path']
@@ -781,7 +798,7 @@ def predict_modes_for_activities(ods, persons=[]):
             cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
             coords = od['activity_routes'][chosen_mode]['coords']
             time_to_enter_site=od['activity_routes'][chosen_mode]['external_time']
-        elif od['o_loc']['type'] == 'meta_grid' and od['d_loc']['type'] == 'portal':     #travel out  
+        elif od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'portal':     #travel out  
             internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
             external_time_sec = od['activity_routes'][chosen_mode]['external_time'] #or use external_time_sec=0?
             node_path = od['activity_routes'][chosen_mode]['node_path']
@@ -834,7 +851,7 @@ def generate_detailed_schedules(persons):
         
         # the 1st activity: no trip
         sched_objs = [copy.deepcopy(activity_objs[0])]
-        if sched_objs[0]['place_sim']['type'] == 'meta_grid':
+        if sched_objs[0]['place_sim']['type'] == 'geogrid':
             sched_objs[0]['status'] = 'stay' 
         else:
             sched_objs[0]['status'] = 'out' 
@@ -847,7 +864,7 @@ def generate_detailed_schedules(persons):
         # following activities and trips
         for a_id in range(1, len(activity_objs)):
             stay_until_time_sec = activity_objs[a_id+1]['t'] if a_id < len(activity_objs)-1 else 86400
-            if activity_objs[a_id-1]['place_sim']['type'] == 'meta_grid':
+            if activity_objs[a_id-1]['place_sim']['type'] == 'geogrid':
                 depart_time_sec = activity_objs[a_id]['t']
                 arrive_time_sec = depart_time_sec + activity_objs[a_id]['internal_time_sec']
                 if arrive_time_sec > stay_until_time_sec - 5*60:
@@ -856,7 +873,7 @@ def generate_detailed_schedules(persons):
                     'status': 'trip', 'o_loc': activity_objs[a_id-1]['place_sim'], 'd_loc': activity_objs[a_id]['place_sim'],
                     'node_path': activity_objs[a_id]['node_path'], 'mode': activity_objs[a_id]['mode']}
                 sched_objs.append(internal_trip_obj)
-            elif activity_objs[a_id-1]['place_sim']['type'] == 'portal' and activity_objs[a_id]['place_sim']['type'] == 'meta_grid':
+            elif activity_objs[a_id-1]['place_sim']['type'] == 'portal' and activity_objs[a_id]['place_sim']['type'] == 'geogrid':
                 external_depart_time_sec = activity_objs[a_id]['t']
                 internal_depart_time_sec = external_depart_time_sec + activity_objs[a_id]['external_time_sec']
                 arrive_time_sec = internal_depart_time_sec + activity_objs[a_id]['internal_time_sec']
@@ -875,7 +892,7 @@ def generate_detailed_schedules(persons):
             stay_obj = {key: activity_objs[a_id][key] for key in ['activity', 'place_sim']}
             stay_obj['t'] = arrive_time_sec
             stay_obj['period'] = [arrive_time_sec, stay_until_time_sec]
-            if stay_obj['place_sim']['type'] == 'meta_grid':
+            if stay_obj['place_sim']['type'] == 'geogrid':
                 stay_obj['status'] = 'stay'
             else:
                 stay_obj['status'] = 'out'
@@ -1203,8 +1220,7 @@ FLOYD_PREDECESSOR_PATH='./scripts/cities/'+city+'/clean/fw_result.json'
 INT_NET_DF_FLOYD_PATH='./scripts/cities/'+city+'/clean/sim_net_df_floyd.csv'
 INT_NET_COORDINATES_PATH='./scripts/cities/'+city+'/clean/sim_net_node_coords.json'
 
-META_GRID_SAMPLE_PATH='./scripts/cities/'+city+'/clean/meta_grid.geojson'
-TUI_GRID_SAMPLE_PATH='./scripts/cities/'+city+'/clean/grid_interactive.geojson'
+GEOGRID_SAMPLE_PATH='./scripts/cities/'+city+'/clean/geogrid.geojson'
 
 PUMA_SHAPE_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas.geojson'
 PUMAS_INCLUDED_PATH='./scripts/cities/'+city+'/raw/PUMS/pumas_included.json'
@@ -1244,7 +1260,7 @@ employment_lus= {"Office_High_Density":{},"Office_Low_Density":{},
 
 #land_use_codes={'home': ['R'], 'work': ['M', 'B']}
 
-NEW_PERSONS_PER_BLD=10
+NEW_PERSONS_PER_BLD=1
 
 # #cityIO grid data
 table_name_map={'Boston':"mocho",
@@ -1253,7 +1269,8 @@ table_name_map={'Boston':"mocho",
 host='https://cityio.media.mit.edu/'
 CITYIO_GET_URL=host+'api/table/'+table_name_map[city]
 UPDATE_FREQ=1 # seconds
-CITYIO_SAMPLE_PATH='scripts/cities/'+city+'/clean/sample_cityio_data.json' #cityIO backup data
+
+#CITYIO_SAMPLE_PATH='scripts/cities/'+city+'/clean/sample_cityio_data.json' #cityIO backup data
 
 # destination for output files
 CITYIO_POST_URL=host+'api/table/update/'+table_name_map[city]+'/'
@@ -1319,7 +1336,7 @@ for ind, row in sim_net_floyd_df.iterrows():
 sim_net_map_node_lls=json.load(open(INT_NET_COORDINATES_PATH))
 sim_node_ids=[node for node in sim_net_map_node_lls]
 sim_node_lls=[sim_net_map_node_lls[node] for node in sim_node_ids]
-int_nodes_kdtree=spatial.KDTree(np.array(sim_node_lls))
+internal_nodes_kdtree=spatial.KDTree(np.array(sim_node_lls))
 
 
 # add centroids and closest sim network nodes to portals
@@ -1327,7 +1344,7 @@ for p in portals['features']:
     centroid=approx_shape_centroid(p['geometry'])
     p['properties']['centroid']=centroid
     p['properties']['closest_nodes']=[sim_node_ids[n_ind] for n_ind in 
-      int_nodes_kdtree.query(centroid, 3)[1]]
+      internal_nodes_kdtree.query(centroid, 3)[1]]
       
 
 if city=='Hamburg':
@@ -1346,55 +1363,34 @@ for ind, geo_id in enumerate(geoid_order_all):
 # =============================================================================
 # Pre-Processing of spatial grid data
 # =============================================================================
-# Get the grid data
-# Interactive grid parameters
-#try:
-#    with urllib.request.urlopen(CITYIO_GET_URL+'/header/spatial') as url:
-#    #get the latest grid data
-#        cityIO_spatial_data=json.loads(url.read().decode())
-#except:
-#    print('Using static cityIO grid file')
-#    cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))
-#    cityIO_spatial_data=cityIO_data['header']['spatial']
     
-# Full meta grid geojson      
+# Full geogrid geojson      
 try:
     with urllib.request.urlopen(CITYIO_GET_URL+'/GEOGRID') as url:
     #get the latest grid data
-        meta_grid=json.loads(url.read().decode())
+        geogrid=json.loads(url.read().decode())
 except:
     print('Using static cityIO grid file')
-    meta_grid=json.load(open(META_GRID_SAMPLE_PATH))
+    geogrid=json.load(open(GEOGRID_SAMPLE_PATH))
     
-# create a lookup from interactive grid to meta_grid
-# and a dict of static land uses to their locations in the meta_grid
-tui_cell_to_meta_grid={}
+
+# and a dict of static land uses to their locations in the geogrid
 static_land_uses={}
-for fi, f in enumerate(meta_grid['features']):
-    if f['properties']['tui_id'] is not None:
-        tui_cell_to_meta_grid[int(f['properties']['tui_id'])]=fi
+for fi, f in enumerate(geogrid['features']):
+    this_land_use_input=f['properties']['land_use']
+    this_land_use_standard=get_standard_lu_from_base(this_land_use_input)
+    if this_land_use_standard in static_land_uses:
+        static_land_uses[this_land_use_standard].append(fi)
     else:
-        this_land_use_input=f['properties']['land_use']
-        this_land_use_standard=get_standard_lu_from_base(this_land_use_input)
-        if this_land_use_standard in static_land_uses:
-            static_land_uses[this_land_use_standard].append(fi)
-        else:
-            static_land_uses[this_land_use_standard]=[fi]
+        static_land_uses[this_land_use_standard]=[fi]
 
     
-# add centroids and closest nodes in sim network to meta_grid_cells
-for cell in meta_grid['features']:
+# add centroids and closest nodes in sim network to geogrid_cells
+for cell in geogrid['features']:
     centroid=approx_shape_centroid(cell['geometry'])
     cell['properties']['centroid']=centroid
     cell['properties']['closest_nodes']=[sim_node_ids[n_ind] for n_ind in 
-      int_nodes_kdtree.query(centroid, 3)[1]]
-    
-meta_grid_ll=[meta_grid['features'][i][
-        'geometry']['coordinates'][0][0
-        ] for i in range(len(meta_grid['features']))]
-        
-tui_points_ll=[meta_grid_ll[tui_cell_to_meta_grid[int_grid_cell]]
-                 for int_grid_cell in tui_cell_to_meta_grid]
+      internal_nodes_kdtree.query(centroid, 3)[1]]
 
 # create a lookup from interactive grid to puma
 puma_shape=json.load(open(PUMA_SHAPE_PATH))
@@ -1408,11 +1404,11 @@ for feature in puma_shape['features']:
             puma_path_dict[feature["properties"]["GEOID10"][2:]] = mplPath.Path(feature["geometry"]["coordinates"][0])
         elif feature['geometry']['type'] == 'MultiPolygon':
             puma_path_dict[feature["properties"]["GEOID10"][2:]] = mplPath.Path(feature["geometry"]["coordinates"][0][0])
-int_grid_to_puma = {'tui'+str(grid_id): None for grid_id in range(len(tui_points_ll))}
-for grid_id, grid_point_ll in enumerate(tui_points_ll):
+geogrid_to_puma = {'grid'+str(grid_id): None for grid_id in range(len(geogrid['features']))}
+for grid_id, grid_feat in enumerate(geogrid['features']):
     for puma_id, puma_path in puma_path_dict.items():
-        if puma_path.contains_point((grid_point_ll[0], grid_point_ll[1])):
-            int_grid_to_puma['tui'+str(grid_id)] = puma_id
+        if puma_path.contains_point((grid_feat['properties']['centroid'])):
+            geogrid_to_puma['grid'+str(grid_id)] = puma_id
             break
             
 # create puma objects
@@ -1425,17 +1421,15 @@ for puma in puma_df.index:
     this_obj['centroid'] = centroid
     puma_obj_dict[puma] = this_obj
 
-#graphs=createGridGraphs(tui_points_ll, graphs, cityIO_spatial_data['nrows'], 
-#                        cityIO_spatial_data['ncols'], cityIO_spatial_data['cellSize'])
-
-sim_area_zone_list+=['tui'+str(i) for i in range(len(tui_points_ll))]
+sim_area_zone_list+=['grid'+str(i) for i in range(len(geogrid['features']))]
                    
 # =============================================================================
 # Population
 # =============================================================================
-
+# TODO: option to sample from base pop
 # load sim_persons
 base_sim_persons=json.load(open(SIM_POP_PATH))
+# TODO: checl how the id is used
 for idx, person in enumerate(base_sim_persons):
     person['person_id'] = 'b'+str(idx)
 # load floaters
@@ -1450,14 +1444,12 @@ if base_sim_persons:
     get_simulation_locations(base_sim_persons)
     get_LLs(base_sim_persons, ['home', 'work'])
     get_person_type(base_sim_persons)
-#    get_route_costs(base_sim_persons)
-#    predict_modes(base_sim_persons)
     sample_activity_schedules(base_sim_persons)
     # 'Residential' in 'activities_to_lu', but not in lu_standard
     static_land_uses_tmp = copy.deepcopy(static_land_uses)
     static_land_uses_tmp['Residential'] = static_land_uses_tmp.get('Residential_Affordable', []) + static_land_uses_tmp.get('Residential_Market_Rate', [])
     find_destination(base_sim_persons, land_uses=static_land_uses_tmp)
-    ods = generate_ods(base_sim_persons)
+    ods = generate_ods(base_sim_persons) # TODO this function takes longest
     predict_modes_for_activities(ods,base_sim_persons)
     trips=create_trips_layer(base_sim_persons)
     # stays=create_stay_data(base_sim_persons)
@@ -1484,7 +1476,7 @@ lastId=0
 while True:
 #check if grid data changed
     try:
-        with urllib.request.urlopen(CITYIO_GET_URL+'/meta/hashes/grid') as url:
+        with urllib.request.urlopen(CITYIO_GET_URL+'/meta/hashes/GEOGRIDDATA') as url:
             hash_id=json.loads(url.read().decode())
     except:
         print('Cant access cityIO')
@@ -1492,50 +1484,52 @@ while True:
     if hash_id==lastId:
         sleep(1)
     else:
+        print('Change in grid detected. Fetching the new grid data')
         try:
-            with urllib.request.urlopen(CITYIO_GET_URL+'/grid') as url:
+            with urllib.request.urlopen(CITYIO_GET_URL+'/GEOGRIDDATA') as url:
                 cityIO_grid_data=json.loads(url.read().decode())
         except:
-            print('Using static cityIO grid file')
-            cityIO_data=json.load(open(CITYIO_SAMPLE_PATH))  
-            cityIO_grid_data=cityIO_data['grid']
+            print('Read hash coudnt read grid data')
         start_time=time.time()
         lastId=hash_id
+        # TODO: use actual inputs below
 ## =============================================================================
 ##         FAKE DATA FOR SCENAIO EXPLORATION
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(tui_cell_to_meta_grid))] # all employment
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(tui_cell_to_meta_grid))] # all housing
-        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,5,len(tui_cell_to_meta_grid))] # random mix
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(tui_cell_to_meta_grid))] # affordable + employment
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(geogrid['features']))] # all employment
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(geogrid['features']))] # all housing
+        cityIO_grid_data=[random.randint(0, 6) for i in range(len(geogrid['features']))] # random mix
+##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(geogrid['features']))] # affordable + employment
 ## =============================================================================
         new_houses=[]
         new_persons=[]
 #        new_households=[]  
-        tui_grid_land_uses=[get_standard_lu_from_input_lu(g[0]) for g in cityIO_grid_data]
+        # tui_grid_land_uses to geogrid_land_uses
+        geogrid_land_uses=[get_standard_lu_from_input_lu(g) for g in cityIO_grid_data]
         # TODO: also web_grid_land_uses
         # adding new land use information for interactive grids to static_land_uses
         overall_land_uses = copy.deepcopy(static_land_uses)
-        for int_grid_idx, int_grid_lu in enumerate(tui_grid_land_uses):
-            overall_land_uses.setdefault(int_grid_lu, []).append(tui_cell_to_meta_grid[int_grid_idx])
+        for geogrid_idx, geogrid_lu in enumerate(geogrid_land_uses):
+            # TODO: no lookup- use geogrid_land_uses directly
+            overall_land_uses.setdefault(geogrid_lu, []).append(geogrid_idx)
             # append the new locations for each land uses, but if the lu does not yet exist in the dict,
             # add it with a value of []
         overall_land_uses_tmp = copy.deepcopy(overall_land_uses)
         overall_land_uses_tmp['Residential'] = overall_land_uses_tmp.get('Residential_Affordable', []) + overall_land_uses_tmp.get('Residential_Market_Rate', [])
         for ht in housing_lus:
-            ht_locs=[i for i in range(len(tui_grid_land_uses)) if tui_grid_land_uses[i]==ht]
+            ht_locs=[i for i in range(len(geogrid_land_uses)) if geogrid_land_uses[i]==ht]
             for htl in ht_locs:
                 add_house=housing_lus[ht].copy()
-                add_house['home_geoid']='tui'+str(htl)
-                add_house['centroid']=tui_points_ll[htl]
+                add_house['home_geoid']='grid'+str(htl)
+                add_house['centroid']=geogrid['features'][htl]['properties']['centroid']
                 new_houses.append(add_house)        
 #        # for each office unit, add a (homeless) person
         random.seed(0)
         for et in employment_lus:
-            et_locs=[i for i in range(len(tui_grid_land_uses)) if tui_grid_land_uses[i]==et]
+            et_locs=[i for i in range(len(geogrid_land_uses)) if geogrid_land_uses[i]==et]
             for etl in et_locs:
                 for i in range(NEW_PERSONS_PER_BLD):
                     add_person=random.choice(base_floating_persons).copy()
-                    add_person['work_geoid']='tui'+str(etl)
+                    add_person['work_geoid']='grid'+str(etl)
                     new_persons.append(add_person)
         get_LLs(new_persons, ['work'])
         floating_persons=base_floating_persons+new_persons
@@ -1547,7 +1541,7 @@ while True:
         # add PUMA info for new housing units
         for h in vacant_houses:
             if 'puma10' not in h:
-                h['puma10'] = int_grid_to_puma[h['home_geoid']]
+                h['puma10'] = geogrid_to_puma[h['home_geoid']]
             h['puma10'] = str(h['puma10']).zfill(5)
         top_n_pumas = 5
         home_location_choices(vacant_houses, floating_persons)
@@ -1555,14 +1549,9 @@ while True:
         new_sim_persons=[p for p in floating_persons if
                          (p['home_geoid'] in sim_area_zone_list or
                           p['work_geoid'] in sim_area_zone_list)]
-#        pop_diversity=get_pop_diversity(base_sim_persons+ new_sim_persons)
-#        lu_diversity=get_lu_diversity(tui_grid_land_uses)
-#        post_diversity_indicators(pop_diversity, lu_diversity, CITYIO_POST_URL+'ind_diversity')
         get_LLs(new_sim_persons, ['home', 'work'])
         get_simulation_locations(new_sim_persons)
         get_person_type(new_sim_persons)
-#        get_route_costs(new_sim_persons) # TODO: not needed
-#        predict_modes(new_sim_persons) # TODO: not needed
         sample_activity_schedules(new_sim_persons)     
         find_destination(new_sim_persons, land_uses=overall_land_uses_tmp)
         new_ods = generate_ods(new_sim_persons)

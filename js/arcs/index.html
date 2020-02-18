@@ -82,8 +82,8 @@ function renderArcLayer({ arcs}) {
         opacity: 0.3,
         getSourcePosition: d => d.start_latlon,
         getTargetPosition: d => d.end_latlon,
-        getSourceColor: d => colors[d.mode],
-        getTargetColor: d => colors[d.mode]
+        getSourceColor: d => colors[0],
+        getTargetColor: d => colors[0]
     });
 
     // map.addLayer(countiesLayer, 'waterway-label');
