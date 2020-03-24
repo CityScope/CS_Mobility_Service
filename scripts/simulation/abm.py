@@ -770,11 +770,15 @@ def predict_modes_for_activities(ods, persons=[]):
     feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['activity_routes'][3]['route']['walking'], axis=1)  
     feature_df['drive_time_PT_minutes']=0 
     feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1) 
-    feature_df['tenure_owned']=False
-    feature_df['tenure_other']=False
-    feature_df['race_asian']=0
     for rff in rf_features:
-        assert rff in feature_df.columns, str(rff) +' not in data.'
+        if rff not in feature_df.columns:
+#            print('{} not in mode choice dataframe. adding column of zeros'.format(rff))
+            feature_df[rff]=0
+#    feature_df['tenure_owned']=False
+#    feature_df['tenure_other']=False
+#    feature_df['race_asian']=0
+#    for rff in rf_features:
+#        assert rff in feature_df.columns, str(rff) +' not in data.'
     feature_df=feature_df[rf_features] #reorder columns to match rf model
     
     mode_probs=mode_rf.predict_proba(feature_df)
@@ -1191,7 +1195,33 @@ def draw_agents_update(agents, points, time_sec=None):
     print('People counts at {}: driving={}, cycling={}, walk={}, pt={}, stay={}'.format(time_str, 
         len(driving_agents), len(cycling_agents), len(walk_agents), len(pt_agents),  len(stay_agents)))
 
+def get_commuter_proportion(persons):
+    # type 0: live-work on site
+    # type 1: commute in
+    # type 2: comute out
+    n_live_work=sum([1 for p in persons if p['type']==0])
+    commuter_proportion=1-(n_live_work/len(persons))
+    return commuter_proportion
 
+def get_carbon_emissions(ods):
+    total_co2_kg=0
+    dists=[]
+    # https://www.epa.gov/greenvehicles/greenhouse-gas-emissions-typical-passenger-vehicle
+    driving_co2_kg_per_m= 0.404/1620 #404 grams of CO2 per mile
+    pt_co2_per_m= (0.2359*0.454)/1620  #0.23 lbs/mile
+    for od in ods:
+        if od['mode']==0:
+            distance_m=(od['internal_time_sec']+od['external_time_sec'])*SPEEDS_MET_S[0]
+            if distance_m < 100000:
+                total_co2_kg+=distance_m*driving_co2_kg_per_m
+        elif od['mode']==3:
+            distance_m=(od['internal_time_sec']+od['external_time_sec'])*SPEEDS_MET_S[3]
+            if distance_m < 100000:
+                total_co2_kg+=distance_m*pt_co2_per_m
+    return total_co2_kg
+            
+    
+    
 
 # =============================================================================
 # Constants
@@ -1456,6 +1486,8 @@ if base_sim_persons:
     post_trips_data(trips, CITYIO_POST_URL+'ABM')
 #    generate_detailed_schedules(base_sim_persons)
 #    post_od_data(base_sim_persons, CITYIO_POST_URL+'od')
+    print(get_commuter_proportion(persons))
+    print(get_carbon_emissions(ods)/len(base_sim_persons))
 
 if base_floating_persons:
     get_LLs(base_floating_persons, ['work'])
@@ -1495,8 +1527,8 @@ while True:
         # TODO: use actual inputs below
 ## =============================================================================
 ##         FAKE DATA FOR SCENAIO EXPLORATION
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(3,5,len(geogrid['features']))] # all employment
-##        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,3,len(geogrid['features']))] # all housing
+#        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(geogrid['features']))] # all employment
+#        cityIO_grid_data=[[int(i)] for i in np.random.randint(1,2,len(geogrid['features']))] # all housing
         cityIO_grid_data=[random.randint(0, 6) for i in range(len(geogrid['features']))] # random mix
 ##        cityIO_grid_data=[[int(i)] for i in np.random.randint(2,4,len(geogrid['features']))] # affordable + employment
 ## =============================================================================
@@ -1557,6 +1589,8 @@ while True:
         new_ods = generate_ods(new_sim_persons)
         predict_modes_for_activities(new_ods, new_sim_persons)
         trips=create_trips_layer(base_sim_persons+new_sim_persons)
+        print(get_commuter_proportion(base_sim_persons+new_sim_persons))
+        print(get_carbon_emissions(ods+new_ods)/len(base_sim_persons+new_sim_persons))
         # stays=create_stay_data(base_sim_persons)
         post_trips_data(trips, CITYIO_POST_URL+'ABM')
 #        generate_detailed_schedules(new_sim_persons)       

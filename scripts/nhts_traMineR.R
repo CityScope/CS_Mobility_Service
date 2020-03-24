@@ -20,6 +20,12 @@ seqIplot(act_seq.seq, sortv = "from.start", with.legend = FALSE)
 seqfplot(act_seq.seq, with.legend = FALSE, border = NA)
 seqlegend(act_seq.seq)
 
+quartz()
+seqIplot(act_seq.seq, sortv = "from.start", with.legend = TRUE)
+
+
+
+
 # Descriptive Stats
 par(mfrow = c(2, 1))
 seqdplot(act_seq.seq, with.legend = FALSE, border = NA)
