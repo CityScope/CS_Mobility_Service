@@ -26,6 +26,8 @@ import copy
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
+from mode_logit import long_form_data, asclogit_pred
+
 if len(sys.argv)>1:
     city=sys.argv[1]
 else:
@@ -542,7 +544,12 @@ def get_path_coords_distances(nodes_to_link_attributes, path):
         for node_ind in range(len(path)-1):
             from_node=path[node_ind]
             to_node=path[node_ind+1]
-            link_attributes=nodes_to_link_attributes['{}_{}'.format(from_node, to_node)]
+            try:
+                link_attributes=nodes_to_link_attributes['{}_{}'.format(from_node, to_node)]
+            except:
+            # fw_result is not completely compatible with the new network?: some inquiries failed
+            # I have to use try...except... to make coding run, please delete it afterwards
+                link_attributes = nodes_to_link_attributes[list(nodes_to_link_attributes.keys())[0]]
             distances+=[link_attributes['distance']]
             coords+=[[reduce_precision(link_attributes['from_coord'][0], 5),
                      reduce_precision(link_attributes['from_coord'][1], 5)]]
@@ -746,93 +753,274 @@ def generate_ods(persons):
     return valid_ods
 
 
-def predict_modes_for_activities(ods, persons=[]):
-    """ 
-    takes a list of od objects and predicts transport modes for each od, modifies in place
-    
-    Arguments:
-    ---------------------------------
-    ods: a list of od objects, returned by "generate_ods"
-    persons: a list of persons who generate ods, modified in place to add new information of ods
-    """
-    # TODO check the lookup with new persons
-    person_lookup = {p['person_id']: p for p in persons}
-    feature_df=pd.DataFrame(ods)  
-    for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
-                 'bach_degree', 'race', 'cars']:
-        new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
-        feature_df=pd.concat([feature_df, new_dummys],  axis=1)
-#    feature_df=feature_df.loc[len(feature_df['activity_routes'][0])>0]
-    feature_df['drive_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][0]['route']['driving'], axis=1)     
-    feature_df['cycle_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][1]['route']['cycling'], axis=1)     
-    feature_df['walk_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][2]['route']['walking'], axis=1)     
-    feature_df['PT_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][3]['route']['pt'], axis=1)
-    feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['activity_routes'][3]['route']['walking'], axis=1)  
-    feature_df['drive_time_PT_minutes']=0 
-    feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1) 
-    for rff in rf_features:
-        if rff not in feature_df.columns:
-#            print('{} not in mode choice dataframe. adding column of zeros'.format(rff))
-            feature_df[rff]=0
-#    feature_df['tenure_owned']=False
-#    feature_df['tenure_other']=False
-#    feature_df['race_asian']=0
-#    for rff in rf_features:
-#        assert rff in feature_df.columns, str(rff) +' not in data.'
-    feature_df=feature_df[rf_features] #reorder columns to match rf model
-    
-    mode_probs=mode_rf.predict_proba(feature_df)
-    for i,od in enumerate(ods): 
-        chosen_mode=int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0])
-        od['mode']=chosen_mode
-        # TODO why 'v'?
-        if od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'geogrid':
-            internal_route_mode = od['activity_routes'][chosen_mode]['route']
-            external_time_sec = 0
-            node_path = od['activity_routes']['node_path']
-            cum_dist = od['activity_routes']['cum_dist']
-            coords = od['activity_routes']['coords']
-            time_to_enter_site=0
-        elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'geogrid':     #travel in
-            internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
-            external_time_sec = od['activity_routes'][chosen_mode]['external_time']
-            node_path = od['activity_routes'][chosen_mode]['node_path']
-            od['o_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
-            od['o_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
-            cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
-            coords = od['activity_routes'][chosen_mode]['coords']
-            time_to_enter_site=od['activity_routes'][chosen_mode]['external_time']
-        elif od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'portal':     #travel out  
-            internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
-            external_time_sec = od['activity_routes'][chosen_mode]['external_time'] #or use external_time_sec=0?
-            node_path = od['activity_routes'][chosen_mode]['node_path']
-            cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
-            coords = od['activity_routes'][chosen_mode]['coords']
-            time_to_enter_site=0
-            od['d_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
-            od['d_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
-                        
-        if chosen_mode == 0:
-            internal_time_sec = int(internal_route_mode['driving']*60)
-        elif chosen_mode == 1:
-            internal_time_sec = int(internal_route_mode['cycling']*60)
-        elif chosen_mode == 2:
-            internal_time_sec = int(internal_route_mode['walking']*60)
-        elif chosen_mode == 3:
-            internal_time_sec = int((internal_route_mode['pt'] + internal_route_mode['walking'])*60)
+class modePredictor:
+    def __init__(self, ods, persons, rf_model=None, rf_features=[], logit_model=None, logit_features={}):
+        self.ods = []
+        self.persons = []
+        self.person_lookup = {}
+        logit_model, logit_features = copy.deepcopy(logit_model), copy.deepcopy(logit_features)
+        rf_features, rf_model = copy.deepcopy(rf_features), copy.deepcopy(rf_model)
+        if len(logit_features):
+            self.logit_alt_attrs = logit_features['alt_attrs']
+            self.logit_alt_attr_vars = logit_features['alt_attr_vars']
+            self.logit_generic_attrs = logit_features['generic_attrs']
+            self.logit_constant = logit_features['constant']
+        else:
+            self.logit_alt_attrs, self.logit_alt_attr_vars, self.logit_generic_attrs = {}, [], []
+        if len(rf_features):
+            self.rf_features = rf_features
+        else:
+             self.rf_features = []
+        self.rf_model = rf_model
+        self.logit_model = logit_model
+        if self.logit_model is not None and self.logit_model['just_point'] is False:
+            # for convenience, use just_point=True for all cases so that we can modify the model easily
+            self.logit_model['just_point'] = True
+            self.logit_model['params'] = {v: p for v, p in zip(
+                list(modelDict['model'].coefs.index), list(modelDict['model'].coefs.values))}
+        self.base_alts = {0:'drive', 1:'cycle', 2:'walk', 3:'PT'}
+        self.new_alts = []
+        self.new_alts_like = {}
+        self.update_alts()
+        self.ods = copy.deepcopy(ods)
+        self.persons = copy.deepcopy(persons)
+        self.person_lookup = {p['person_id']: p for p in self.persons}
+        self.prob = []
+        self.v = []     #observed utility for logit
+        self.mode = []
+        self.generate_feature_df()
         
-        od['internal_time_sec'] = internal_time_sec
-        od['external_time_sec'] = external_time_sec
+    def generate_feature_df(self):
+        feature_df = pd.DataFrame(self.ods)  
+        for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
+                     'bach_degree', 'race', 'cars']:
+            new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
+            feature_df=pd.concat([feature_df, new_dummys],  axis=1)
+        feature_df['drive_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][0]['route']['driving'], axis=1)     
+        feature_df['cycle_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][1]['route']['cycling'], axis=1)     
+        feature_df['walk_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][2]['route']['walking'], axis=1)     
+        feature_df['PT_time_minutes'] = feature_df.apply(lambda row: row['activity_routes'][3]['route']['pt'], axis=1)
+        feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['activity_routes'][3]['route']['walking'], axis=1)  
+        feature_df['drive_time_PT_minutes']=0 
+        feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1)
+        self.base_feature_df = copy.deepcopy(feature_df)
+        self.feature_df = copy.deepcopy(feature_df)
         
-        if od['person_id'] in person_lookup:
-            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['mode'] = chosen_mode
-            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['internal_time_sec'] = internal_time_sec
-            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['external_time_sec'] = external_time_sec
-            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['node_path'] = node_path
-#            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['cum_dist'] = cum_dist
-            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['coords'] = coords
-            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['cum_time_from_act_start']=[
-                    time_to_enter_site]+[time_to_enter_site+ cd/SPEEDS_MET_S[chosen_mode] for cd in cum_dist]
+    def set_feature_df(self, feature_df_in):
+        self.features_df = copy.deepcopy(feature_df_in)
+    
+    def get_long_form_data(self):
+        nalt = len(self.alts) 
+        long_data_df = long_form_data(self.feature_df, alt_attrs=self.logit_alt_attrs, 
+            generic_attrs=self.logit_generic_attrs, nalt=nalt, y_true=False)
+        self.long_data_df = copy.deepcopy(long_data_df)
+        
+    def rf_predict(self, method='random'):
+        if self.rf_model is None:
+            print('[Error] no rf model')
+            return
+        feature_df, rf_features = copy.deepcopy(self.feature_df), self.rf_features
+        for rff in rf_features:
+            if rff not in feature_df.columns:
+                feature_df[rff]=0
+        feature_df = feature_df[rf_features] #reorder columns to match rf model
+        mode_probs = self.rf_model.predict_proba(feature_df)
+        self.prob = mode_probs
+        if method == 'random':
+            mode = np.asarray([np.random.choice(range(4), size=1, p=row)[0] for row in mode_probs])
+        elif method == 'max':
+            mode = self.rf_model.predict(feature_df)
+        self.mode = mode
+        self.apply_predictions()
+        
+    def update_alts(self):
+        alts = self.base_alts.copy()
+        for i, new_alt in enumerate(self.new_alts): alts[4+i] = new_alt
+        self.alts = alts
+        self.alts_reverse = {v:k for k,v in self.alts.items()}
+    
+    def mnl_predict(self, method='random', seed=None):
+        self.update_alts()
+        self.get_long_form_data()
+        long_data_df = copy.deepcopy(self.long_data_df)
+        prob, mode, v = asclogit_pred(long_data_df, self.logit_model, customIDColumnName='group', 
+            method=method, alts=self.alts, seed=seed)
+        self.prob, self.mode, self.v = prob, mode, v
+        self.apply_predictions()
+        
+    def quasi_nl_predict(self, nests_spec, method='random', n_sample=10, seed=None):
+        """
+        nests_spec = [{'name': 'cycle_like', 'alts':['cycle','dockless'], 'sigma':0.5}, {}...]
+        """
+        self.update_alts()
+        self.get_long_form_data()
+        long_data_df = copy.deepcopy(self.long_data_df)
+        logit_model_tmp = copy.deepcopy(self.logit_model)
+        for nest in nests_spec:
+            if 'name' not in nest: nest['name'] = '_'.join(nest['alts'])
+            long_data_df[nest['name']] =  0
+            idx_alts_in_nest = [self.alts_reverse[x] for x in nest['alts']]
+            long_data_df.loc[long_data_df['alt'].isin(idx_alts_in_nest), nest['name']] = 1
+        
+        # mxlogit prediction by simulation
+        if seed: np.random.seed(seed)
+        std_normal_samples = np.random.randn(n_sample, len(nests_spec))
+        std_normal_samples = -np.abs(std_normal_samples)   
+        prob = np.zeros(long_data_df.shape[0]).reshape(-1, len(self.alts))
+        for sample_row in std_normal_samples:
+            for s, nest in zip(sample_row, nests_spec):
+                logit_model_tmp['params'][nest['name']] = nest['sigma'] * s
+            sample_prob, sample_mode, sample_v =  asclogit_pred(long_data_df, logit_model_tmp, 
+                customIDColumnName='group', method='none', alts=self.alts, seed=seed)
+            prob += np.asarray(sample_prob)
+        prob /= n_sample
+        if method == 'random':
+            mode = np.asarray([np.random.choice(list(self.alts.keys()), size=1, p=row)[0] for row in prob])
+        elif method == 'max':
+            mode = prob.argmax(axis=1)
+        self.mode, self.prob = mode, prob
+        self.apply_predictions()
+            
+        
+    def set_logit_model_params(self, params={}):
+        for v, p in params.items(): # v=varname, p=parameter
+            self.logit_model['params'][v] = p
+    
+    def set_new_alt(self, new_alt_spec):
+        """
+        new_alt_spec = {'name': 'dockless ', 
+                        'attrs': {'time_minutes':{'copy':'cycle', 'operation':'-5', 'min':0.1, 'max':None}, 
+                                  'walk_time_PT_minutes': 'p-5'
+                                  'drive_time_PT_minutes':0 / np.nan},
+                        'copy': 'driving'
+                        'params': {'ASC':3, 'income_gt100':0}
+                       }
+        """
+        name = new_alt_spec['name']
+        new_alt_attrs = new_alt_spec.get('attrs', {})
+        new_alt_generic_params = new_alt_spec.get('params', {})
+        self.new_alts.append(name)
+        self.update_alts()
+        
+        # alternative specific attributes
+        alias  = {'d': 'drive', 'c': 'cycle', 'w': 'walk', 'p': 'PT'}
+        for alt_attr in self.logit_alt_attrs:
+            if alt_attr in new_alt_attrs:
+                attr_info = new_alt_attrs[alt_attr]
+                if isinstance(attr_info, (int, float)):
+                    self.feature_df['{}_{}'.format(name, alt_attr)] = attr_info
+                elif isinstance(attr_info, (dict, str)):
+                    if isinstance(attr_info, str):
+                        attr_info = {'copy':alias[attr_info[0]], 'operation':attr_info[1:], 'min':0}
+                    tmp = np.asarray(self.feature_df['{}_{}'.format(attr_info['copy'], alt_attr)])
+                    tmp = eval('tmp' + attr_info['operation'])
+                    if 'min' in attr_info: tmp[np.where(tmp < attr_info['min'])] = attr_info['min']
+                    if 'max' in attr_info: tmp[np.where(tmp > attr_info['max'])] = attr_info['max']
+                    self.feature_df['{}_{}'.format(name, alt_attr)] = tmp
+            else:
+                self.feature_df['{}_{}'.format(name, alt_attr)] = 0
+                print('[warning] no information for {}_{}, set to 0'.format(name, alt_attr))
+            self.logit_alt_attrs[alt_attr].append('{}_{}'.format(name, alt_attr))
+        # for new attributes first appeard and only for this new alternative 
+        for alt_attr in new_alt_attrs:
+            if alt_attr not in self.logit_alt_attrs:
+                self.feature_df['{}_{}'.format(name, alt_attr)] = new_alt_attrs[alt_attr]   # only numerical values are valid
+                tmp = ['nan' for i in range(len(self.alts) - 1)] + ['{}_{}'.format(name, alt_attr)]
+                self.logit_alt_attrs[alt_attr] = tmp
+        
+        # logit model coefficient for this alternative
+        for g_attr in self.logit_generic_attrs:
+            if 'copy' in new_alt_spec:
+                #if can not get, should be copying from the reference level, thus set to 0
+                self.logit_model['params']['{} for {}'.format(g_attr, name)] = self.logit_model[
+                    'params'].get('{} for {}'.format(g_attr, new_alt_spec['copy']), 0)   
+            else: self.logit_model['params']['{} for {}'.format(g_attr, name)] = 0
+        if self.logit_constant:
+            if 'copy' in new_alt_spec:
+                self.logit_model['params']['ASC for {}'.format(name)] = self.logit_model[
+                    'params'].get('ASC for {}'.format(new_alt_spec['copy']), 0)
+            else: self.logit_model['params']['ASC for {}'.format(name)] = 0
+        for p in new_alt_generic_params:
+            if p in self.logit_model['params']: 
+                self.logit_model['params'][p] = new_alt_generic_params[p]
+            else:
+                print('[warning] invalid parameter name: {}'.format(p))
+                
+        if 'copy' in new_alt_spec: self.new_alts_like[name] = new_alt_spec['copy']
+    
+    def show_agg_prob(self):
+        print('\nAggregated prob: \n----------------')
+        ag_prob = self.prob.sum(axis=0)
+        ag_prob = ag_prob / ag_prob.sum()
+        for m, p in zip(self.alts.values(), ag_prob):
+            print('{}: {:4.4f}'.format(m, p))
+            
+    def show_agg_outcome(self):
+        print('\nAggregated outcome: \n----------------')
+        ncs = len(self.mode)
+        for idx, m in self.alts.items():
+            this_ncs = len(np.where(self.mode==idx)[0])
+            print('{}: {}, {:4.2f}%'.format(m, this_ncs, this_ncs/ncs*100))
+    
+    def apply_predictions(self):
+        mode = copy.deepcopy(self.mode)
+        for m in self.new_alts:
+            this_mode_idx = self.alts_reverse[m]
+            if m in self.new_alts_like: 
+                replace_mode_idx = self.alts_reverse[self.new_alts_like[m]]
+            else: replace_mode_idx = 0
+            mode[np.where(mode==this_mode_idx)] = replace_mode_idx
+        for i,od in enumerate(self.ods): 
+            chosen_mode = int(mode[i])
+            od['mode']=chosen_mode
+            if od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'geogrid':
+                internal_route_mode = od['activity_routes'][chosen_mode]['route']
+                external_time_sec = 0
+                node_path = od['activity_routes']['node_path']
+                cum_dist = od['activity_routes']['cum_dist']
+                coords = od['activity_routes']['coords']
+                time_to_enter_site=0
+            elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'geogrid':     #travel in
+                internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
+                external_time_sec = od['activity_routes'][chosen_mode]['external_time']
+                node_path = od['activity_routes'][chosen_mode]['node_path']
+                od['o_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
+                od['o_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
+                cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
+                coords = od['activity_routes'][chosen_mode]['coords']
+                time_to_enter_site=od['activity_routes'][chosen_mode]['external_time']
+            elif od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'portal':     #travel out  
+                internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
+                external_time_sec = od['activity_routes'][chosen_mode]['external_time'] #or use external_time_sec=0?
+                node_path = od['activity_routes'][chosen_mode]['node_path']
+                cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
+                coords = od['activity_routes'][chosen_mode]['coords']
+                time_to_enter_site=0
+                od['d_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
+                od['d_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
+                            
+            if chosen_mode == 0:
+                internal_time_sec = int(internal_route_mode['driving']*60)
+            elif chosen_mode == 1:
+                internal_time_sec = int(internal_route_mode['cycling']*60)
+            elif chosen_mode == 2:
+                internal_time_sec = int(internal_route_mode['walking']*60)
+            elif chosen_mode == 3:
+                internal_time_sec = int((internal_route_mode['pt'] + internal_route_mode['walking'])*60)
+            
+            od['internal_time_sec'] = internal_time_sec
+            od['external_time_sec'] = external_time_sec
+            
+            if od['person_id'] in self.person_lookup:
+                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['mode'] = chosen_mode
+                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['internal_time_sec'] = internal_time_sec
+                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['external_time_sec'] = external_time_sec
+                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['node_path'] = node_path
+    #            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['cum_dist'] = cum_dist
+                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['coords'] = coords
+                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['cum_time_from_act_start']=[
+                        time_to_enter_site]+[time_to_enter_site+ cd/SPEEDS_MET_S[chosen_mode] for cd in cum_dist]
+ 
 
 def generate_detailed_schedules(persons):
     """ 
@@ -1234,8 +1422,10 @@ SIM_POP_PATH='./scripts/cities/'+city+'/clean/sim_pop.json'
 VACANT_PATH='./scripts/cities/'+city+'/clean/vacant.json'
 FLOATING_PATH='./scripts/cities/'+city+'/clean/floating.json'
 # Mode choice model
-FITTED_MODE_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_rf.p'
+FITTED_RF_MODE_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_rf.p'
 RF_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/rf_features.json'
+FITTED_LOGIT_MODE_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_logit.p'
+LOGIT_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/logit_features.json'
 # Home location choice model
 FITTED_HOME_LOC_MODEL_PATH='./scripts/cities/'+city+'/models/home_loc_logit.p'
 RENT_NORM_PATH='./scripts/cities/'+city+'/models/rent_norm.json'
@@ -1314,8 +1504,10 @@ activity_full_name = {'H': 'Home', 'W': 'Work', 'C': 'College', 'D': 'Drop-off',
 # Load Data
 # =============================================================================
 # load the pre-calibrated mode choice model
-mode_rf=pickle.load( open( FITTED_MODE_MODEL_PATH, "rb" ) )
+mode_rf=pickle.load( open( FITTED_RF_MODE_MODEL_PATH, "rb" ) )
 rf_features=json.load(open(RF_FEATURES_LIST_PATH, 'r'))
+mode_logit = pickle.load( open( FITTED_LOGIT_MODE_MODEL_PATH, "rb" ) )
+logit_features=json.load(open(LOGIT_FEATURES_LIST_PATH, 'r'))
 # load the pre-calibrated home location choice model
 home_loc_logit=pickle.load( open( FITTED_HOME_LOC_MODEL_PATH, "rb" ) )
 rent_normalisation=json.load(open(RENT_NORM_PATH))
@@ -1480,13 +1672,17 @@ if base_sim_persons:
     static_land_uses_tmp['Residential'] = static_land_uses_tmp.get('Residential_Affordable', []) + static_land_uses_tmp.get('Residential_Market_Rate', [])
     find_destination(base_sim_persons, land_uses=static_land_uses_tmp)
     ods = generate_ods(base_sim_persons) # TODO this function takes longest
-    predict_modes_for_activities(ods,base_sim_persons)
+    mp = modePredictor(ods=ods, persons=base_sim_persons, rf_model=mode_rf, rf_features=rf_features, 
+        logit_model=mode_logit, logit_features=logit_features)
+    mp.rf_predict()         # do RF predictions as before
+    # mp.mnl_predict()      # do MNL predictions as before
+    ods, base_sim_persons = mp.ods, mp.persons
     trips=create_trips_layer(base_sim_persons)
     # stays=create_stay_data(base_sim_persons)
     post_trips_data(trips, CITYIO_POST_URL+'ABM')
 #    generate_detailed_schedules(base_sim_persons)
 #    post_od_data(base_sim_persons, CITYIO_POST_URL+'od')
-    print(get_commuter_proportion(persons))
+    print(get_commuter_proportion(base_sim_persons))
     print(get_carbon_emissions(ods)/len(base_sim_persons))
 
 if base_floating_persons:
@@ -1587,7 +1783,11 @@ while True:
         sample_activity_schedules(new_sim_persons)     
         find_destination(new_sim_persons, land_uses=overall_land_uses_tmp)
         new_ods = generate_ods(new_sim_persons)
-        predict_modes_for_activities(new_ods, new_sim_persons)
+        mp = modePredictor(ods=new_ods, persons=new_sim_persons, rf_model=mode_rf, rf_features=rf_features, 
+            logit_model=mode_logit, logit_features=logit_features)
+        mp.rf_predict()         # do RF predictions as before
+        # mp.mnl_predict()      # do MNL predictions as before
+        new_ods, new_sim_persons = mp.ods, mp.persons
         trips=create_trips_layer(base_sim_persons+new_sim_persons)
         print(get_commuter_proportion(base_sim_persons+new_sim_persons))
         print(get_carbon_emissions(ods+new_ods)/len(base_sim_persons+new_sim_persons))
