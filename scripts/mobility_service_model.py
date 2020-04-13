@@ -26,18 +26,11 @@ import sys
 import copy
 #import matplotlib.pyplot as plt
 #from matplotlib.lines import Line2D
+from transport_network import Transport_Network, get_haversine_distance, approx_shape_centroid, Polygon_Location
 
 from mode_logit import long_form_data, asclogit_pred
 
-def approx_shape_centroid(geometry):
-    if geometry['type']=='Polygon':
-        centroid=list(np.mean(geometry['coordinates'][0], axis=0))
-        return centroid
-    elif geometry['type']=='MultiPolygon':
-        centroid=list(np.mean(geometry['coordinates'][0][0], axis=0))
-        return centroid
-    else:
-        print('Unknown geometry type')
+
 
 class World():
     def __init__(self, table_name, city_folder):
@@ -59,7 +52,7 @@ class World():
         # activity schedule results
         self.MOTIF_SAMPLE_PATH='./cities/'+city_folder+'/clean/motif_samples.csv'        
         # portals
-        self.PORTALS_PATH='./cities/'+city_folder+'/clean/portals.geojson'
+#        self.PORTALS_PATH='./cities/'+city_folder+'/clean/portals.geojson'
         # external route costs
         self.ROUTE_COSTS_PATH='./cities/'+city_folder+'/clean/route_costs.json'
         # internal network and route costs
@@ -84,7 +77,7 @@ class World():
         
     
     def build_model(self):
-        self.build_transport_network()
+        self.build_transport_networks()
         self.build_geography()
         self.build_synth_pop()
      
@@ -92,39 +85,40 @@ class World():
         print('Building geography')
         self.build_zones()
         self.build_geogrid()
-        self.build_portals()
+#        self.build_portals(world=self)
         # geogrid
         
     def build_zones(self):
         zones_geo=json.load(open(self.ALL_ZONES_PATH))
         sim_zones=json.load(open(self.SIM_ZONES_PATH))
-        all_zones={}
+        all_zones=[]
+        self.zone_geoid_index=[]
         for feature in zones_geo['features']:
             geoid=feature['properties']['GEO_ID'].split('US')[1]  
             is_sim_zone=geoid in sim_zones
-            all_zones[geoid]=Zone(feature['geometry'], is_sim_zone)
+            all_zones.append(Polygon_Location(geometry=feature['geometry'], 
+                     area_type='zone',
+                     in_sim_area=is_sim_zone,
+                    geoid=geoid))
+            self.zone_geoid_index.append(geoid)
         self.zones=all_zones  
         
     def build_geogrid(self):
         with urllib.request.urlopen(self.CITYIO_GET_URL+'/GEOGRID') as url:
             geogrid_geojson=json.loads(url.read().decode())
-        self.geogrid=GeoGrid(geogrid_geojson)
+        self.geogrid=GeoGrid(geogrid_geojson, transport_network=self.tn)
         
-    def build_portals(self):
-        portals_geojson=json.load(open(self.PORTALS_PATH))
-        self.portals=[]
-        for feature in portals_geojson['features']:
-            self.portals.append(Portal(feature['geometry']))
+#    def build_portals(self, world):
+#        portals_geojson=json.load(open(world.external_routes.PORTALS_PATH))
+#        self.portals=[]
+#        for feature in portals_geojson['features']:
+#            self.portals.append(Portal(feature['geometry']))
 
         
         
-    def build_transport_network(self):
+    def build_transport_networks(self):
         # internal network
-        self.internal_net_fw_results=json.load(open(self.FLOYD_PREDECESSOR_PATH))
-        self.internal_network_df=pd.read_csv(self.INT_NET_DF_FLOYD_PATH)
-        # external costs
-        self.external_route_costs=json.load(open(self.ROUTE_COSTS_PATH))
-        # TODO: build KD Tree of internal node locations
+        self.tn=Transport_Network('corktown', 'Detroit')
 
         
     def build_synth_pop(self):
@@ -133,6 +127,33 @@ class World():
         base_floating_persons=json.load(open(self.FLOATING_PATH))
         base_vacant_housing=json.load(open(self.VACANT_PATH))
         self.pop=Population(base_sim_persons, base_floating_persons, base_vacant_housing, world=self)
+        
+    def add_mode_choice_model(self, mc):
+        self.mode_choice_model=mc
+    
+    def add_home_location_choice_model(self, hlc):
+        self.home_location_choice_modell=hlc
+    
+    def add_activity_location_choice_model(self, alc):
+        self.activity_location_choice_model=alc
+        
+    def get_geogrid_data(self):
+        pass
+    
+    def listen(self):
+        self.update_simulation()
+        self.post_results()
+        
+    
+    def update_simulation():
+        pass
+#        self.get_activities()
+#        self.get_activity_locations()
+#        self.get_mode_choice_sets()
+#        self.predict_mode_choices()
+        
+    def post_results():
+        pass
         
         
 
@@ -147,7 +168,6 @@ class Population():
             self.base_floating.append(Person(person_record))
         for housing_record in base_vacant_housing:
             self.base_vacant.append(Housing_Unit(housing_record, world=world))
-
         
         
 class Person():
@@ -162,35 +182,22 @@ class Housing_Unit():
     def __init__(self, attributes, world):       
         for key in attributes:
             setattr(self, key, attributes[key]) 
-        self.location=world.zones[self.home_geoid].centroid
-        
-class Zone():
-    def __init__(self, geometry, is_sim_zone):
-        self.geometry=geometry
-        self.centroid=approx_shape_centroid(geometry)
-        self.is_sim_zone=is_sim_zone
-        
-class Portal():
-    def __init__(self, geometry):
-        self.geometry=geometry
-        self.centroid=approx_shape_centroid(geometry)
-        # get close nodes
-
-# TODO: should zones, portals and grid cells all be extending a location class?        
-class Grid_Cell():
-    def __init__(self, geometry, initial_land_use):
-        self.centroid=approx_shape_centroid(geometry)
-        self.dynamic_type=None
-        self.initial_land_use=initial_land_use
+        self.centroid=world.zones[world.zone_geoid_index.index(self.home_geoid)].centroid
+                
+class Grid_Cell(Polygon_Location):
+    def set_initial_land_use(self, land_use):
+        self.initial_land_use=land_use
         
 class GeoGrid():
-    def __init__(self, grid_geojson):
+    def __init__(self, grid_geojson, transport_network):
         self.cells=[]
         for feature in grid_geojson['features']:
-            self.cells.append(Grid_Cell(feature['geometry'], feature['properties']['land_use']))
-            # TODO: add closest nodes in network
-        
-        
+            new_grid_cell=Grid_Cell(feature['geometry'], 
+                                    area_type='grid',
+                                    in_sim_area=True)
+            new_grid_cell.get_close_nodes(transport_network=transport_network)
+            self.cells.append(new_grid_cell)
+            
 this_world=World('corktown', 'Detroit')
             
 #def main():
