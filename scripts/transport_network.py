@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import math
 #import urllib
+import matplotlib.path as mplPath
 
 import xml.etree.ElementTree as et
 import urllib.request
@@ -74,12 +75,13 @@ def approx_shape_centroid(geometry):
         print('Unknown geometry type')
 
 class Mode():
-    def __init__(self, mode_descrip):
+    def __init__(self, mode_descrip, mode_id):
         self.speed_met_s=mode_descrip['speed_m_s']
         self.name=mode_descrip['net_name']
         self.activity=mode_descrip['activity']
         self.co2_emissions_kg_met=mode_descrip['co2_emissions_kg_met']
         self.fixed_costs=mode_descrip['fixed_costs']
+        self.id=mode_id
     
 class Polygon_Location():
     def __init__(self, geometry, area_type, in_sim_area, geoid=None):
@@ -90,13 +92,22 @@ class Polygon_Location():
         self.geoid=geoid
     def get_close_nodes(self, transport_network):
         self.close_nodes=transport_network.get_closest_internal_nodes(self.centroid, 5)
-        # get close nodes 
-        
+        # get close nodes
+    def get_containing_poly(self, polygon_location_list):
+        for pl in polygon_location_list:
+            if pl.geometry['type'] == 'Polygon':
+                polygon_paths=[mplPath.Path(pl.geometry["coordinates"][0])]
+            elif pl.geometry['type'] == 'MultiPolygon':
+                polygon_paths=[mplPath.Path(c) for c in pl.geometry["coordinates"][0]]
+            if any(pp.contains_point(self.centroid) for pp in polygon_paths):
+                self.containing_poly=pl
+                break
+                
 class Route():
     def __init__(self, internal_route, costs, pre_time=0, post_time=0):
         self.internal_route=internal_route
-        self.pre_time=0
-        self.post_time=0
+        self.pre_time=pre_time
+        self.post_time=post_time
         self.costs=costs
 
 class Transport_Network():
@@ -110,7 +121,7 @@ class Transport_Network():
         self.FLOYD_PREDECESSOR_PATH='./cities/'+city_folder+'/clean/fw_result.json'
         self.INT_NET_DF_FLOYD_PATH='./cities/'+city_folder+'/clean/sim_net_df_floyd.csv'
         self.SIM_AREA_PATH='./cities/'+city_folder+'/clean/table_area.geojson'            
-        self.base_modes=[Mode(d) for d in mode_descrips]
+        self.base_modes=[Mode(d, mode_id) for mode_id, d in enumerate(mode_descrips)]
         # External route costs
         try:
             self.external_costs=json.load(open(self.ROUTE_COSTS_PATH))
@@ -180,15 +191,22 @@ class Transport_Network():
         return path
             
     def get_path_coords_distances(self, path):
+        """
+        takes a list of node ids and returns:
+            a list of coordinates of each node
+            a list of distances of each link
+        may return empty lists if the path has length of 0 or 1
+        """
         coords, distances =[], []
-        for node_ind in range(len(path)-1):
-            from_node=path[node_ind]
-            to_node=path[node_ind+1]
-            link_attributes=self.nodes_to_link_attributes['{}_{}'.format(from_node, to_node)]
-            distances+=[link_attributes['distance']]
-            coords+=[link_attributes['from_coord']]
-        coords+= [link_attributes['to_coord']]
-        # add the final coordinate of the very last segment
+        if len(path)>1:
+            for node_ind in range(len(path)-1):
+                from_node=path[node_ind]
+                to_node=path[node_ind+1]
+                link_attributes=self.nodes_to_link_attributes['{}_{}'.format(from_node, to_node)]
+                distances+=[link_attributes['distance']]
+                coords+=[link_attributes['from_coord']]
+            # add the final coordinate of the very last segment
+            coords+= [link_attributes['to_coord']]       
         return coords, distances
     
     def get_internal_routes(self, from_loc, to_loc):
@@ -201,7 +219,7 @@ class Transport_Network():
         routes={}
         for im, mode in enumerate(self.base_modes):
             routes[mode.activity]={'costs': {'driving':0, 'walking':0, 'waiting':0,
-                'cycling':0, 'pt':0}, 'route':{'node_path':path, 'distances': distances,
+                'cycling':0, 'pt':0}, 'internal_route':{'node_path':path, 'distances': distances,
                 'total_distance': total_distance, 'coords': coords}}
             routes[mode.activity]['costs'][mode.activity]=(total_distance/mode.speed_met_s)/60
             for f_act in mode.fixed_costs:
@@ -215,20 +233,25 @@ class Transport_Network():
         If the from_loc or to_loc is not a grid cell (i.e. is outside the sim area)
         the Route returned will contain the internal part of the route as well
         as well the time duration of the external portion (pre or post)
+        
         """
         if ((from_loc.area_type=='grid') and (to_loc.area_type=='grid')):
             routes=self.get_internal_routes(from_loc, to_loc)
-            return {mode: Route(routes[mode], routes[mode]['costs']) for mode in routes}
+            return {mode: Route(internal_route=routes[mode], costs=routes[mode]['costs']) for mode in routes}
         elif to_loc.area_type=='grid':
             # trip arriving into the site
             external_routes_by_portal={ip : self.get_external_costs(from_loc.geoid, ip) for ip, portal in enumerate(self.portals)}
             internal_routes_by_portal={ip: self.get_internal_routes(portal, to_loc) for ip, portal in enumerate(self.portals)}
             best_routes=self.get_best_portal_routes(external_routes_by_portal, internal_routes_by_portal, 'in')
+            return best_routes
         elif from_loc.area_type=='grid':
             external_routes_by_portal={ip : self.get_external_costs(to_loc.geoid, ip) for ip, portal in enumerate(self.portals)}
             internal_routes_by_portal={ip: self.get_internal_routes(portal, from_loc) for ip, portal in enumerate(self.portals)}
             best_routes=self.get_best_portal_routes(external_routes_by_portal, internal_routes_by_portal, 'out')
-        return best_routes
+            return best_routes
+        else:
+            routes=self.get_approx_routes(from_loc, to_loc)
+            return {mode: Route(internal_route=routes[mode], costs=routes[mode]['costs']) for mode in routes}
 
     def get_best_portal_routes(self, external_routes_by_portal, internal_routes_by_portal, direction):
         """
@@ -255,6 +278,22 @@ class Transport_Network():
             else:
                 best_routes[mode]= Route(internal_route=best_portal_route, costs=best_costs, post_time=total_external_time)
         return best_routes
+    
+    def get_approx_routes(self, from_loc, to_loc):
+        routes={}
+        distance=get_haversine_distance(from_loc.centroid, to_loc.centroid)
+        for im, mode in enumerate(self.base_modes):
+            routes[mode.activity]={
+                    'costs': {'driving':0, 'walking':0, 'waiting':0,
+                                              'cycling':0, 'pt':0}, 
+                    'internal_route':{'node_path':[], 'distances': [],
+                             'total_distance': 0, 'coords': []}}
+            routes[mode.activity]['costs'][mode.activity]=(distance/mode.speed_met_s)/60
+            for f_act in mode.fixed_costs:
+                routes[mode.activity]['costs'][f_act]+=mode.fixed_costs[f_act]
+        return routes
+
+        
    
         
     def prepare_external_routes(self):

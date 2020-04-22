@@ -1,0 +1,46 @@
+{
+  "Home": [
+    "Residential_Affordable",
+    "Residential_Market_Rate"
+  ],
+  "Work": [
+    "Office_High_Density",
+    "Office_Low_Density",
+    "Industrial"
+  ],
+  "College": [
+    "School",
+    "University"
+  ],
+  "Drop-off": [
+    "School",
+    "University"
+  ],
+  "Eat": [
+    "Restaurants"
+  ],
+  "Groceries": [
+    "Commercial"
+  ],
+  "Health": [
+    "Commercial",
+    "Hospital"
+  ],
+  "Recreation": [
+    "Commercial",
+    "Open Space"
+  ],
+  "Shopping": [
+    "Commercial"
+  ],
+  "Visit": [
+    "Residential"
+  ],
+  "Exercise": [
+    "Commercial",
+    "Open Space"
+  ],
+  "Religion": [
+    "Place of Worship"
+  ]
+}

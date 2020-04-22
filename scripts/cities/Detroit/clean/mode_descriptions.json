@@ -1,20 +1,20 @@
 [
   {
-    "net_name": "drive",
+    "net_name": "driving",
     "activity": "driving",
     "speed_m_s": 8.33,
     "co2_emissions_kg_met": 0.000249,
     "fixed_costs": {}
   },
   {
-    "net_name": "cycle",
+    "net_name": "cycling",
     "activity": "cycling",
     "speed_m_s": 4.167,
     "co2_emissions_kg_met": 0,
     "fixed_costs": {}
   },
   {
-    "net_name": "walk",
+    "net_name": "walking",
     "activity": "walking",
     "speed_m_s": 1.33,
     "co2_emissions_kg_met": 0,

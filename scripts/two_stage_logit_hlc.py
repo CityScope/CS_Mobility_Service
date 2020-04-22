@@ -13,6 +13,13 @@ from os import path,chdir
 import time
 #chdir(path.dirname(sys.argv[0]))        #use relative path
 
+from transport_network import approx_shape_centroid, get_haversine_distance
+
+class HomeLocationChoiceModel():
+    def __init__(self):
+        pass
+
+
 city='Detroit'
 state_codes={'Detroit': 'mi', 'Boston': 'ma'}
 state_fips={'Detroit': '26', 'Boston': '25'}

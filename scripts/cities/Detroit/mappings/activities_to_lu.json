@@ -1,4 +1,12 @@
 {
+  "Home": {
+    "Residential": 1
+  },
+  "Work": {
+    "Office_High_Density": 0.4,
+    "Office_Low_Density": 0.4,
+    "Industrial": 0.2
+  },
   "College": {
     "School": 0.5,
     "University": 0.5
