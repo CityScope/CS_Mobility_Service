@@ -62,7 +62,10 @@ class MobilityModel():
         host='https://cityio.media.mit.edu/'
         self.CITYIO_GET_URL=host+'api/table/'+table_name
         self.CITYIO_POST_URL=host+'api/table/update/'+table_name+'/'
-        self.UPDATE_FREQ=1
+        self.types=None
+        # scale factor must match that from pop-synth
+        # TODO: integrate the pop-synth as a class
+        self.scale_factor=10
         
         self.build_model()
     
@@ -96,9 +99,6 @@ class MobilityModel():
             all_zones.append(new_zone)
             self.zone_geoid_index.append(geoid_short)
         self.zones=all_zones  
-        
-
-
         
     def build_geogrid(self):
         with urllib.request.urlopen(self.CITYIO_GET_URL+'/GEOGRID') as url:
@@ -202,22 +202,33 @@ class MobilityModel():
         print('Update took {} seconds'.format((now-then).total_seconds()))
 
     def update_grid(self):
-        for grid_index, ui_land_use_index in enumerate(self.geogrid_data):
-            self.geogrid.cells[grid_index].set_new_land_use(ui_land_use_index)
+        for grid_index, grid_data in enumerate(self.geogrid_data):
+            if self.geogrid.cells[grid_index].interactive:
+                self.geogrid.cells[grid_index].set_properties(grid_data['name'],
+                                  grid_data['height'], self.geogrid.type_defs)
         
     def create_new_agents(self):
         print('\t Creating new agents')
         new_persons=[]
         new_houses=[]
         for cell in self.geogrid.cells:
-            if cell.new_land_use:
-                if 'Office' in cell.new_land_use:
-                    for i in range(self.NEW_PERSONS_PER_BLD):
+            if ((cell.interactive) or (cell.type in ['MCS', 'Ford Campus'])):
+                # TODO: more general way of including the new static land uses
+                if cell.naics is not None:
+                    num_new_persons=sum([cell.naics[code] for code in cell.naics])/self.scale_factor
+                    for i in range(int(num_new_persons)):
                         add_person_record=random.choice(self.pop.base_floating_person_records).copy()
+                        # TODO: person attributes based on NAICS
                         add_person=Person(add_person_record, p_id='n'+str(len(new_persons)))
                         add_person.assign_work_location(cell)
                         new_persons.append(add_person)
-                if 'Residential' in cell.new_land_use:
+                new_housing_capacity=0
+                for code in cell.lbcs:
+                    if code.startswith('11'):
+                        new_housing_capacity+=cell.lbcs[code]
+                new_housing_capacity=new_housing_capacity/self.scale_factor
+                # TODO: number of new housing records to create
+                if new_housing_capacity>0:
                     add_house_record=self.new_house_attributes.copy()
                     add_house_id=len(self.pop.base_vacant)+len(new_houses)
                     add_house=Housing_Unit(add_house_record, house_id=add_house_id)
@@ -239,7 +250,7 @@ class MobilityModel():
                     mode=trip.mode
                     total_co2_kg+=trip.total_distance*mode.co2_emissions_kg_met
                     total_dist+=trip.total_distance
-        return total_co2_kg/count, total_dist/count
+        return total_co2_kg/count
     
     def get_mode_split(self, persons):
         count=0
@@ -382,31 +393,40 @@ class Housing_Unit():
         
                 
 class GridCell(Polygon_Location):
-    def attach_geogrid(self, geogrid, geogrid_id):
+    def attach_geogrid(self, geogrid, geogrid_id, area):
         self.geogrid=geogrid
         self.geogrid_id=geogrid_id
-    def set_initial_land_use(self, base_land_use):
-        self.new_land_use=None
-        if base_land_use is None:
-            self.initial_land_use= None
-            self.land_use=None
-        elif base_land_use=='None':
-            self.initial_land_use= None
-            self.land_use=None
+        self.area=area
+    def set_initial_state(self, base_land_use, base_height):
+        self.base_land_use=base_land_use
+        self.base_height=base_height
+
+    def set_properties(self, cs_type, height, cs_type_defs):
+        self.type=cs_type
+        if ((cs_type is None) or (cs_type=='None')):
+            self.naics={}
+            self.lbcs={}
         else:
-            standardised_lu=self.geogrid.base_lu_to_lu[base_land_use]
-            self.initial_land_use=standardised_lu
-            self.land_use=standardised_lu
-    def set_new_land_use(self, ui_land_use_index):
-        try: 
-            ui_land_use_name=self.geogrid.lu_inputs[str(ui_land_use_index)]
-        except:
-            return None
-        possible_standard_lus=self.geogrid.lu_input_to_lu_standard[ui_land_use_name]
-        new_land_use= np.random.choice([k for k in possible_standard_lus],
-                            1, p=[v for v in possible_standard_lus.values()])[0]
-        self.new_land_use=new_land_use
-        self.land_use=new_land_use
+            this_type_def=cs_type_defs[cs_type]
+            capacity_per_sqm=1/this_type_def['sqm_pperson']
+            capacity=capacity_per_sqm*self.area*height
+            self.naics=self.flatten_cs_type_attribute(this_type_def, 'NAICS', capacity)
+            self.lbcs=self.flatten_cs_type_attribute(this_type_def, 'LBCS', capacity)
+                        
+    def flatten_cs_type_attribute(self, type_def, attribute, capacity):
+        output={}
+        if type_def[attribute] is not None:
+            for floor_group in type_def[attribute]:
+                capacity_floor=capacity*floor_group['proportion']
+                for code in floor_group['use']:
+                    capacity_this_floor_this_attr=capacity_floor*floor_group['use'][code]
+                    if code in output:
+                        output[code]+=capacity_this_floor_this_attr
+                    else:
+                        output[code]=capacity_this_floor_this_attr
+        return output
+        
+                        
     def set_interactivity(self, interactive):
         self.interactive=interactive
         
@@ -415,22 +435,35 @@ class GeoGrid():
         MAPPINGS_PATH = './cities/'+city_folder+'/mappings'
         self.lu_inputs=json.load(open(MAPPINGS_PATH+'/lu_inputs.json'))
         self.lu_input_to_lu_standard=json.load(open(MAPPINGS_PATH+'/lu_input_to_lu_standard.json'))
-        self.activities_to_lu=json.load(open(MAPPINGS_PATH+'/activities_to_lu_2.json'))
+        self.activities_to_lbcs=json.load(open(MAPPINGS_PATH+'/activities_to_lbcs.json'))
         self.base_lu_to_lu=json.load(open(MAPPINGS_PATH+'/base_lu_to_lu.json'))
         self.cells=[]
+        self.type_defs=grid_geojson['properties']['types']
+        side_len=grid_geojson['properties']['header']['cellSize']
+        area=side_len*side_len
         for ind_f, feature in enumerate(grid_geojson['features']):
             new_grid_cell=GridCell(feature['geometry'], 
                                     area_type='grid',
                                     in_sim_area=True)
-            new_grid_cell.set_interactivity(True)
-            new_grid_cell.attach_geogrid(geogrid=self, geogrid_id=ind_f)
+            new_grid_cell.set_interactivity(feature['properties']['interactive'])
+            new_grid_cell.attach_geogrid(geogrid=self, geogrid_id=ind_f,area=area)
             new_grid_cell.get_close_nodes(transport_network=transport_network)
-#            new_grid_cell.set_initial_land_use(feature['properties']['land_use'])
-            new_grid_cell.set_initial_land_use(feature['properties']['name'])
+            new_grid_cell.set_initial_state(feature['properties']['type'],
+                                            feature['properties']['height'])
+            new_grid_cell.set_properties(feature['properties']['type'],
+                                         feature['properties']['height'], 
+                                         self.type_defs)
             self.cells.append(new_grid_cell)
     def find_locations_for_activity(self, activity):
-        possible_lus=self.activities_to_lu[activity]
-        possible_cells=[c for c in self.cells if c.land_use in possible_lus]
+        possible_lbcs=self.activities_to_lbcs[activity]
+        possible_cells=[]
+        for c in self.cells:
+            suitable=False
+            for lbcs_stem in possible_lbcs:
+                if any(cell_lbcs.startswith(lbcs_stem) for cell_lbcs in c.lbcs):
+                    suitable=True
+            if suitable:
+                possible_cells.append(c)
 #        if len(possible_cells)==0:
 #            print('No suitable cells found for {}'.format(activity))
         return possible_cells
@@ -473,6 +506,7 @@ class Trip():
 
             
 def main():
+#if True:
     this_model=MobilityModel('corktown', 'Detroit')
     
     this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
@@ -488,15 +522,13 @@ def main():
     print(avg_co2)
     print(this_model.get_mode_split(this_model.pop.base_sim))
     print(this_model.get_live_work_prop(this_model.pop.base_sim))
-    print(this_model.get_avg_utility(this_model.pop.base_sim))
     
     geogrid_data=[None for i in range(len(this_model.geogrid.cells))]
     for ig in range(len(geogrid_data)):
-        if this_model.geogrid.cells[ig].interactive:
-            geogrid_data[ig] = random.randint(0, 6)
-#    for ig in range(len(geogrid_data)):
-#        if this_model.geogrid.cells[ig].interactive:
-#            geogrid_data[ig] = 1
+        cell_type=random.choice([
+            type_name for type_name in this_model.geogrid.type_defs])
+        cell_height=random.randint(1,10)
+        geogrid_data[ig] ={'name': cell_type, 'height': cell_height}
     this_model.update_simulation(geogrid_data)
     # TODO: subset by people with live or work in sim area
     all_persons=this_model.pop.base_sim+this_model.pop.new
@@ -504,7 +536,6 @@ def main():
     print(avg_co2)
     print(this_model.get_mode_split(all_persons))
     print(this_model.get_live_work_prop(all_persons))
-    print(this_model.get_avg_utility(all_persons))
 
 #
 #if __name__ == '__main__':

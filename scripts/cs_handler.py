@@ -16,16 +16,13 @@ from mode_logit_nhts import NhtsModeLogit
 from two_stage_logit_hlc import TwoStageLogitHLC
 
 class CS_Handler():
-    def __init__(self, table_name, city_folder, host='https://cityio.media.mit.edu/',sleep_time=1):
-        self.table_name=table_name
-        self.city_folder=city_folder
-        self.CITYIO_GET_URL=host+'api/table/'+table_name
+    def __init__(self, mobility_model,  host='https://cityio.media.mit.edu/',sleep_time=1):
+        self.model=mobility_model
+        self.table_name=mobility_model.table_name
+        self.CITYIO_GET_URL=mobility_model.CITYIO_GET_URL
         self.sleep_time=sleep_time # seconds
         self.grid_hash_id=-1
-        self.types=self.get_geogrid_type_defs()
-        
-    def add_model(self, mobility_model):
-        self.model= mobility_model
+
         
     def initialise_model(self):
         self.model.init_simulation()
@@ -60,31 +57,51 @@ class CS_Handler():
         except:
             print('Cant access cityIO for GEOGRIDDATA')
             return None
-    def get_geogrid_type_defs(self):
-        with urllib.request.urlopen(self.CITYIO_GET_URL+'/GEOGRID/properties/types') as url:
-            self.types=json.loads(url.read().decode())
-    
-    def get_local_geogrid_data(self):
-        pass
     
     def random_geogrid_data(self):
-        pass
+        geogrid_data=[]
+        for cell in self.model.geogrid.cells:
+            if cell.interactive:                
+                cell_type=random.choice([
+                    type_name for type_name in self.model.geogrid.type_defs])
+                cell_height=random.randint(1,10)
+            else:
+                cell_type=cell.base_land_use
+                cell_height=cell.base_height
+            geogrid_data.append({'name': cell_type, 'height': cell_height})
+        return geogrid_data
+
         
-    def generate_training_example(self):
-        pass
-        # simulate geogriddata
-        # save X
-        # update simulation
-        # save y
+    def generate_training_example_co2_lwp(self):
+        geogrid_data=self.random_geogrid_data()
+        x={cs_type:0 for cs_type in self.model.geogrid.type_defs}
+        for g in geogrid_data:
+            x[g['name']]+=g['height']
+        self.model.update_simulation(geogrid_data)
+        all_persons=self.model.pop.base_sim+self.model.pop.new
+        avg_co2=self.model.get_avg_co2(all_persons)
+        live_work_prop=self.model.get_live_work_prop(all_persons)
+        y={'avg_co2': avg_co2, 'live_work_prop': live_work_prop}
+        return x, y
+
+        
     
-    def generate_training_data(self):
+    def generate_training_data(self, iterations):
         """ In order to train a ML model to approximate the results of the simulation
         in deployments where indicators must be available in real-time
         """
-        pass
+        X=[]
+        Y=[]
+        for it in range(iterations):
+            x, y = self.generate_training_example_co2_lwp()
+            X.append(x)
+            Y.append(y)
+        return X, Y
+            
         
         
-def main():
+#def main():
+if True:
     this_model=MobilityModel('corktown', 'Detroit')
     
     this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
@@ -96,9 +113,11 @@ def main():
                              geogrid=this_model.geogrid, base_vacant_houses=this_model.pop.base_vacant))
     
     handler=CS_Handler(this_model)
-    handler.listen_city_IO()
+    X, Y = handler.generate_training_data(iterations=3)
     
-
-if __name__ == '__main__':
-	main()  
+#    handler.listen_city_IO()
     
+#
+#if __name__ == '__main__':
+#	main()  
+#    
