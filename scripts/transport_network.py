@@ -94,13 +94,13 @@ class Polygon_Location():
         self.close_nodes=transport_network.get_closest_internal_nodes(self.centroid, 5)
         # get close nodes
     def get_containing_poly(self, polygon_location_list):
-        for pl in polygon_location_list:
+        for ind_pl, pl in enumerate(polygon_location_list):
             if pl.geometry['type'] == 'Polygon':
                 polygon_paths=[mplPath.Path(pl.geometry["coordinates"][0])]
             elif pl.geometry['type'] == 'MultiPolygon':
                 polygon_paths=[mplPath.Path(c) for c in pl.geometry["coordinates"][0]]
             if any(pp.contains_point(self.centroid) for pp in polygon_paths):
-                self.containing_poly=pl
+                return ind_pl, pl
                 break
                 
 class Route():
@@ -281,7 +281,7 @@ class Transport_Network():
     
     def get_approx_routes(self, from_loc, to_loc):
         routes={}
-        distance=get_haversine_distance(from_loc.centroid, to_loc.centroid)
+        distance=1.4*get_haversine_distance(from_loc.centroid, to_loc.centroid)
         for im, mode in enumerate(self.base_modes):
             routes[mode.activity]={
                     'costs': {'driving':0, 'walking':0, 'waiting':0,
