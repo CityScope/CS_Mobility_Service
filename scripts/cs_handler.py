@@ -39,6 +39,7 @@ class CS_Handler():
         geogrid_data=self.get_geogrid_data()
         if geogrid_data is not None:
             self.model.update_simulation(geogrid_data)
+            self.model.post_trips_layer()
             self.grid_hash_id=grid_hash_id
         
     def get_grid_hash_id(self):
