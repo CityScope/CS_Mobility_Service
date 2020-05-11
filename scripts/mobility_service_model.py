@@ -14,8 +14,9 @@ import numpy as np
 import requests
 import pandas as pd
 import datetime
+from copy import deepcopy
 
-from transport_network import Transport_Network,  Polygon_Location
+from transport_network import Transport_Network,  Polygon_Location, Mode
 from activity_scheduler import ActivityScheduler
 from mode_logit_nhts import NhtsModeLogit
 from two_stage_logit_hlc import TwoStageLogitHLC
@@ -158,18 +159,24 @@ class MobilityModel():
             
     def predict_trip_modes(self, persons):
         print('\t Predicting Trip modes')
+        temp_mode_choice_model=deepcopy(self.mode_choice_model)
         all_trips=[]
         for person_id, p in enumerate(persons):
             all_trips.extend(p.trips_to_list(person_id=person_id))
-        self.mode_choice_model.generate_feature_df(all_trips)
-        self.mode_choice_model.predict_modes()
+        temp_mode_choice_model.generate_feature_df(all_trips)
+        if len(temp_mode_choice_model.new_alt_specs)>0:
+            for new_spec in temp_mode_choice_model.new_alt_specs:
+                temp_mode_choice_model.set_new_alt(new_spec)
+        temp_mode_choice_model.predict_modes()
+        mode_list=self.tn.base_modes+ self.tn.new_modes
+        print(mode_list)
         for i, trip_record in enumerate(all_trips):
             person_id=trip_record['person_id']
             trip_id=trip_record['trip_id']
-            predicted_mode=self.mode_choice_model.predicted_modes[i]
-            trip_utility=self.mode_choice_model.predicted_v[i][predicted_mode]
+            predicted_mode=temp_mode_choice_model.predicted_modes[i]
+#            trip_utility=self.mode_choice_model.predicted_v[i][predicted_mode]
             persons[person_id].trips[trip_id].set_mode(predicted_mode, 
-                   mode_list=self.tn.base_modes, utility=trip_utility)
+                   mode_list)
             
     def post_outputs(self, persons):
         trips_layer_data=[]
@@ -254,7 +261,7 @@ class MobilityModel():
     
     def get_mode_split(self, persons):
         count=0
-        split={m.name: 0 for m in self.tn.base_modes}
+        split={m.name: 0 for m in self.tn.base_modes+self.tn.new_modes}
         for p in persons:
             for trip in p.trips:
                 count+=1
@@ -281,12 +288,13 @@ class MobilityModel():
                     # an arbitrality large distance is assumed for purpose of mode choice model
                     total_v+=trip.utility
         return total_v/count
-        
-
-        
-
-                    
-        
+    
+    def set_new_modes(self, new_alt_specs, nests_spec=None):
+        self.mode_choice_model.add_new_alts(new_alt_specs)
+        self.tn.set_new_modes(self.mode_choice_model.new_alt_specs)
+        if nests_spec is not None:
+            self.mode_choice_model.add_nests_spec(nests_spec)
+                
 class Population():
     def __init__(self, base_sim_persons, base_floating_persons, base_vacant_housing, model):
         self.base_floating_person_records=base_floating_persons
@@ -484,11 +492,12 @@ class Trip():
         else:
             self.purpose='NHB'
     def set_mode(self, mode, mode_list, utility=None):
-        mode_name=mode_list[mode].name
+#        mode_name=mode_list[mode].name
+        copy_route=mode_list[mode].copy_route
         self.mode=mode_list[mode]
-        self.internal_route=self.mode_choice_set[mode_name].internal_route['internal_route']
-        self.pre_time=self.mode_choice_set[mode_name].pre_time
-        self.post_time=self.mode_choice_set[mode_name].post_time
+        self.internal_route=self.mode_choice_set[copy_route].internal_route['internal_route']
+        self.pre_time=self.mode_choice_set[copy_route].pre_time
+        self.post_time=self.mode_choice_set[copy_route].post_time
         self.total_distance=self.internal_route['total_distance'
                                 ]+((self.pre_time)+(self.post_time))*60*self.mode.speed_met_s
         if utility is not None:
@@ -511,32 +520,18 @@ def main():
     
     this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
     
-    this_model.assign_mode_choice_model(NhtsModeLogit(table_name='corktown', city_folder='Detroit'))
+    mode_choice_model=NhtsModeLogit(table_name='corktown', city_folder='Detroit')
+    
+            
+    this_model.assign_mode_choice_model(mode_choice_model)
+    
     
     this_model.assign_home_location_choice_model(
             TwoStageLogitHLC(table_name='corktown', city_folder='Detroit', 
                              geogrid=this_model.geogrid, base_vacant_houses=this_model.pop.base_vacant))
     
     this_model.init_simulation()
-    avg_co2=this_model.get_avg_co2(this_model.pop.base_sim)
-    print(avg_co2)
-    print(this_model.get_mode_split(this_model.pop.base_sim))
-    print(this_model.get_live_work_prop(this_model.pop.base_sim))
-    
-    geogrid_data=[None for i in range(len(this_model.geogrid.cells))]
-    for ig in range(len(geogrid_data)):
-        cell_type=random.choice([
-            type_name for type_name in this_model.geogrid.type_defs])
-        cell_height=random.randint(1,10)
-        geogrid_data[ig] ={'name': cell_type, 'height': cell_height}
-    this_model.update_simulation(geogrid_data)
-    # TODO: subset by people with live or work in sim area
-    all_persons=this_model.pop.base_sim+this_model.pop.new
-    avg_co2=this_model.get_avg_co2(all_persons)
-    print(avg_co2)
-    print(this_model.get_mode_split(all_persons))
-    print(this_model.get_live_work_prop(all_persons))
 
 #
-#if __name__ == '__main__':
-#	main()  
+if __name__ == '__main__':
+	main()  

@@ -455,6 +455,8 @@ class NhtsModeLogit:
 #            self.logit_model['params'] = {v: p for v, p in zip(
 #                list(logit_model['model'].coefs.index), list(logit_model['model'].coefs.values))}
         self.base_alts = {0:'drive', 1:'cycle', 2:'walk', 3:'PT'}
+        self.new_alt_specs=[]
+        self.nests_spec=None
         self.new_alts = []
         self.new_alts_like = {}
         self.update_alts()
@@ -493,9 +495,9 @@ class NhtsModeLogit:
         self.alts = alts
         self.alts_reverse = {v:k for k,v in self.alts.items()}
         
-    def predict_modes(self, which_model='mnl'):
-        if which_model=='quasi_nl':
-            self.quasi_nl_predict()
+    def predict_modes(self):
+        if self.nests_spec is not None:
+            self.quasi_nl_predict(self.nests_spec)
         else:
             self.mnl_predict()
     
@@ -539,12 +541,17 @@ class NhtsModeLogit:
         elif method == 'max':
             mode = prob.argmax(axis=1)
         self.predicted_modes, self.predicted_prob = mode, prob
-        self.apply_predictions()
             
         
     def set_logit_model_params(self, params={}):
         for v, p in params.items(): # v=varname, p=parameter
             self.logit_model['params'][v] = p
+            
+    def add_new_alts(self, alt_specs):
+        self.new_alt_specs=alt_specs
+        
+    def add_nests_spec(self, nests_spec):
+        self.nests_spec=nests_spec
     
     def set_new_alt(self, new_alt_spec):
         """

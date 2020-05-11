@@ -77,8 +77,9 @@ def approx_shape_centroid(geometry):
 class Mode():
     def __init__(self, mode_descrip, mode_id):
         self.speed_met_s=mode_descrip['speed_m_s']
-        self.name=mode_descrip['net_name']
+        self.name=mode_descrip['name']
         self.activity=mode_descrip['activity']
+        self.copy_route=mode_descrip['copy_route']
         self.co2_emissions_kg_met=mode_descrip['co2_emissions_kg_met']
         self.fixed_costs=mode_descrip['fixed_costs']
         self.id=mode_id
@@ -122,6 +123,7 @@ class Transport_Network():
         self.INT_NET_DF_FLOYD_PATH='./cities/'+city_folder+'/clean/sim_net_df_floyd.csv'
         self.SIM_AREA_PATH='./cities/'+city_folder+'/clean/table_area.geojson'            
         self.base_modes=[Mode(d, mode_id) for mode_id, d in enumerate(mode_descrips)]
+        self.new_modes=[]
         # External route costs
         try:
             self.external_costs=json.load(open(self.ROUTE_COSTS_PATH))
@@ -161,6 +163,10 @@ class Transport_Network():
                                                  in_sim_area=True)
             new_portal.get_close_nodes(transport_network=self)
             self.portals.append(new_portal)
+            
+    def set_new_modes(self, new_mode_specs):
+        n_base_modes=len(self.base_modes)
+        self.new_modes=[Mode(spec, n_base_modes+i_s) for i_s, spec in enumerate(new_mode_specs)]
             
     def get_external_costs(self, zone_geoid, portal_id):
         return {mode: self.external_costs[mode][zone_geoid][str(portal_id)] for mode in self.external_costs}
@@ -218,12 +224,12 @@ class Transport_Network():
             total_distance=sum(distances)
         routes={}
         for im, mode in enumerate(self.base_modes):
-            routes[mode.activity]={'costs': {'driving':0, 'walking':0, 'waiting':0,
+            routes[mode.name]={'costs': {'driving':0, 'walking':0, 'waiting':0,
                 'cycling':0, 'pt':0}, 'internal_route':{'node_path':path, 'distances': distances,
                 'total_distance': total_distance, 'coords': coords}}
-            routes[mode.activity]['costs'][mode.activity]=(total_distance/mode.speed_met_s)/60
+            routes[mode.name]['costs'][mode.activity]=(total_distance/mode.speed_met_s)/60
             for f_act in mode.fixed_costs:
-                routes[mode.activity]['costs'][f_act]+=mode.fixed_costs[f_act]
+                routes[mode.name]['costs'][f_act]+=mode.fixed_costs[f_act]
         return routes
     
     def get_routes(self, from_loc, to_loc):
@@ -283,14 +289,14 @@ class Transport_Network():
         routes={}
         distance=1.4*get_haversine_distance(from_loc.centroid, to_loc.centroid)
         for im, mode in enumerate(self.base_modes):
-            routes[mode.activity]={
+            routes[mode.name]={
                     'costs': {'driving':0, 'walking':0, 'waiting':0,
                                               'cycling':0, 'pt':0}, 
                     'internal_route':{'node_path':[], 'distances': [],
                              'total_distance': 0, 'coords': []}}
-            routes[mode.activity]['costs'][mode.activity]=(distance/mode.speed_met_s)/60
+            routes[mode.name]['costs'][mode.activity]=(distance/mode.speed_met_s)/60
             for f_act in mode.fixed_costs:
-                routes[mode.activity]['costs'][f_act]+=mode.fixed_costs[f_act]
+                routes[mode.name]['costs'][f_act]+=mode.fixed_costs[f_act]
         return routes
 
         

@@ -22,6 +22,7 @@ class CS_Handler():
         self.CITYIO_GET_URL=mobility_model.CITYIO_GET_URL
         self.sleep_time=sleep_time # seconds
         self.grid_hash_id=-1
+        self.initialise_model()
 
         
     def initialise_model(self):
@@ -70,18 +71,22 @@ class CS_Handler():
                 cell_height=cell.base_height
             geogrid_data.append({'name': cell_type, 'height': cell_height})
         return geogrid_data
-
+    
+    def get_outputs(self):
+        all_persons=self.model.pop.base_sim+self.model.pop.new
+        avg_co2=self.model.get_avg_co2(all_persons)
+        live_work_prop=self.model.get_live_work_prop(all_persons)
+        mode_split=self.model.get_mode_split(all_persons)
+        return {'avg_co2': avg_co2, 'live_work_prop': live_work_prop,
+                'mode_split': mode_split}
+        
         
     def generate_training_example_co2_lwp(self):
         geogrid_data=self.random_geogrid_data()
         x={cs_type:0 for cs_type in self.model.geogrid.type_defs}
         for g in geogrid_data:
             x[g['name']]+=g['height']
-        self.model.update_simulation(geogrid_data)
-        all_persons=self.model.pop.base_sim+self.model.pop.new
-        avg_co2=self.model.get_avg_co2(all_persons)
-        live_work_prop=self.model.get_live_work_prop(all_persons)
-        y={'avg_co2': avg_co2, 'live_work_prop': live_work_prop}
+        y=self.get_outputs()
         return x, y
 
         
@@ -100,8 +105,7 @@ class CS_Handler():
             
         
         
-#def main():
-if True:
+def main():
     this_model=MobilityModel('corktown', 'Detroit')
     
     this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
@@ -114,10 +118,7 @@ if True:
     
     handler=CS_Handler(this_model)
     X, Y = handler.generate_training_data(iterations=3)
+
+if __name__ == '__main__':
+	main()  
     
-#    handler.listen_city_IO()
-    
-#
-#if __name__ == '__main__':
-#	main()  
-#    
