@@ -178,12 +178,17 @@ class MobilityModel():
             persons[person_id].trips[trip_id].set_mode(predicted_mode, 
                    mode_list)
             
-    def post_outputs(self, persons):
+    def get_trips_layer(self, persons):
         trips_layer_data=[]
         for person in persons:
             for trip in person.trips:
                 if trip.enters_sim:
                     trips_layer_data.append(trip.to_deckgl_trip_format())
+        return trips_layer_data
+
+            
+    def post_trips_layer(self, persons):
+        trips_layer_data=self.get_trips_layer(persons)
         post_url=self.CITYIO_POST_URL+'ABM'
         trips_str = json.dumps(trips_layer_data)
         try:
