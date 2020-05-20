@@ -218,7 +218,7 @@ class MobilityModel():
 
     def update_grid(self):
         for grid_index, grid_data in enumerate(self.geogrid_data):
-            if self.geogrid.cells[grid_index].interactive:
+            if self.geogrid.cells[grid_index].updatable:
                 self.geogrid.cells[grid_index].set_properties(grid_data['name'],
                                   grid_data['height'], self.geogrid.type_defs)
         
@@ -463,6 +463,8 @@ class GridCell(Polygon_Location):
         else:
             this_type_def=cs_type_defs[cs_type]
             capacity_per_sqm=1/this_type_def['sqm_pperson']
+            if isinstance(height, list):
+                height=height[-1]
             capacity=capacity_per_sqm*self.area*height
             self.naics=self.flatten_cs_type_attribute(this_type_def, 'NAICS', capacity)
             self.lbcs=self.flatten_cs_type_attribute(this_type_def, 'LBCS', capacity)
