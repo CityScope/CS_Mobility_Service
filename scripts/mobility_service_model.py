@@ -169,7 +169,6 @@ class MobilityModel():
                 temp_mode_choice_model.set_new_alt(new_spec)
         temp_mode_choice_model.predict_modes()
         mode_list=self.tn.base_modes+ self.tn.new_modes
-        print(mode_list)
         for i, trip_record in enumerate(all_trips):
             person_id=trip_record['person_id']
             trip_id=trip_record['trip_id']
@@ -189,8 +188,12 @@ class MobilityModel():
             
     def post_trips_layer(self, persons):
         trips_layer_data=self.get_trips_layer(persons)
+        if len(trips_layer_data)>2000:
+            sample_data=random.sample(trips_layer_data, 2000)
+        else:
+            sample_data=trips_layer_data
         post_url=self.CITYIO_POST_URL+'ABM'
-        trips_str = json.dumps(trips_layer_data)
+        trips_str = json.dumps(sample_data)
         try:
             r = requests.post(post_url, data = trips_str)
             print('Trips Layer: {}'.format(r))
@@ -224,8 +227,7 @@ class MobilityModel():
         new_persons=[]
         new_houses=[]
         for cell in self.geogrid.cells:
-            if ((cell.interactive) or (cell.type in ['MCS', 'Ford Campus'])):
-                # TODO: more general way of including the new static land uses
+            if cell.updatable:
                 if cell.naics is not None:
                     num_new_persons=sum([cell.naics[code] for code in cell.naics])/self.scale_factor
                     for i in range(int(num_new_persons)):
@@ -282,6 +284,40 @@ class MobilityModel():
                     live_work+=1
         return live_work/len(self.pop.base_sim+self.pop.base_floating+self.pop.new)
     
+    def health_impacts(self, ref_rr, ref_quantity, actual_quantity, 
+                      min_RR, N,  base_MR= 0.0090421):
+        RR=ref_rr*(actual_quantity/ref_quantity)
+        RR=min(RR, min_RR)
+        deltaF=(1-RR)*N*base_MR
+        return deltaF
+    
+    def health_impacts_pp(self, persons):
+        delta_F, count=0, 0
+        heat_params={'cycling': {'ref_RR': 0.9, 'ref_mins_week':100, 'min_RR':0.55},
+                     'walking': {'ref_RR': 0.89, 'ref_mins_week':168, 'min_RR':0.7}}
+        total_mins_per_week={'walking': 0, 'cycling': 0}
+        for p in persons:
+            count+=1
+            for trip in p.trips:
+                if trip.total_distance < 1000000:
+                    # hack used here because when a route cant be found by some mode
+                    # an arbitrality large distance is assumed for purpose of mode choice model
+                    mode_name=trip.mode.name
+                    if mode_name not in trip.mode_choice_set: # base mode
+                        mode_name=trip.mode.copy_route
+                    total_mins_per_week['walking']+=2*5*trip.mode_choice_set[mode_name].costs['walking']
+                    total_mins_per_week['cycling']+=2*5*trip.mode_choice_set[mode_name].costs['cycling']
+        avg_mins_per_week= {mode_name: total_mins_per_week[mode_name]/count for mode_name in total_mins_per_week}
+        for mode_name in avg_mins_per_week:
+            delta_F+=self.health_impacts(heat_params[mode_name]['ref_RR'], 
+                                   heat_params[mode_name]['ref_mins_week'], 
+                                   avg_mins_per_week[mode_name], 
+                                   heat_params[mode_name]['min_RR'],
+                                   count)            
+        return delta_F/count
+        
+        
+    
     def get_avg_utility(self, persons):
         total_v=0
         count=0
@@ -299,7 +335,12 @@ class MobilityModel():
         self.tn.set_new_modes(self.mode_choice_model.new_alt_specs)
         if nests_spec is not None:
             self.mode_choice_model.add_nests_spec(nests_spec)
-                
+    
+    def set_prop_electric_cars(self, prop):
+        self.tn.base_modes[0].co2_emissions_kg_met*=((1-prop)+prop*0.5)
+        # assume electric cars are half as polluting
+        
+    
 class Population():
     def __init__(self, base_sim_persons, base_floating_persons, base_vacant_housing, model):
         self.base_floating_person_records=base_floating_persons
@@ -440,8 +481,8 @@ class GridCell(Polygon_Location):
         return output
         
                         
-    def set_interactivity(self, interactive):
-        self.interactive=interactive
+    def set_updatable(self, updatable):
+        self.updatable=updatable
         
 class GeoGrid():
     def __init__(self, grid_geojson, transport_network, city_folder):
@@ -458,7 +499,7 @@ class GeoGrid():
             new_grid_cell=GridCell(feature['geometry'], 
                                     area_type='grid',
                                     in_sim_area=True)
-            new_grid_cell.set_interactivity(feature['properties']['interactive'])
+            new_grid_cell.set_updatable(feature['properties']['interactive'] or feature['properties']['static_new'])
             new_grid_cell.attach_geogrid(geogrid=self, geogrid_id=ind_f,area=area)
             new_grid_cell.get_close_nodes(transport_network=transport_network)
             new_grid_cell.set_initial_state(feature['properties']['type'],

@@ -63,7 +63,7 @@ class CS_Handler():
     def random_geogrid_data(self):
         geogrid_data=[]
         for cell in self.model.geogrid.cells:
-            if cell.interactive:                
+            if cell.updatable:                
                 cell_type=random.choice([
                     type_name for type_name in self.model.geogrid.type_defs])
                 cell_height=random.randint(1,10)
@@ -78,17 +78,23 @@ class CS_Handler():
         avg_co2=self.model.get_avg_co2(all_persons)
         live_work_prop=self.model.get_live_work_prop(all_persons)
         mode_split=self.model.get_mode_split(all_persons)
+        delta_f_physical_activity_pp=self.model.health_impacts_pp(all_persons)
         return {'avg_co2': avg_co2, 'live_work_prop': live_work_prop,
-                'mode_split': mode_split}
-        
-        
+                'mode_split': mode_split, 
+                'delta_f_physical_activity_pp': delta_f_physical_activity_pp}
+                
     def generate_training_example_co2_lwp(self):
         geogrid_data=self.random_geogrid_data()
         x={cs_type:0 for cs_type in self.model.geogrid.type_defs}
         for g in geogrid_data:
             x[g['name']]+=g['height']
+        self.model.update_simulation(geogrid_data)
         y=self.get_outputs()
         return x, y
+    
+    def post_trips_data(self):
+        all_persons=self.model.pop.base_sim+self.model.pop.new
+        self.model.post_trips_layer(all_persons)
 
         
     

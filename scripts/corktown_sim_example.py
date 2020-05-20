@@ -44,8 +44,6 @@ this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
 
 this_model.assign_mode_choice_model(NhtsModeLogit(table_name='corktown', city_folder='Detroit'))
 
-this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
-
 this_model.assign_home_location_choice_model(
         TwoStageLogitHLC(table_name='corktown', city_folder='Detroit', 
                          geogrid=this_model.geogrid, 
@@ -53,6 +51,7 @@ this_model.assign_home_location_choice_model(
 
 
 handler=CS_Handler(this_model)
+print(handler.get_outputs())
 
 # =============================================================================
 # perform an update with random input data
@@ -61,12 +60,27 @@ geogrid_data=handler.random_geogrid_data()
 handler.model.update_simulation(geogrid_data)
 print(handler.get_outputs())
 
-# =============================================================================
-# Perform multiple random updates, saving te inputs and outputs
-# =============================================================================
-X, Y = handler.generate_training_data(iterations=3)
 
-all_persons=this_model.pop.base_sim+this_model.pop.new
-print(this_model.get_mode_split(all_persons))
+# =============================================================================
+# Perform multiple random updates, saving the inputs and outputs
+# =============================================================================
+X, Y = handler.generate_training_data(iterations=500)
+
+
+
+# =============================================================================
+# Mobility interventions
+# =============================================================================
+this_model.set_prop_electric_cars(0.5)
+this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
+
+geogrid_data=handler.random_geogrid_data()
+handler.model.update_simulation(geogrid_data)
+print(handler.get_outputs())
+handler.post_trips_data()
+
+X_future_m, Y_future_m = handler.generate_training_data(iterations=500)
+
+
 
 
