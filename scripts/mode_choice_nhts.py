@@ -14,6 +14,10 @@ import pylogit as pl
 from collections import OrderedDict
 import copy
 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.metrics import confusion_matrix
+
 #********************************************
 #      Constants
 #********************************************
@@ -126,6 +130,117 @@ def get_main_dist_km(row):
         return row['DISTTOSC17']*1.62
     else: return -99
           
+
+def create_mode_choice_trip_table(city_folder):
+    NHTS_PATH='NHTS/perpub.csv'
+    NHTS_TOUR_PATH='NHTS/tour17.csv'
+    NHTS_TRIP_PATH='NHTS/trippub.csv'
+    nhts_per=pd.read_csv(NHTS_PATH) # for person-level data
+    nhts_tour=pd.read_csv(NHTS_TOUR_PATH) # for mode speeds
+    nhts_trip=pd.read_csv(NHTS_TRIP_PATH) # for trip-level data
+    
+    REGION_CDIVMSARS_BY_CITY={"Boston": [11,21] ,
+                       "Detroit": [31, 32]
+                       }
+    region_cdivsmars=REGION_CDIVMSARS_BY_CITY[city_folder]
+
+    # Only use weekdays for motifs
+    nhts_trip=nhts_trip.loc[nhts_trip['TRAVDAY'].isin(range(2,7))]
+
+    # add unique ids and merge some variables across the 3 tables
+    nhts_trip['uniquePersonId']=nhts_trip.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
+    nhts_per['uniquePersonId']=nhts_per.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
+    nhts_tour['uniquePersonId']=nhts_tour.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
+
+    # Some lookups
+    nhts_tour=nhts_tour.merge(nhts_per[['HOUSEID', 'HH_CBSA']], on='HOUSEID', how='left')
+    nhts_trip=nhts_trip.merge(nhts_per[['uniquePersonId', 'R_RACE']], on='uniquePersonId', how='left')
+
+
+    tables={'trips': nhts_trip, 'persons': nhts_per, 'tours': nhts_tour}
+    # put tables in a dict so we can use a loop to avoid repetition
+    for t in ['trips', 'persons']:
+    # remove some records
+        tables[t]=tables[t].loc[((tables[t]['CDIVMSAR'].isin(region_cdivsmars))&
+                                 (tables[t]['URBAN']==1))]
+        tables[t]=tables[t].loc[tables[t]['R_AGE_IMP']>15]
+        tables[t]['income']=tables[t].apply(lambda row: income_cat_nhts(row), axis=1)
+        tables[t]['age']=tables[t].apply(lambda row: age_cat_nhts(row), axis=1)
+        tables[t]['children']=tables[t].apply(lambda row: children_cat_nhts(row), axis=1)
+        tables[t]['workers']=tables[t].apply(lambda row: workers_cat_nhts(row), axis=1)
+        tables[t]['tenure']=tables[t].apply(lambda row: tenure_cat_nhts(row), axis=1)
+        tables[t]['sex']=tables[t].apply(lambda row: sex_cat_nhts(row), axis=1)
+        tables[t]['bach_degree']=tables[t].apply(lambda row: bach_degree_cat_nhts(row), axis=1)
+        tables[t]['cars']=tables[t].apply(lambda row: cars_cat_nhts(row), axis=1)
+        tables[t]['race']=tables[t].apply(lambda row: race_cat_nhts(row), axis=1)
+        tables[t]=tables[t].rename(columns= {'HTPPOPDN': 'pop_per_sqmile_home'})
+    tables['trips']['purpose']=tables['trips'].apply(lambda row: purpose_cat_nhts(row), axis=1)
+
+                        
+    #with the tour file:
+    #    get the speed for each mode and the distance to walk/drive to transit for each CBSA
+    #    we can use this to estimate the travel time for each potential mode in the trip file
+
+    #global_avg_speeds={}
+    speeds={area:{} for area in set(tables['persons']['HH_CBSA'])}
+    tables['tours']['main_mode']=tables['tours'].apply(lambda row: mode_cat(row['MODE_D']), axis=1)
+
+    for area in speeds:
+        this_cbsa=tables['tours'][tables['tours']['HH_CBSA']==area]
+        for m in [0, 3]:
+            all_speeds=this_cbsa.loc[((this_cbsa['main_mode']==m) & 
+                                      (this_cbsa['TIME_M']>0))].apply(
+                                        lambda row: row['DIST_M']/row['TIME_M'], axis=1)
+            if len(all_speeds)>0:
+                speeds[area]['km_per_minute_'+str(m)]=1.62* all_speeds.mean()
+            else:
+                speeds[area]['km_per_minute_'+str(m)]=float('nan')
+        speeds[area]['km_per_minute_1']=12/60
+        speeds[area]['km_per_minute_2']=4/60
+        speeds[area]['walk_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_WALK'].mean()
+        speeds[area]['drive_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_POV'].mean()
+
+    # for any region where a mode is not observed at all, 
+    # assume the speed of that mode is
+    # that of the slowest region
+    for area in speeds:
+        for mode_speed in speeds[area]:
+            if not float(speeds[area][mode_speed]) == float(speeds[area][mode_speed]):
+                print('Using lowest speed')
+                speeds[area][mode_speed] = np.nanmin([speeds[other_area][mode_speed] for other_area in speeds])
+
+
+    # with the trips table: use all tirp data
+    tables['trips']['network_dist_km']=tables['trips'].apply(lambda row: row['TRPMILES']*1.62, axis=1)
+    tables['trips']['mode']=tables['trips'].apply(lambda row: mode_cat(row['TRPTRANS']), axis=1) 
+    tables['trips']=tables['trips'].loc[tables['trips']['mode']>=0]                                 #get rid of some samples with -99 mode
+    tables['trips'].loc[tables['trips']['TRPMILES']<0, 'TRPMILES']=0                # -9 for work-from-home   
+
+    # create the mode choice table
+    mode_table=pd.DataFrame()
+    #    add the trip stats for each potential mode
+    mode_table['drive_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
+    mode_table['cycle_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
+    mode_table['walk_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
+    mode_table['PT_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(3)], axis=1)
+    mode_table['walk_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
+    mode_table['drive_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
+
+    for col in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
+                'bach_degree',  'cars', 'race', 'purpose']:
+        new_dummys=pd.get_dummies(tables['trips'][col], prefix=col)
+        mode_table=pd.concat([mode_table, new_dummys],  axis=1)
+
+    for col in [ 
+#            'pop_per_sqmile_home', 
+                'network_dist_km', 'mode']:
+        mode_table[col]=tables['trips'][col]     
+    return mode_table
+
+
+
+
+
         
 def long_form_data(mode_table, alt_attrs, generic_attrs, nalt=4, y_true=True):
     """
@@ -257,7 +372,7 @@ def logit_spec(long_data_df, alt_attr_vars, generic_attrs=[], constant=True,
     numCoef = sum([len(specifications[s]) for s in specifications])
     return model, numCoef
 
-def logit_est_disp(model, numCoef, nalt=4, disp=True):
+def logit_est_disp(model, numCoef, nalt=4, disp=True, just_point=False):
     """
     estimate a logit model and display results, using just_point=True in case of memory error
     
@@ -272,29 +387,31 @@ def logit_est_disp(model, numCoef, nalt=4, disp=True):
                        "model" is the pylogit MNL model object, it is better used when just_point=False
                        "params": a dict with key=varible_name and value=parameter, only valid for just_point=True
     """
-    try:
-        model.fit_mle(np.zeros(numCoef))
-        if disp:
-            print(model.get_statsmodels_summary())
-        return {'just_point': False, 'model': model}
-    except:
-        model_result = model.fit_mle(np.zeros(numCoef), just_point=True)
-        ncs = int(model.data.shape[0]/nalt)
-        beta = model_result['x']
-        if disp:
-            ll0 = np.log(1/nalt) * ncs
-            ll = -model_result['fun']
-            mcr = 1 - ll / ll0
-            print('\n\nLogit model summary\n---------------------------')
-            print('number of cases: ', ncs)
-            print('Initial Log-likelihood: ', ll0)
-            print('Final Log-likelihood: ', ll)
-            print('McFadden R2: {:4.4}\n'.format(mcr))
-            print('\nLogit model parameters:\n---------------------------')
-            for varname, para in zip(model.ind_var_names, beta):
-                print('{}: {:4.6f}'.format(varname, para))
-        params = {varname: param for varname, param in zip(model.ind_var_names, beta)}
-        return {'just_point': True, 'model': model, 'params': params}
+    if just_point==False:
+        try:
+            model.fit_mle(np.zeros(numCoef))
+            if disp:
+                print(model.get_statsmodels_summary())
+            return {'just_point': False, 'model': model}
+        except:
+            print('Failed to fit. Tying just point')
+    model_result = model.fit_mle(np.zeros(numCoef), just_point=True)
+    ncs = int(model.data.shape[0]/nalt)
+    beta = model_result['x']
+    if disp:
+        ll0 = np.log(1/nalt) * ncs
+        ll = -model_result['fun']
+        mcr = 1 - ll / ll0
+        print('\n\nLogit model summary\n---------------------------')
+        print('number of cases: ', ncs)
+        print('Initial Log-likelihood: ', ll0)
+        print('Final Log-likelihood: ', ll)
+        print('McFadden R2: {:4.4}\n'.format(mcr))
+        print('\nLogit model parameters:\n---------------------------')
+        for varname, para in zip(model.ind_var_names, beta):
+            print('{}: {:4.6f}'.format(varname, para))
+    params = {varname: param for varname, param in zip(model.ind_var_names, beta)}
+    return {'just_point': True, 'model': model, 'params': params}
         
 def logit_cv(data, alt_attr_vars, generic_attrs, constant=True, nfold=5, seed=None,
              alts = {0:'drive', 1:'cycle', 2:'walk', 3:'PT'},
@@ -335,7 +452,7 @@ def logit_cv(data, alt_attr_vars, generic_attrs, constant=True, nfold=5, seed=No
         long_data_df_train = pd.concat(train_list, axis=0).sort_values(by=['group', 'alt'])
         long_data_df_train = long_form_data_upsample(long_data_df_train, upsample_new=upsample_new, seed=seed)
         model_train, numCoefs = logit_spec(long_data_df_train, alt_attr_vars, generic_attrs, constant=constant, alts=alts)
-        modelDict_train = logit_est_disp(model_train, numCoefs, nalt=len(alts), disp=False)
+        modelDict_train = logit_est_disp(model_train, numCoefs, nalt=len(alts), disp=False, just_point=False)
         pred_prob_test, y_pred_test = asclogit_pred(long_data_df_test, modelDict_train, 
             customIDColumnName='group', alts=alts, method=method, seed=seed)
         y_true_test = np.array(long_data_df_test['choice']).reshape(-1, len(alts)).argmax(axis=1)
@@ -427,6 +544,115 @@ def asclogit_pred(data_in, modelDict, customIDColumnName, method='random', seed=
     return p, y, v_raw
 
 
+class NhtsModeRF:
+    def __init__(self, table_name, city_folder):
+        self.city_folder=city_folder
+        self.PICKLED_MODEL_PATH='./cities/{}/models/trip_mode_rf.p'.format(city_folder)
+        self.RF_FEATURES_LIST_PATH='./cities/{}/models/rf_features.json'.format(city_folder)
+        self.new_alt_specs=[]
+        try:
+            self.rf_model=pickle.load( open(self.PICKLED_MODEL_PATH, 'rb'))
+            self.features=json.load(open(self.RF_FEATURES_LIST_PATH))
+        except:
+            self.train()
+            self.rf_model=pickle.load( open(self.PICKLED_MODEL_PATH, 'rb'))
+            self.features=json.load(open(self.RF_FEATURES_LIST_PATH))
+    def train(self):
+        print('Training mode choice RF')
+        mode_table=create_mode_choice_trip_table(self.city_folder)
+        features=[c for c in mode_table.columns if not c=='mode']
+        X=mode_table[features]
+        y=mode_table['mode']
+        
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1)
+        
+        rf = RandomForestClassifier(n_estimators =32, random_state=0, class_weight='balanced')
+        # Test different values of the hyper-parameters:
+        # 'max_features','max_depth','min_samples_split' and 'min_samples_leaf'
+        
+        # Create the parameter ranges
+        maxDepth = list(range(5,100,5)) # Maximum depth of tree
+        maxDepth.append(None)
+        minSamplesSplit = range(2,42,5) # Minimum samples required to split a node
+        minSamplesLeaf = range(1,101,10) # Minimum samples required at each leaf node
+        
+        #Create the grid
+        randomGrid = {
+                       'max_depth': maxDepth,
+                       'min_samples_split': minSamplesSplit,
+                       'min_samples_leaf': minSamplesLeaf}
+        
+        # Create the random search object
+        rfRandom = RandomizedSearchCV(estimator = rf, param_distributions = randomGrid,
+                                       n_iter = 512, cv = 5, verbose=1, random_state=0, 
+                                       refit=True, scoring='f1_macro', n_jobs=-1)
+        # f1-macro better where there are class imbalances as it 
+        # computes f1 for each class and then takes an unweighted mean
+        # "In problems where infrequent classes are nonetheless important, 
+        # macro-averaging may be a means of highlighting their performance."
+        
+        # Perform the random search and find the best parameter set
+        rfRandom.fit(X_train, y_train)
+        rfWinner=rfRandom.best_estimator_
+        bestParams=rfRandom.best_params_
+        #forest_to_code(rf.estimators_, features)
+        
+        
+        importances = rfWinner.feature_importances_
+        std = np.std([tree.feature_importances_ for tree in rfWinner.estimators_],
+                     axis=0)
+        indices = np.argsort(importances)[::-1]
+        print("Feature ranking:")
+        
+        for f in range(len(features)):
+            print("%d. %s (%f)" % (f + 1, features[indices[f]], importances[indices[f]]))
+        
+        # Plot the feature importances of the forest
+        plt.figure(figsize=(16, 9))
+        plt.title("Feature importances")
+        plt.bar(range(len(features)), importances[indices],
+               color="r", yerr=std[indices], align="center")
+        plt.xticks(range(len(features)), [features[i] for i in indices], rotation=90, fontsize=15)
+        plt.xlim([-1, len(features)])
+        plt.show()
+        
+        
+        predicted=rfWinner.predict(X_test)
+        conf_mat=confusion_matrix(y_test, predicted)
+        print(conf_mat)
+        # rows are true labels and coluns are predicted labels
+        # Cij  is equal to the number of observations 
+        # known to be in group i but predicted to be in group j.
+        for i in range(len(conf_mat)):
+            print('Total True for Class '+str(i)+': '+str(sum(conf_mat[i])))
+            print('Total Predicted for Class '+str(i)+': '+str(sum([p[i] for p in conf_mat])))
+        pickle.dump( self.rfWinner, open( self.PICKLED_MODEL_PATH, "wb" ) )
+        json.dump(self.features,open(self.RF_FEATURES_LIST_PATH, 'w' ))
+
+    def generate_feature_df(self, trips):
+        feature_df = pd.DataFrame(trips)  
+        for feat in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
+                     'bach_degree', 'race', 'cars', 'purpose']:
+            new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
+            feature_df=pd.concat([feature_df, new_dummys],  axis=1)
+        feature_df['drive_time_minutes'] = feature_df.apply(lambda row: row['driving_route']['driving'], axis=1)     
+        feature_df['cycle_time_minutes'] = feature_df.apply(lambda row: row['cycling_route']['cycling'], axis=1)     
+        feature_df['walk_time_minutes'] = feature_df.apply(lambda row: row['walking_route']['walking'], axis=1)     
+        feature_df['PT_time_minutes'] = feature_df.apply(lambda row: row['pt_route']['pt'], axis=1)
+        feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['pt_route']['walking'], axis=1)  
+        feature_df['drive_time_PT_minutes']=0 
+#        feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1)
+        for rff in self.features:
+            if rff not in feature_df.columns:
+                feature_df[rff]=False
+        feature_df=feature_df[self.features]
+        self.feature_df = feature_df
+        
+    def predict_modes(self):
+        mode_probs=self.rf_model.predict_proba(self.feature_df)
+        chosen_modes=[int(np.random.choice(range(4), size=1, replace=False, p=mode_probs[i])[0]) for i in range(len(mode_probs))]
+        self.predicted_prob, self.predicted_modes = mode_probs, chosen_modes
+        
 
 class NhtsModeLogit:
     def __init__(self, table_name, city_folder):
@@ -476,7 +702,6 @@ class NhtsModeLogit:
         feature_df['PT_time_minutes'] = feature_df.apply(lambda row: row['pt_route']['pt'], axis=1)
         feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['pt_route']['walking'], axis=1)  
         feature_df['drive_time_PT_minutes']=0 
-        feature_df['network_dist_km']=feature_df.apply(lambda row: row['drive_time_minutes']*30/60, axis=1)
         self.base_feature_df = copy.deepcopy(feature_df)
         self.feature_df = copy.deepcopy(feature_df)
         
@@ -495,11 +720,11 @@ class NhtsModeLogit:
         self.alts = alts
         self.alts_reverse = {v:k for k,v in self.alts.items()}
         
-    def predict_modes(self):
+    def predict_modes(self, method='max'):
         if self.nests_spec is not None:
-            self.quasi_nl_predict(self.nests_spec)
+            self.quasi_nl_predict(self.nests_spec, method=method)
         else:
-            self.mnl_predict()
+            self.mnl_predict(method=method)
     
     def mnl_predict(self, method='random', seed=None):
         self.update_alts()
@@ -629,167 +854,8 @@ class NhtsModeLogit:
             this_ncs = len(np.where(self.mode==idx)[0])
             print('{}: {}, {:4.2f}%'.format(m, this_ncs, this_ncs/ncs*100))
     
-#    def apply_predictions(self):
-#        mode = copy.deepcopy(self.mode)
-#        for m in self.new_alts:
-#            this_mode_idx = self.alts_reverse[m]
-#            if m in self.new_alts_like: 
-#                replace_mode_idx = self.alts_reverse[self.new_alts_like[m]]
-#            else: replace_mode_idx = 0
-#            mode[np.where(mode==this_mode_idx)] = replace_mode_idx
-#        for i,od in enumerate(self.ods): 
-#            chosen_mode = int(mode[i])
-#            od['mode']=chosen_mode
-#            if od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'geogrid':
-#                internal_route_mode = od['activity_routes'][chosen_mode]['route']
-#                external_time_sec = 0
-#                node_path = od['activity_routes']['node_path']
-#                cum_dist = od['activity_routes']['cum_dist']
-#                coords = od['activity_routes']['coords']
-#                time_to_enter_site=0
-#            elif od['o_loc']['type'] == 'portal' and od['d_loc']['type'] == 'geogrid':     #travel in
-#                internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
-#                external_time_sec = od['activity_routes'][chosen_mode]['external_time']
-#                node_path = od['activity_routes'][chosen_mode]['node_path']
-#                od['o_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
-#                od['o_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
-#                cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
-#                coords = od['activity_routes'][chosen_mode]['coords']
-#                time_to_enter_site=od['activity_routes'][chosen_mode]['external_time']
-#            elif od['o_loc']['type'] == 'geogrid' and od['d_loc']['type'] == 'portal':     #travel out  
-#                internal_route_mode = od['activity_routes'][chosen_mode]['internal_route']['route']
-#                external_time_sec = od['activity_routes'][chosen_mode]['external_time'] #or use external_time_sec=0?
-#                node_path = od['activity_routes'][chosen_mode]['node_path']
-#                cum_dist = od['activity_routes'][chosen_mode]['cum_dist']
-#                coords = od['activity_routes'][chosen_mode]['coords']
-#                time_to_enter_site=0
-#                od['d_loc']['ind'] = od['activity_routes'][chosen_mode]['portal']
-#                od['d_loc']['ll'] = portals['features'][od['activity_routes'][chosen_mode]['portal']]['properties']['centroid']
-#                            
-#            if chosen_mode == 0:
-#                internal_time_sec = int(internal_route_mode['driving']*60)
-#            elif chosen_mode == 1:
-#                internal_time_sec = int(internal_route_mode['cycling']*60)
-#            elif chosen_mode == 2:
-#                internal_time_sec = int(internal_route_mode['walking']*60)
-#            elif chosen_mode == 3:
-#                internal_time_sec = int((internal_route_mode['pt'] + internal_route_mode['walking'])*60)
-#            
-#            od['internal_time_sec'] = internal_time_sec
-#            od['external_time_sec'] = external_time_sec
-#            
-#            if od['person_id'] in self.person_lookup:
-#                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['mode'] = chosen_mode
-#                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['internal_time_sec'] = internal_time_sec
-#                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['external_time_sec'] = external_time_sec
-#                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['node_path'] = node_path
-#    #            person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['cum_dist'] = cum_dist
-#                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['coords'] = coords
-#                self.person_lookup[od['person_id']]['activity_objs'][od['od_id']+1]['cum_time_from_act_start']=[
-#                        time_to_enter_site]+[time_to_enter_site+ cd/SPEEDS_MET_S[chosen_mode] for cd in cum_dist]
-#
- 
-    def train(self):
-        NHTS_PATH='NHTS/perpub.csv'
-        NHTS_TOUR_PATH='NHTS/tour17.csv'
-        NHTS_TRIP_PATH='NHTS/trippub.csv'
-        nhts_per=pd.read_csv(NHTS_PATH) # for person-level data
-        nhts_tour=pd.read_csv(NHTS_TOUR_PATH) # for mode speeds
-        nhts_trip=pd.read_csv(NHTS_TRIP_PATH) # for trip-level data
-        
-        REGION_CDIVMSARS_BY_CITY={"Boston": [11,21] ,
-                           "Detroit": [31, 32]
-                           }
-        region_cdivsmars=REGION_CDIVMSARS_BY_CITY[self.city_folder]
-    
-        # Only use weekdays for motifs
-        nhts_trip=nhts_trip.loc[nhts_trip['TRAVDAY'].isin(range(2,7))]
-    
-        # add unique ids and merge some variables across the 3 tables
-        nhts_trip['uniquePersonId']=nhts_trip.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
-        nhts_per['uniquePersonId']=nhts_per.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
-        nhts_tour['uniquePersonId']=nhts_tour.apply(lambda row: str(row['HOUSEID'])+'_'+str(row['PERSONID']), axis=1)
-    
-        # Some lookups
-        nhts_tour=nhts_tour.merge(nhts_per[['HOUSEID', 'HH_CBSA']], on='HOUSEID', how='left')
-        nhts_trip=nhts_trip.merge(nhts_per[['uniquePersonId', 'R_RACE']], on='uniquePersonId', how='left')
-    
-    
-        tables={'trips': nhts_trip, 'persons': nhts_per, 'tours': nhts_tour}
-        # put tables in a dict so we can use a loop to avoid repetition
-        for t in ['trips', 'persons']:
-        # remove some records
-            tables[t]=tables[t].loc[((tables[t]['CDIVMSAR'].isin(region_cdivsmars))&
-                                     (tables[t]['URBAN']==1))]
-            tables[t]=tables[t].loc[tables[t]['R_AGE_IMP']>15]
-            tables[t]['income']=tables[t].apply(lambda row: income_cat_nhts(row), axis=1)
-            tables[t]['age']=tables[t].apply(lambda row: age_cat_nhts(row), axis=1)
-            tables[t]['children']=tables[t].apply(lambda row: children_cat_nhts(row), axis=1)
-            tables[t]['workers']=tables[t].apply(lambda row: workers_cat_nhts(row), axis=1)
-            tables[t]['tenure']=tables[t].apply(lambda row: tenure_cat_nhts(row), axis=1)
-            tables[t]['sex']=tables[t].apply(lambda row: sex_cat_nhts(row), axis=1)
-            tables[t]['bach_degree']=tables[t].apply(lambda row: bach_degree_cat_nhts(row), axis=1)
-            tables[t]['cars']=tables[t].apply(lambda row: cars_cat_nhts(row), axis=1)
-            tables[t]['race']=tables[t].apply(lambda row: race_cat_nhts(row), axis=1)
-            tables[t]=tables[t].rename(columns= {'HTPPOPDN': 'pop_per_sqmile_home'})
-        tables['trips']['purpose']=tables['trips'].apply(lambda row: purpose_cat_nhts(row), axis=1)
-
-                            
-        #with the tour file:
-        #    get the speed for each mode and the distance to walk/drive to transit for each CBSA
-        #    we can use this to estimate the travel time for each potential mode in the trip file
-    
-        #global_avg_speeds={}
-        speeds={area:{} for area in set(tables['persons']['HH_CBSA'])}
-        tables['tours']['main_mode']=tables['tours'].apply(lambda row: mode_cat(row['MODE_D']), axis=1)
-    
-        for area in speeds:
-            this_cbsa=tables['tours'][tables['tours']['HH_CBSA']==area]
-            for m in [0,1,2, 3]:
-                all_speeds=this_cbsa.loc[((this_cbsa['main_mode']==m) & 
-                                          (this_cbsa['TIME_M']>0))].apply(
-                                            lambda row: row['DIST_M']/row['TIME_M'], axis=1)
-                if len(all_speeds)>0:
-                    speeds[area]['km_per_minute_'+str(m)]=1.62* all_speeds.mean()
-                else:
-                    speeds[area]['km_per_minute_'+str(m)]=float('nan')
-            speeds[area]['walk_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_WALK'].mean()
-            speeds[area]['drive_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_POV'].mean()
-    
-        # for any region where a mode is not observed at all, 
-        # assume the speed of that mode is
-        # that of the slowest region
-        for area in speeds:
-            for mode_speed in speeds[area]:
-                if not float(speeds[area][mode_speed]) == float(speeds[area][mode_speed]):
-                    print('Using lowest speed')
-                    speeds[area][mode_speed] = np.nanmin([speeds[other_area][mode_speed] for other_area in speeds])
-    
-    
-        # with the trips table: use all tirp data
-        tables['trips']['network_dist_km']=tables['trips'].apply(lambda row: row['TRPMILES']*1.62, axis=1)
-        tables['trips']['mode']=tables['trips'].apply(lambda row: mode_cat(row['TRPTRANS']), axis=1) 
-        tables['trips']=tables['trips'].loc[tables['trips']['mode']>=0]                                 #get rid of some samples with -99 mode
-        tables['trips'].loc[tables['trips']['TRPMILES']<0, 'TRPMILES']=0                # -9 for work-from-home   
-    
-        # create the mode choice table
-        mode_table=pd.DataFrame()
-        #    add the trip stats for each potential mode
-        mode_table['drive_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
-        mode_table['cycle_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
-        mode_table['walk_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
-        mode_table['PT_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(3)], axis=1)
-        mode_table['walk_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
-        mode_table['drive_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
-    
-        for col in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
-                    'bach_degree',  'cars', 'race', 'purpose']:
-            new_dummys=pd.get_dummies(tables['trips'][col], prefix=col)
-            mode_table=pd.concat([mode_table, new_dummys],  axis=1)
-    
-        for col in [ 'pop_per_sqmile_home', 'network_dist_km', 'mode']:
-            mode_table[col]=tables['trips'][col]
-    
+    def train(self, just_point=False):
+        mode_table=create_mode_choice_trip_table(self.city_folder)
         # generate logit long form data
         alt_attrs = {'time_minutes': ['drive_time_minutes', 'cycle_time_minutes', 'walk_time_minutes', 'PT_time_minutes'], 
             'walk_time_PT_minutes': ['nan', 'nan', 'nan', 'walk_time_PT_minutes'], 
@@ -800,13 +866,15 @@ class NhtsModeLogit:
             'sex_female', 'sex_male', 'bach_degree_no', 'bach_degree_yes', 'cars_none', 'cars_one',
             'cars_two or more', 'race_asian', 'race_black', 'race_other', 'race_white', 
             'purpose_HBW', 'purpose_HBO', 'purpose_NHB',
-            'pop_per_sqmile_home', 'network_dist_km']
+#            'pop_per_sqmile_home', 
+#            'network_dist_km'
+            ]
         # some of dummy vars have to be excluded as reference levels in categorical vars
         exclude_ref = ['income_gt100', 'age_19 and under', 'children_no', 'workers_none',
             'tenure_other', 'sex_female', 'bach_degree_no', 'cars_none', 'race_asian', 'purpose_HBW']
         exclude_others = ['tenure_other', 'tenure_owned', 'tenure_rented']  # tenure will cause very large parameters
         exclude_generic_attrs = exclude_ref + exclude_others
-        exclude_generic_attrs = exclude_others
+#        exclude_generic_attrs = exclude_others
     
         # generic_attrs = []
         long_data_df = long_form_data(mode_table, alt_attrs=alt_attrs, generic_attrs=generic_attrs, nalt=4)
@@ -848,11 +916,11 @@ class NhtsModeLogit:
         # with open('cv_results.p', 'wb') as f:
             # pickle.dump(cv_results, f)
     
-        upsample_new = {0: '+0', 1: '*20', 2: '*2', 3: '*5'} # best_upsample_new
+#        upsample_new = {0: '+0', 1: '*20', 2: '*2', 3: '*5'} # best_upsample_new
     
-        long_data_df_train = long_form_data_upsample(long_data_df_train, upsample_new=upsample_new, seed=1)
+#        long_data_df_train = long_form_data_upsample(long_data_df_train, upsample_new=upsample_new, seed=1)
         model_train, numCoefs = logit_spec(long_data_df_train, alt_attr_vars, generic_attrs, constant=constant, alts=alts)
-        modelDict_train = logit_est_disp(model_train, numCoefs, nalt=len(alts), disp=False)
+        modelDict_train = logit_est_disp(model_train, numCoefs, nalt=len(alts), disp=True, just_point=just_point)
     
         print('\nTraining data performance:\n--------------------------------')
         pred_prob_train, y_pred_train, v = asclogit_pred(long_data_df_train, modelDict_train, 
@@ -880,11 +948,23 @@ class NhtsModeLogit:
             print('Total True for Class '+alts[i]+': '+str(sum(conf_mat_test[i])))
             print('Total Predicted for Class '+alts[i]+': '+str(sum([p[i] for p in conf_mat_test])))
     
-    
         # use all data
-        long_data_df = long_form_data_upsample(long_data_df, upsample_new=upsample_new, seed=1)
+#        long_data_df = long_form_data_upsample(long_data_df, upsample_new=upsample_new, seed=1)
         model, numCoefs = logit_spec(long_data_df, alt_attr_vars, generic_attrs, constant=constant, alts=alts)
-        modelDict = logit_est_disp(model, numCoefs)
+        modelDict = logit_est_disp(model, numCoefs, just_point=just_point, disp=True)
+            
+        print('\nAll data performance:\n--------------------------------')
+        pred_prob, y_pred, v = asclogit_pred(long_data_df, modelDict, 
+            customIDColumnName='group', alts=alts, method=predict_method, seed=1)
+        y_true = np.array(long_data_df['choice']).reshape(-1, len(alts)).argmax(axis=1)
+        conf_mat = confusion_matrix(y_true, y_pred)
+        print(conf_mat)
+        print('Accuracy: {:4.4f}, F1 macro: {:4.4f}'.format(
+            accuracy_score(y_true, y_pred), f1_score(y_true, y_pred, average='macro')
+            ))
+        for i in range(len(conf_mat)):
+            print('Total True for Class '+alts[i]+': '+str(sum(conf_mat[i])))
+            print('Total Predicted for Class '+alts[i]+': '+str(sum([p[i] for p in conf_mat])))
     
     
         pickle.dump(modelDict, open( self.PICKLED_MODEL_PATH, "wb" ) )
@@ -893,7 +973,7 @@ class NhtsModeLogit:
 
             
 if __name__ == "__main__":
-    mode_coice_model=NhtsModeLogit(table_name='corktown', city_folder='Detroit')
+    mode_choice_model=NhtsModeLogit(table_name='corktown', city_folder='Detroit')
 
 
 

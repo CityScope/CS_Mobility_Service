@@ -8,7 +8,7 @@ Created on Mon May 11 12:25:03 2020
 
 from mobility_service_model import MobilityModel
 from activity_scheduler import ActivityScheduler
-from mode_logit_nhts import NhtsModeLogit
+from mode_choice_nhts import NhtsModeLogit
 from two_stage_logit_hlc import TwoStageLogitHLC
 from cs_handler import CS_Handler
 

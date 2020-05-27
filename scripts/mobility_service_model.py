@@ -18,7 +18,7 @@ from copy import deepcopy
 
 from transport_network import Transport_Network,  Polygon_Location, Mode
 from activity_scheduler import ActivityScheduler
-from mode_logit_nhts import NhtsModeLogit
+from mode_choice_nhts import NhtsModeLogit
 from two_stage_logit_hlc import TwoStageLogitHLC
 
 
@@ -150,10 +150,11 @@ class MobilityModel():
             for ind_act in range(len(person.activities)-1):
                 origin=person.activities[ind_act]
                 destination=person.activities[ind_act+1]
-                mode_choice_set=self.tn.get_routes(origin.location, destination.location)
-                enters_sim=((origin.location.area_type=='grid') or (destination.location.area_type=='grid'))
-                trips.append(Trip(mode_choice_set, enters_sim=enters_sim,
-                                  from_activity=origin, to_activity=destination))
+                if not origin==destination:
+                    mode_choice_set=self.tn.get_routes(origin.location, destination.location)
+                    enters_sim=((origin.location.area_type=='grid') or (destination.location.area_type=='grid'))
+                    trips.append(Trip(mode_choice_set, enters_sim=enters_sim,
+                                      from_activity=origin, to_activity=destination))
             person.assign_trips(trips)
 
             
@@ -164,10 +165,17 @@ class MobilityModel():
         for person_id, p in enumerate(persons):
             all_trips.extend(p.trips_to_list(person_id=person_id))
         temp_mode_choice_model.generate_feature_df(all_trips)
+# =============================================================================
+#         TODO: fix the drive time and PT times in building the Transport Network
+# =============================================================================
+        temp_mode_choice_model.feature_df['drive_time_minutes']=temp_mode_choice_model.feature_df['drive_time_minutes']*3/4
+        temp_mode_choice_model.base_feature_df=temp_mode_choice_model.feature_df
+##        temp_mode_choice_model.feature_df['PT_time_minutes']=temp_mode_choice_model.feature_df['PT_time_minutes']*10        temp_mode_choice_model.base_feature_df=deepcopy(temp_mode_choice_model.feature_df) 
+# =============================================================================
         if len(temp_mode_choice_model.new_alt_specs)>0:
             for new_spec in temp_mode_choice_model.new_alt_specs:
                 temp_mode_choice_model.set_new_alt(new_spec)
-        temp_mode_choice_model.predict_modes()
+        temp_mode_choice_model.predict_modes(method='random')
         mode_list=self.tn.base_modes+ self.tn.new_modes
         for i, trip_record in enumerate(all_trips):
             person_id=trip_record['person_id']
@@ -182,7 +190,9 @@ class MobilityModel():
         for person in persons:
             for trip in person.trips:
                 if trip.enters_sim:
-                    trips_layer_data.append(trip.to_deckgl_trip_format())
+                    new_trip=trip.to_deckgl_trip_format()
+                    if new_trip is not None:
+                        trips_layer_data.append(new_trip)
         return trips_layer_data
 
             
@@ -258,12 +268,13 @@ class MobilityModel():
         for p in persons:
             count+=1
             for trip in p.trips:
-                if trip.total_distance < 1000000:
-                    # hack used here because when a route cant be found by some mode
-                    # an arbitrality large distance is assumed for purpose of mode choice model
-                    mode=trip.mode
-                    total_co2_kg+=trip.total_distance*mode.co2_emissions_kg_met
-                    total_dist+=trip.total_distance
+                if trip.mode is not None:
+                    if trip.total_distance < 1000000:
+                        # hack used here because when a route cant be found by some mode
+                        # an arbitrality large distance is assumed for purpose of mode choice model
+                        mode=trip.mode
+                        total_co2_kg+=trip.total_distance*mode.co2_emissions_kg_met
+                        total_dist+=trip.total_distance
         return total_co2_kg/count
     
     def get_mode_split(self, persons):
@@ -271,8 +282,12 @@ class MobilityModel():
         split={m.name: 0 for m in self.tn.base_modes+self.tn.new_modes}
         for p in persons:
             for trip in p.trips:
-                count+=1
-                split[trip.mode.name]+=1
+                if trip.mode is not None:
+                    if trip.total_distance<1000000:
+                        split[trip.mode.name]+=1
+                        count+=1
+#                        split[trip.mode.name]+=trip.total_distance
+#                        count+=trip.total_distance
         prop_split={mode_name: split[mode_name]/count for mode_name in split}
         return prop_split
     
@@ -299,14 +314,15 @@ class MobilityModel():
         for p in persons:
             count+=1
             for trip in p.trips:
-                if trip.total_distance < 1000000:
-                    # hack used here because when a route cant be found by some mode
-                    # an arbitrality large distance is assumed for purpose of mode choice model
-                    mode_name=trip.mode.name
-                    if mode_name not in trip.mode_choice_set: # base mode
-                        mode_name=trip.mode.copy_route
-                    total_mins_per_week['walking']+=2*5*trip.mode_choice_set[mode_name].costs['walking']
-                    total_mins_per_week['cycling']+=2*5*trip.mode_choice_set[mode_name].costs['cycling']
+                if trip.mode is not None:
+                    if trip.total_distance < 1000000:
+                        # hack used here because when a route cant be found by some mode
+                        # an arbitrality large distance is assumed for purpose of mode choice model
+                        mode_name=trip.mode.name
+                        if mode_name not in trip.mode_choice_set: # base mode
+                            mode_name=trip.mode.copy_route
+                        total_mins_per_week['walking']+=2*5*trip.mode_choice_set[mode_name].costs['walking']
+                        total_mins_per_week['cycling']+=2*5*trip.mode_choice_set[mode_name].costs['cycling']
         avg_mins_per_week= {mode_name: total_mins_per_week[mode_name]/count for mode_name in total_mins_per_week}
         for mode_name in avg_mins_per_week:
             delta_F+=self.health_impacts(heat_params[mode_name]['ref_RR'], 
@@ -323,11 +339,12 @@ class MobilityModel():
         count=0
         for p in persons:
             for trip in p.trips:
-                if trip.total_distance < 1000000:
-                    count+=1
-                    # hack used here because when a route cant be found by some mode
-                    # an arbitrality large distance is assumed for purpose of mode choice model
-                    total_v+=trip.utility
+                if trip.mode is not None:
+                    if trip.total_distance < 1000000:
+                        count+=1
+                        # hack used here because when a route cant be found by some mode
+                        # an arbitrality large distance is assumed for purpose of mode choice model
+                        total_v+=trip.utility
         return total_v/count
     
     def set_new_modes(self, new_alt_specs, nests_spec=None):
@@ -419,15 +436,21 @@ class Person():
                      'bach_degree': self.bach_degree,
                      'race': self.race,
                      'cars': self.cars,
-                     'pop_per_sqmile_home': self.pop_per_sqmile_home,
+                     # TODO: use actual 'pop_per_sqmile_home'
+#                     'pop_per_sqmile_home': self.pop_per_sqmile_home,
+                     'pop_per_sqmile_home': 1000,
                      'purpose': t.purpose}
             if t.mode_choice_set:
                 for m in t.mode_choice_set:
                     this_trip_record[m+'_route']=t.mode_choice_set[m].costs
-                trips_list.append(this_trip_record)
+                    # TODO: dont hard code driving speed
+                this_trip_record['network_dist_km']=this_trip_record['driving_route']['driving']*30/60
+                if this_trip_record['network_dist_km']>0:
+                    trips_list.append(this_trip_record)
+                else:
+                    print([t.enters_sim, t.purpose])
         return trips_list
         
-
 
 #mode_choice_set
         
@@ -551,14 +574,17 @@ class Trip():
         if utility is not None:
             self.utility=utility
     def to_deckgl_trip_format(self):
-        cum_dist=np.cumsum(self.internal_route['distances'])
-        internal_trip_start_time=self.activity_start+self.pre_time
-        timestamps=[int(internal_trip_start_time)] + [
-                int(internal_trip_start_time+ (cd/self.mode.speed_met_s)) for cd in cum_dist]
-        trips_object={'mode': [self.mode.id, 0],
-                       'path': self.internal_route['coords'],
-                       'timestamps': timestamps}
-        return trips_object
+        if self.mode is not None:
+            cum_dist=np.cumsum(self.internal_route['distances'])
+            internal_trip_start_time=self.activity_start+self.pre_time
+            timestamps=[int(internal_trip_start_time)] + [
+                    int(internal_trip_start_time+ (cd/self.mode.speed_met_s)) for cd in cum_dist]
+            trips_object={'mode': [self.mode.id, 0],
+                           'path': self.internal_route['coords'],
+                           'timestamps': timestamps}
+            return trips_object
+        else:
+            return None
 
 
             

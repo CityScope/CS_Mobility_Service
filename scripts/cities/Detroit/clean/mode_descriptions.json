@@ -19,7 +19,7 @@
     "name": "walking",
     "copy_route": "walking",
     "activity": "walking",
-    "speed_m_s": 1.33,
+    "speed_m_s": 1.11,
     "co2_emissions_kg_met": 0,
     "fixed_costs": {}
   },
