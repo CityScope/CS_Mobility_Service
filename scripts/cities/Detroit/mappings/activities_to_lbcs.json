@@ -1,0 +1,40 @@
+{
+  "Home": [
+    "11"
+  ],
+  "Work": [
+    "23",
+    "3"
+  ],
+  "College": [
+    "41"
+  ],
+  "Drop-off": [
+    "41"
+  ],
+  "Eat": [
+    "22"
+  ],
+  "Groceries": [
+    "211"
+  ],
+  "Health": [
+    "45"
+  ],
+  "Recreation": [
+    "6",
+    "7"
+  ],
+  "Shopping": [
+    "21"
+  ],
+  "Visit": [
+    "11"
+  ],
+  "Exercise": [
+    "7"
+  ],
+  "Religion": [
+    "6"
+  ]
+}

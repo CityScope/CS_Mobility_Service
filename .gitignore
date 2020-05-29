@@ -1,3 +1,7 @@
+*__pycache__*
+scripts/test_MS.p
+*logit_features.json
+*trip_mode_logit.p
 *.log
 **/token.js
 scripts/NHTS

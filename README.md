@@ -3,44 +3,21 @@ A web service providing mobility simulations for CityScope projects.
 
 ![viz](./images/grasbrook_trips.gif)
 
-# Data Preparation
-The scripts folder contains scripts for preparing the required data for each city. The scripts in './scripts' are for any US cities. For other cities, location-specific scripts can be found in the './scripts/cities/[city]' folder
-### synthpop.usa.py
-This script prepares the baseline synthetic population of people living and/or working in the simulation area. It makes use of the synthpop module of the [Urban Data Science Toolkit](https://github.com/UDST)
-### portal_routes.py
-This script creates transport networks for each transport mode using OSM and gtfs data and then finds the shortest path for each mode between each zone in the entire modelled area and each predefined 'portal' (the main entry points to the simulation area). It also creates smaller transport networks which are contained in the simulation area.
-### trip_mode_rf.py
-This script calibrates a random forest model for predicting transportation mode of a trip. The [NHTS](https://nhts.ornl.gov/) data are used for calibration.
-### home_loc_choice.py
-This script calibrates a logit model for predicting home location choices. The [PUMS](https://www.census.gov/programs-surveys/acs/data/pums.html) data are used for calibration.
+## MobilityModel Class
+The MobilityModel class creates a model of the target and simulates the mobility behaviour of a sample of the population. The following inputs ust be provided on initialisation:
+- table_name: the name of the table end-point on city_IO
+- city_folder: the folder where the input data for this city are located.
 
-# Simulation
-The simulation folder contains scripts for running simulations in response to real-time user feedback from a CityScope platform.
-### abm.py
-1. listens for changes to the cityIO grid and in response:
-2. modifies the simulated population
-3. predicts changes in home and work locations of individuals 
-4. predicts each individual's choice of transport mode for their commute
-5. predicts the location and time of each individual's arrival to the simulation zone (if commuting from outside)
-6. posts the individual trip data to the /od end-point of the cityIO server.
-The data posted to the /od end-point is a list of agent objects. Each agent object has the following structure:
-{
-	"home_ll": [
-		10.027288528782668,
-		53.533127263904795
-	],
-	"mode": 0,
-	"type": 1
-	"start_time": 29070,
-	"work_ll": [
-		10.0282239,
-		53.533328
-	]
-}
+Before the simulation can be run, the necessary prediction models must be assigned to the MobilityModel using the following methods:
+- assign_activity_scheduler()
+- assign_mode_choice_model
+- assign_home_location_choice_model
 
-'home_ll' is the home location (real or 'portal').
-
-'work_ll' is the work location.
+The MobilityModel class makes the simulation outputs available through these methods 
+- get_mode_split() returns the proportion of trips made by each mode
+- get_live_work_prop() takes a list of Person objects and returns the proportion of persons both living and working in the district
+- get_avg_co2() takes a list of Person objects and returns the average predicted CO2 emissions.
+- get_trips_layer() creates a list of simulated trips in the correct format for the DeckGL Trips visualisation layer. Each trip object has an attribute 'mode' = ['trip_mode', 'type'] where:
 
 'type' is the type of agent where:
 
@@ -49,13 +26,87 @@ The data posted to the /od end-point is a list of agent objects. Each agent obje
 | lives and works in simulation area 	| works in simulation area 	| lives in simulation area 	|
 
 
-'mode' is the mode of transport where:
+'trip_mode' is the mode of transport where:
 
 | 0       | 1       | 2       | 3       |
 |---------|---------|---------|---------|
 | driving | cycling | walking | transit |
 
 
-# JS
+##  
+
+## Handler Class
+The handler takes care of getting data from and posting data to cityIO for live deployments. When listen_city_IO() is run, the handler will begin regularly checking the geogrid_data hash id for the specified table. Each time a change in the geogrid_data is detected, a simulation update is triggered and the results are posted back to city_IO. Example use:
+```
+from mobility_service_model import MobilityModel
+from activity_scheduler import ActivityScheduler
+from mode_logit_nhts import NhtsModeLogit
+from two_stage_logit_hlc import TwoStageLogitHLC
+from cs_handler import CS_Handler
+
+
+this_model=MobilityModel('corktown', 'Detroit')
+
+this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
+
+this_model.assign_mode_choice_model(NhtsModeLogit(table_name='corktown', city_folder='Detroit'))
+
+this_model.assign_home_location_choice_model(
+        TwoStageLogitHLC(table_name='corktown', city_folder='Detroit', 
+                         geogrid=this_model.geogrid, 
+                         base_vacant_houses=this_model.pop.base_vacant))
+
+
+handler=CS_Handler(this_model)
+handler.listen_city_IO()
+
+
+
+```
+
+
+
+The handler can also be used to simulate random input data or run simulations with many random inputs and record the outputs.
+These outputs may be used to train ML models which approximate the simulation for applications where computation time is a constraint. Example use:
+
+```
+from mobility_service_model import MobilityModel
+from activity_scheduler import ActivityScheduler
+from mode_logit_nhts import NhtsModeLogit
+from two_stage_logit_hlc import TwoStageLogitHLC
+from cs_handler import CS_Handler
+  
+# =============================================================================
+# Create the model and add it to a handler
+# =============================================================================
+this_model=MobilityModel('corktown', 'Detroit')
+
+this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
+
+this_model.assign_mode_choice_model(NhtsModeLogit(table_name='corktown', 
+	city_folder='Detroit'))
+
+this_model.assign_home_location_choice_model(
+        TwoStageLogitHLC(table_name='corktown', city_folder='Detroit', 
+                         geogrid=this_model.geogrid, 
+                         base_vacant_houses=this_model.pop.base_vacant))
+
+handler=CS_Handler(this_model)
+
+# =============================================================================
+# perform an update with random input data
+# =============================================================================
+geogrid_data=handler.random_geogrid_data()
+handler.model.update_simulation(geogrid_data)
+print(handler.get_outputs())
+
+# =============================================================================
+# Perform multiple random updates, saving the inputs and outputs
+# =============================================================================
+X, Y = handler.generate_training_data(iterations=3)
+
+```
+
+## JS folder
 A very simple javascript front-end prototype to demonstrate getting the simulated trip data from cityIO and displaying it with Mapbox and deck.gl
 
