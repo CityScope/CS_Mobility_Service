@@ -302,7 +302,7 @@ class MobilityModel():
     def health_impacts(self, ref_rr, ref_quantity, actual_quantity, 
                       min_RR, N,  base_MR= 0.0090421):
         RR=ref_rr*(actual_quantity/ref_quantity)
-        RR=min(RR, min_RR)
+        RR=max(RR, min_RR)
         deltaF=(1-RR)*N*base_MR
         return deltaF
     

@@ -140,7 +140,7 @@ def create_mode_choice_trip_table(city_folder):
     nhts_trip=pd.read_csv(NHTS_TRIP_PATH) # for trip-level data
     
     REGION_CDIVMSARS_BY_CITY={"Boston": [11,21] ,
-                       "Detroit": [31, 32]
+                       "Detroit": [32]
                        }
     region_cdivsmars=REGION_CDIVMSARS_BY_CITY[city_folder]
 
@@ -184,12 +184,16 @@ def create_mode_choice_trip_table(city_folder):
     #global_avg_speeds={}
     speeds={area:{} for area in set(tables['persons']['HH_CBSA'])}
     tables['tours']['main_mode']=tables['tours'].apply(lambda row: mode_cat(row['MODE_D']), axis=1)
+    tables['trips']['mode']=tables['trips'].apply(lambda row: mode_cat(row['TRPTRANS']), axis=1) 
+    
+    tables['trips']['NUMTRANS']=tables['trips'].apply(lambda row: max(0, row['NUMTRANS']), axis=1) 
 
     for area in speeds:
-        this_cbsa=tables['tours'][tables['tours']['HH_CBSA']==area]
+        this_cbsa_tours=tables['tours'][tables['tours']['HH_CBSA']==area]
+        this_cbsa_trips=tables['trips'][tables['trips']['HH_CBSA']==area]
         for m in [0, 3]:
-            all_speeds=this_cbsa.loc[((this_cbsa['main_mode']==m) & 
-                                      (this_cbsa['TIME_M']>0))].apply(
+            all_speeds=this_cbsa_tours.loc[((this_cbsa_tours['main_mode']==m) & 
+                                      (this_cbsa_tours['TIME_M']>0))].apply(
                                         lambda row: row['DIST_M']/row['TIME_M'], axis=1)
             if len(all_speeds)>0:
                 speeds[area]['km_per_minute_'+str(m)]=1.62* all_speeds.mean()
@@ -197,8 +201,9 @@ def create_mode_choice_trip_table(city_folder):
                 speeds[area]['km_per_minute_'+str(m)]=float('nan')
         speeds[area]['km_per_minute_1']=12/60
         speeds[area]['km_per_minute_2']=4/60
-        speeds[area]['walk_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_WALK'].mean()
-        speeds[area]['drive_km_'+str(m)]=1.62*this_cbsa.loc[this_cbsa['main_mode']==3,'PMT_POV'].mean()
+        speeds[area]['walk_km_'+str(3)]=1.62*this_cbsa_tours.loc[this_cbsa_tours['main_mode']==3,'PMT_WALK'].mean()
+        speeds[area]['drive_km_'+str(3)]=1.62*this_cbsa_tours.loc[this_cbsa_tours['main_mode']==3,'PMT_POV'].mean()
+        speeds[area]['ntransfers_'+str(3)]=1.62*this_cbsa_trips.loc[this_cbsa_trips['mode']==3,'NUMTRANS'].mean()
 
     # for any region where a mode is not observed at all, 
     # assume the speed of that mode is
@@ -206,13 +211,14 @@ def create_mode_choice_trip_table(city_folder):
     for area in speeds:
         for mode_speed in speeds[area]:
             if not float(speeds[area][mode_speed]) == float(speeds[area][mode_speed]):
-                print('Using lowest speed')
-                speeds[area][mode_speed] = np.nanmin([speeds[other_area][mode_speed] for other_area in speeds])
+                print(mode_speed)
+                print(speeds[area][mode_speed])
+                speeds[area][mode_speed] = np.nanmean([speeds[other_area][mode_speed] for other_area in speeds])
 
-
-    # with the trips table: use all tirp data
+    # with the trips table: use all trip data
+    
     tables['trips']['network_dist_km']=tables['trips'].apply(lambda row: row['TRPMILES']*1.62, axis=1)
-    tables['trips']['mode']=tables['trips'].apply(lambda row: mode_cat(row['TRPTRANS']), axis=1) 
+    
     tables['trips']=tables['trips'].loc[tables['trips']['mode']>=0]                                 #get rid of some samples with -99 mode
     tables['trips'].loc[tables['trips']['TRPMILES']<0, 'TRPMILES']=0                # -9 for work-from-home   
 
@@ -220,9 +226,11 @@ def create_mode_choice_trip_table(city_folder):
     mode_table=pd.DataFrame()
     #    add the trip stats for each potential mode
     mode_table['drive_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
+    mode_table['drive_cost']=tables['trips'].apply(lambda row: row['network_dist_km']*0.79/1.62, axis=1)
     mode_table['cycle_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
     mode_table['walk_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
     mode_table['PT_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(3)], axis=1)
+    mode_table['PT_cost']=tables['trips'].apply(lambda row: 1.5 + 0.25*speeds[row['HH_CBSA']]['ntransfers_'+str(3)] , axis=1)
     mode_table['walk_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
     mode_table['drive_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
 
@@ -702,6 +710,9 @@ class NhtsModeLogit:
         feature_df['PT_time_minutes'] = feature_df.apply(lambda row: row['pt_route']['pt'], axis=1)
         feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['pt_route']['walking'], axis=1)  
         feature_df['drive_time_PT_minutes']=0 
+        feature_df['vehicle_time_PT_minutes']=feature_df['PT_time_minutes']+feature_df['drive_time_PT_minutes']
+        feature_df['drive_cost']=feature_df['network_dist_km']*0.79/1.62
+        feature_df['PT_cost']=1.5
         self.base_feature_df = copy.deepcopy(feature_df)
         self.feature_df = copy.deepcopy(feature_df)
         
@@ -856,10 +867,12 @@ class NhtsModeLogit:
     
     def train(self, just_point=False):
         mode_table=create_mode_choice_trip_table(self.city_folder)
+        mode_table['vehicle_time_PT_minutes']=mode_table['PT_time_minutes']+mode_table['drive_time_PT_minutes']
         # generate logit long form data
-        alt_attrs = {'time_minutes': ['drive_time_minutes', 'cycle_time_minutes', 'walk_time_minutes', 'PT_time_minutes'], 
-            'walk_time_PT_minutes': ['nan', 'nan', 'nan', 'walk_time_PT_minutes'], 
-            'drive_time_PT_minutes': ['nan', 'nan', 'nan', 'drive_time_PT_minutes']}
+        alt_attrs = {'vehicle_time_minutes': ['drive_time_minutes', 'nan', 'nan', 'vehicle_time_PT_minutes'], 
+            'active_time_minutes': ['nan', 'cycle_time_minutes', 'walk_time_minutes', 'walk_time_PT_minutes'], 
+            'cost': ['drive_cost', 'nan', 'nan', 'PT_cost']
+            }
         generic_attrs = ['income_gt100', 'income_gt35-lt100', 'income_lt35', 'age_19 and under',
             'age_20 to 35', 'age_35 to 60', 'age_above 60', 'children_no', 'children_yes', 'workers_none', 
             'workers_one', 'workers_two or more', 'tenure_other', 'tenure_owned', 'tenure_rented', 
@@ -883,7 +896,7 @@ class NhtsModeLogit:
         # Fit Mode Choice Model
         # =============================================================================
         alts = {0:'drive', 1:'cycle', 2:'walk', 3:'PT'}
-        alt_attr_vars = ['time_minutes', 'drive_time_PT_minutes'] 
+        alt_attr_vars = ['vehicle_time_minutes', 'active_time_minutes', 'cost'] 
         generic_attrs = [var for var in generic_attrs if var not in exclude_generic_attrs]
         constant = True
         caseIDs = list(set(long_data_df['group']))

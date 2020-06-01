@@ -50,8 +50,10 @@ class ActivityScheduler():
                         potential_locations=[z for z in model.zones if not z.in_sim_area]
                     dist=[get_haversine_distance(last_loc.centroid, loc.centroid
                                                  )for loc in potential_locations]
-                    prob, chosen_idx =self.huff_model(dist, beta=2, predict_y=True, topN=5)
-                    activity_location=potential_locations[chosen_idx[0]]
+#                    prob, chosen_idx =self.huff_model(dist, beta=1, predict_y=True, topN=5)
+#                    chosen_idx=chosen_idx[0]
+                    chosen_idx=np.random.choice(range(len(dist)))
+                    activity_location=potential_locations[chosen_idx]
                 activities.append(Activity(activity_id=a_id, 
                                            start_time=activity_start_time,
                                            activity_name=activity_name,
