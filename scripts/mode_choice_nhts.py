@@ -225,13 +225,13 @@ def create_mode_choice_trip_table(city_folder):
     # create the mode choice table
     mode_table=pd.DataFrame()
     #    add the trip stats for each potential mode
-    mode_table['drive_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
+    mode_table['drive_vehicle_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
     mode_table['drive_cost']=tables['trips'].apply(lambda row: row['network_dist_km']*0.79/1.62, axis=1)
-    mode_table['cycle_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
-    mode_table['walk_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
+    mode_table['cycle_active_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(1)], axis=1)
+    mode_table['walk_active_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
     mode_table['PT_time_minutes']=tables['trips'].apply(lambda row: row['network_dist_km']/speeds[row['HH_CBSA']]['km_per_minute_'+str(3)], axis=1)
     mode_table['PT_cost']=tables['trips'].apply(lambda row: 1.5 + 0.25*speeds[row['HH_CBSA']]['ntransfers_'+str(3)] , axis=1)
-    mode_table['walk_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
+    mode_table['PT_active_time_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['walk_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(2)], axis=1)
     mode_table['drive_time_PT_minutes']=tables['trips'].apply(lambda row: speeds[row['HH_CBSA']]['drive_km_'+str(3)]/speeds[row['HH_CBSA']]['km_per_minute_'+str(0)], axis=1)
 
     for col in ['income', 'age', 'children', 'workers', 'tenure', 'sex', 
@@ -686,9 +686,9 @@ class NhtsModeRF:
                      'bach_degree', 'race', 'cars', 'purpose']:
             new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
             feature_df=pd.concat([feature_df, new_dummys],  axis=1)
-        feature_df['drive_time_minutes'] = feature_df.apply(lambda row: row['driving_route']['driving'], axis=1)     
-        feature_df['cycle_time_minutes'] = feature_df.apply(lambda row: row['cycling_route']['cycling'], axis=1)     
-        feature_df['walk_time_minutes'] = feature_df.apply(lambda row: row['walking_route']['walking'], axis=1)     
+        feature_df['drive_vehicle_time_minutes'] = feature_df.apply(lambda row: row['driving_route']['driving'], axis=1)     
+        feature_df['cycle_active_time_minutes'] = feature_df.apply(lambda row: row['cycling_route']['cycling'], axis=1)     
+        feature_df['walk_active_time_minutes'] = feature_df.apply(lambda row: row['walking_route']['walking'], axis=1)     
         feature_df['PT_time_minutes'] = feature_df.apply(lambda row: row['pt_route']['pt'], axis=1)
         feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['pt_route']['walking'], axis=1)  
         feature_df['drive_time_PT_minutes']=0 
@@ -747,13 +747,13 @@ class NhtsModeLogit:
                      'bach_degree', 'race', 'cars', 'purpose']:
             new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
             feature_df=pd.concat([feature_df, new_dummys],  axis=1)
-        feature_df['drive_time_minutes'] = feature_df.apply(lambda row: row['driving_route']['driving'], axis=1)     
-        feature_df['cycle_time_minutes'] = feature_df.apply(lambda row: row['cycling_route']['cycling'], axis=1)     
-        feature_df['walk_time_minutes'] = feature_df.apply(lambda row: row['walking_route']['walking'], axis=1)     
+        feature_df['drive_vehicle_time_minutes'] = feature_df.apply(lambda row: row['driving_route']['driving'], axis=1)     
+        feature_df['cycle_active_time_minutes'] = feature_df.apply(lambda row: row['cycling_route']['cycling'], axis=1)     
+        feature_df['walk_active_time_minutes'] = feature_df.apply(lambda row: row['walking_route']['walking'], axis=1)     
         feature_df['PT_time_minutes'] = feature_df.apply(lambda row: row['pt_route']['pt'], axis=1)
-        feature_df['walk_time_PT_minutes'] = feature_df.apply(lambda row: row['pt_route']['walking'], axis=1)  
+        feature_df['PT_active_time_minutes'] = feature_df.apply(lambda row: row['pt_route']['walking'], axis=1)  
         feature_df['drive_time_PT_minutes']=0 
-        feature_df['vehicle_time_PT_minutes']=feature_df['PT_time_minutes']+feature_df['drive_time_PT_minutes']
+        feature_df['PT_vehicle_time_minutes']=feature_df['PT_time_minutes']+feature_df['drive_time_PT_minutes']
         feature_df['drive_cost']=feature_df['network_dist_km']*0.79/1.62
         feature_df['PT_cost']=1.5
         self.base_feature_df = copy.deepcopy(feature_df)
@@ -1024,10 +1024,10 @@ class NhtsModeLogit:
     
     def train(self, just_point=False):
         mode_table=create_mode_choice_trip_table(self.city_folder)
-        mode_table['vehicle_time_PT_minutes']=mode_table['PT_time_minutes']+mode_table['drive_time_PT_minutes']
+        mode_table['PT_vehicle_time_minutes']=mode_table['PT_time_minutes']+mode_table['drive_time_PT_minutes']
         # generate logit long form data
-        alt_attrs = {'vehicle_time_minutes': ['drive_time_minutes', 'nan', 'nan', 'vehicle_time_PT_minutes'], 
-            'active_time_minutes': ['nan', 'cycle_time_minutes', 'walk_time_minutes', 'walk_time_PT_minutes'], 
+        alt_attrs = {'vehicle_time_minutes': ['drive_vehicle_time_minutes', 'nan', 'nan', 'PT_vehicle_time_minutes'], 
+            'active_time_minutes': ['nan', 'cycle_active_time_minutes', 'walk_active_time_minutes', 'PT_active_time_minutes'], 
             'cost': ['drive_cost', 'nan', 'nan', 'PT_cost']
             }
         generic_attrs = ['income_gt100', 'income_gt35-lt100', 'income_lt35', 'age_19 and under',
@@ -1136,7 +1136,10 @@ class NhtsModeLogit:
             print('Total True for Class '+alts[i]+': '+str(sum(conf_mat[i])))
             print('Total Predicted for Class '+alts[i]+': '+str(sum([p[i] for p in conf_mat])))
     
-    
+        # (impact/minute)/(impact/dollar) = dollar/minute
+        print('VoT Vehicle: '+str(60*modelDict['params']['vehicle_time_minutes']/modelDict['params']['cost']))
+        print('VoT Active: '+str(60*modelDict['params']['active_time_minutes']/modelDict['params']['cost']))
+   
         pickle.dump(modelDict, open( self.PICKLED_MODEL_PATH, "wb" ) )
         json.dump({'alt_attrs': alt_attrs, 'alt_attr_vars': alt_attr_vars, 'generic_attrs': generic_attrs, 'alts': alts, 'constant': constant},
             open(self.LOGIT_FEATURES_LIST_PATH, 'w' ))

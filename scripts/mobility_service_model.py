@@ -168,7 +168,7 @@ class MobilityModel():
 # =============================================================================
 #         TODO: fix the drive time and PT times in building the Transport Network
 # =============================================================================
-        temp_mode_choice_model.feature_df['drive_time_minutes']=temp_mode_choice_model.feature_df['drive_time_minutes']*3/4
+        temp_mode_choice_model.feature_df['drive_vehicle_time_minutes']=temp_mode_choice_model.feature_df['drive_vehicle_time_minutes']*3/4
         temp_mode_choice_model.base_feature_df=temp_mode_choice_model.feature_df
 ##        temp_mode_choice_model.feature_df['PT_time_minutes']=temp_mode_choice_model.feature_df['PT_time_minutes']*10        temp_mode_choice_model.base_feature_df=deepcopy(temp_mode_choice_model.feature_df) 
 # =============================================================================

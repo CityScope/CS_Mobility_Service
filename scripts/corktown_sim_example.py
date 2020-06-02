@@ -18,13 +18,15 @@ from cs_handler import CS_Handler
 # =============================================================================
 
 bikeshare_spec={'name': 'bikeshare', 
-                 'attrs':{'time_minutes': 'c*1'},  # dockless_time_minutes = cycle_time_minutes * 0.7
+                 'attrs':{'active_time_minutes': 'c*1',
+                          'cost':1.5},  
                  'copy': 'cycle',
                  "copy_route": "cycling","activity": "cycling","speed_m_s": 4.167,
                  "co2_emissions_kg_met": 0,"fixed_costs": {},
                  'internal_net': 'drive'}
 shuttle_spec={'name': 'shuttle', 
-                 'attrs':{'time_minutes': 'd*1'},  # dockless_time_minutes = cycle_time_minutes * 0.7
+                 'attrs':{'vehicle_time_minutes': 'd*1',
+                          'cost':1.5},  
                  'copy': 'PT',
                  "copy_route": "driving","activity": "pt","speed_m_s": 8.33,
                  "co2_emissions_kg_met": 0.000066,"fixed_costs": {},
@@ -47,7 +49,11 @@ this_model=MobilityModel('corktown', 'Detroit')
 
 this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
 
-this_model.assign_mode_choice_model(NhtsModeLogit(table_name='corktown', city_folder='Detroit'))
+mode_choice_model=NhtsModeLogit(table_name='corktown', city_folder='Detroit')
+mode_choice_model.logit_model['params']['ASC for PT']=-1.5
+this_model.assign_mode_choice_model(mode_choice_model)
+
+
 
 this_model.assign_home_location_choice_model(
         TwoStageLogitHLC(table_name='corktown', city_folder='Detroit', 
