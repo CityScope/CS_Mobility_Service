@@ -2,6 +2,7 @@
   {
     "name": "driving",
     "copy_route": "driving",
+    "internal_net": "driving",
     "activity": "driving",
     "speed_m_s": 8.33,
     "co2_emissions_kg_met": 0.000249,
@@ -10,6 +11,7 @@
   {
     "name": "cycling",
     "copy_route": "cycling",
+    "internal_net": "driving",
     "activity": "cycling",
     "speed_m_s": 4.167,
     "co2_emissions_kg_met": 0,
@@ -18,6 +20,7 @@
   {
     "name": "walking",
     "copy_route": "walking",
+    "internal_net": "driving",
     "activity": "walking",
     "speed_m_s": 1.11,
     "co2_emissions_kg_met": 0,
@@ -26,11 +29,10 @@
   {
     "name": "pt",
     "copy_route": "pt",
+    "internal_net": "pt",
     "activity": "pt",
     "speed_m_s": 5.55,
     "co2_emissions_kg_met": 0.000066,
-    "fixed_costs": {
-      "walking": 5
-    }
+    "fixed_costs": {}
   }
 ]

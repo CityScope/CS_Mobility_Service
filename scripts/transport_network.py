@@ -80,6 +80,7 @@ class Mode():
         self.name=mode_descrip['name']
         self.activity=mode_descrip['activity']
         self.copy_route=mode_descrip['copy_route']
+        self.internal_net=mode_descrip['internal_net']
         self.co2_emissions_kg_met=mode_descrip['co2_emissions_kg_met']
         self.fixed_costs=mode_descrip['fixed_costs']
         self.id=mode_id
@@ -119,8 +120,9 @@ class Transport_Network():
         self.city_folder=city_folder
         self.PORTALS_PATH='./cities/'+city_folder+'/clean/portals.geojson' 
         self.ROUTE_COSTS_PATH='./cities/'+city_folder+'/clean/route_costs.json'
-        self.FLOYD_PREDECESSOR_PATH='./cities/'+city_folder+'/clean/fw_result.json'
-        self.INT_NET_DF_FLOYD_PATH='./cities/'+city_folder+'/clean/sim_net_df_floyd.csv'
+#        self.FLOYD_PREDECESSOR_PATH='./cities/'+city_folder+'/clean/fw_result.json'
+#        self.INT_NET_DF_FLOYD_PATH='./cities/'+city_folder+'/clean/sim_net_df_floyd.csv'
+        self.INT_NET_PATH='./cities/'+city_folder+'/clean/'
         self.SIM_AREA_PATH='./cities/'+city_folder+'/clean/table_area.geojson'            
         self.base_modes=[Mode(d, mode_id) for mode_id, d in enumerate(mode_descrips)]
         self.new_modes=[]
@@ -132,28 +134,44 @@ class Transport_Network():
             self.prepare_external_routes()
             self.external_costs=json.load(open(self.ROUTE_COSTS_PATH))
         try:
-            self.sim_net_floyd_result=json.load(open(self.FLOYD_PREDECESSOR_PATH))
-            sim_net_floyd_df=pd.read_csv(self.INT_NET_DF_FLOYD_PATH)
+            self.sim_net_floyd_results={}
+            sim_net_floyd_df={}
+            self.sim_net_floyd_results['driving']=json.load(open(self.INT_NET_PATH+'fw_result.json'))
+            self.sim_net_floyd_results['pt']=json.load(open(self.INT_NET_PATH+'fw_result_pt.json'))
+            sim_net_floyd_df['driving']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd.csv')
+            sim_net_floyd_df['pt']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_pt.csv')
         except:
             print('Internal routes not yet prepared. Preparing now')
             self.prepare_internal_net()
-            self.sim_net_floyd_result=json.load(open(self.FLOYD_PREDECESSOR_PATH))
-            sim_net_floyd_df=pd.read_csv(self.INT_NET_DF_FLOYD_PATH)
+            self.sim_net_floyd_results={}
+            sim_net_floyd_df={}
+            self.sim_net_floyd_results['driving']=json.load(open(self.INT_NET_PATH+'fw_result.json'))
+            self.sim_net_floyd_results['pt']=json.load(open(self.INT_NET_PATH+'fw_result_pt.json'))
+            sim_net_floyd_df['driving']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd.csv')
+            sim_net_floyd_df['pt']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_pt.csv')
+
         # create dictionaries for node coordinates and attributes
         self.nodes_to_link_attributes={}
-        self.node_to_lon_lat={}        
-        for ind, row in sim_net_floyd_df.iterrows():
-            self.nodes_to_link_attributes['{}_{}'.format(row['aNodes'], row['bNodes'])]={
-                'distance': row['distance'],
-                'from_coord': [float(row['aNodeLon']), float(row['aNodeLat'])],
-                'to_coord': [float(row['bNodeLon']), float(row['bNodeLat'])]}
-            if row['aNodes'] not in self.node_to_lon_lat:
-               self.node_to_lon_lat[str(row['aNodes'])]  = [float(row['aNodeLon']), float(row['aNodeLat'])]
-            if row['bNodes'] not in self.node_to_lon_lat:
-               self.node_to_lon_lat[str(row['bNodes'])]  = [float(row['bNodeLon']), float(row['bNodeLat'])]
-        self.sim_node_ids=[node for node in self.node_to_lon_lat]
-        sim_node_lls=[self.node_to_lon_lat[node] for node in self.sim_node_ids]
-        self.internal_nodes_kdtree=spatial.KDTree(np.array(sim_node_lls))
+        self.node_to_lon_lat={}
+        self.sim_node_ids={}
+        self.internal_nodes_kdtree={}
+        for mode in ['driving', 'pt']:
+            self.nodes_to_link_attributes[mode]={}
+            self.node_to_lon_lat[mode]={}
+            for ind, row in sim_net_floyd_df[mode].iterrows():
+                self.nodes_to_link_attributes[mode]['{}_{}'.format(row['aNodes'], row['bNodes'])]={
+                    'distance': row['distance'],
+                    'minutes': row['minutes'],
+                    'activity': row['activity'],
+                    'from_coord': [float(row['aNodeLon']), float(row['aNodeLat'])],
+                    'to_coord': [float(row['bNodeLon']), float(row['bNodeLat'])]}
+                if row['aNodes'] not in self.node_to_lon_lat[mode]:
+                   self.node_to_lon_lat[mode][str(row['aNodes'])]  = [float(row['aNodeLon']), float(row['aNodeLat'])]
+                if row['bNodes'] not in self.node_to_lon_lat[mode]:
+                   self.node_to_lon_lat[mode][str(row['bNodes'])]  = [float(row['bNodeLon']), float(row['bNodeLat'])]     
+            self.sim_node_ids[mode]=[node for node in self.node_to_lon_lat[mode]]
+            sim_node_lls=[self.node_to_lon_lat[mode][node] for node in self.sim_node_ids[mode]]
+            self.internal_nodes_kdtree[mode]=spatial.KDTree(np.array(sim_node_lls))
         # LOad portals    
         portals_geojson=json.load(open(self.PORTALS_PATH))
         self.portals=[]
@@ -171,65 +189,78 @@ class Transport_Network():
     def get_external_costs(self, zone_geoid, portal_id):
         return {mode: self.external_costs[mode][zone_geoid][str(portal_id)] for mode in self.external_costs}
     
-    def get_closest_internal_nodes(self, from_coordinates, n_nodes):      
-        node_ids=[self.sim_node_ids[n_ind] for n_ind in 
-                   self.internal_nodes_kdtree.query(from_coordinates, n_nodes)[1]]
+    def get_closest_internal_nodes(self, from_coordinates, n_nodes):
+        node_ids={}
+        for mode in self.internal_nodes_kdtree:
+            node_ids[mode]=[self.sim_node_ids[mode][n_ind] for n_ind in 
+                       self.internal_nodes_kdtree[mode].query(from_coordinates, n_nodes)[1]]
         return node_ids
     
-    def get_node_path_from_fw_try_multi(self, from_list, to_list):
+    def get_node_path_from_fw_try_multi(self, from_list, to_list, mode):
         for fn in from_list:
             for tn in to_list:
                 try: 
-                    node_path=self.get_node_path_from_fw(fn, tn)
+                    node_path=self.get_node_path_from_fw(fn, tn, mode)
                     return node_path
                 except:
                     pass
         return None
               
-    def get_node_path_from_fw(self, from_node, to_node):
+    def get_node_path_from_fw(self, from_node, to_node, internal_net):
         if from_node==to_node:
             return []
         pred=to_node
         path=[pred]
         while not pred==from_node:
-            pred=self.sim_net_floyd_result[from_node][pred]
+            pred=str(self.sim_net_floyd_results[internal_net][from_node][pred])
             path.insert(0,pred)
         return path
             
-    def get_path_coords_distances(self, path):
+    def get_path_coords_distances(self, path, internal_net):
         """
         takes a list of node ids and returns:
             a list of coordinates of each node
             a list of distances of each link
         may return empty lists if the path has length of 0 or 1
         """
-        coords, distances =[], []
+        coords, distances, activities,  minutes=[], [], [], []
         if len(path)>1:
             for node_ind in range(len(path)-1):
                 from_node=path[node_ind]
                 to_node=path[node_ind+1]
-                link_attributes=self.nodes_to_link_attributes['{}_{}'.format(from_node, to_node)]
+                link_attributes=self.nodes_to_link_attributes[internal_net]['{}_{}'.format(from_node, to_node)]
                 distances+=[link_attributes['distance']]
                 coords+=[link_attributes['from_coord']]
+                activities+=[link_attributes['activity']]
+                minutes+=[link_attributes['minutes']]
             # add the final coordinate of the very last segment
             coords+= [link_attributes['to_coord']]       
-        return coords, distances
+        return coords, distances, activities, minutes
     
     def get_internal_routes(self, from_loc, to_loc):
-        path=self.get_node_path_from_fw_try_multi(from_loc.close_nodes, to_loc.close_nodes)
-        if path is None:
-            coords, distances, total_distance=[], [], float('1e10')
-        else:
-            coords, distances=self.get_path_coords_distances(path)
-            total_distance=sum(distances)
         routes={}
         for im, mode in enumerate(self.base_modes):
-            routes[mode.name]={'costs': {'driving':0, 'walking':0, 'waiting':0,
-                'cycling':0, 'pt':0}, 'internal_route':{'node_path':path, 'distances': distances,
-                'total_distance': total_distance, 'coords': coords}}
-            routes[mode.name]['costs'][mode.activity]=(total_distance/mode.speed_met_s)/60
-            for f_act in mode.fixed_costs:
-                routes[mode.name]['costs'][f_act]+=mode.fixed_costs[f_act]
+            internal_net=mode.internal_net
+            path=self.get_node_path_from_fw_try_multi(from_loc.close_nodes[internal_net], to_loc.close_nodes[internal_net], internal_net)  
+            if path is None:
+                coords, distances, total_distance, activities, minutes=[], [], float('1e10') , [], []
+            else:
+                coords, distances, activities, minutes=self.get_path_coords_distances(path, internal_net)
+                total_distance=sum(distances)
+            routes[mode.name]={
+                    'costs': {'driving':0, 'walking':0, 'waiting':0,'cycling':0, 'pt':0},
+                    'internal_route':{
+                            'node_path':path, 'distances': distances,
+                            'activities': activities, 'minutes': minutes,
+                            'total_distance': total_distance, 'coords': coords}}
+            for i in range(len(minutes)):
+                if mode.name=='pt':
+                    link_activity=activities[i]
+                    link_minutes=minutes[i]
+                else:
+                    link_activity=mode.activity
+                    link_minutes=(distances[i]/mode.speed_met_s)/60
+                routes[mode.name]['costs'][link_activity]+=link_minutes
         return routes
     
     def get_routes(self, from_loc, to_loc):
@@ -298,9 +329,6 @@ class Transport_Network():
             for f_act in mode.fixed_costs:
                 routes[mode.name]['costs'][f_act]+=mode.fixed_costs[f_act]
         return routes
-
-        
-   
         
     def prepare_external_routes(self):
         ALL_ZONES_PATH='./cities/'+self.city_folder+'/clean/model_area.geojson'
@@ -457,6 +485,7 @@ class Transport_Network():
         json.dump(ext_route_costs, open(self.ROUTE_COSTS_PATH, 'w'))  
 
     def prepare_internal_net(self):
+        DRIVE_SPEED_M_S=8.33
         sim_area=json.load(open(self.SIM_AREA_PATH))
 
         full_area=[shape(f['geometry']) for f in sim_area['features']]
@@ -568,6 +597,9 @@ class Transport_Network():
         for i, row in drive_edges.iterrows():
             G.add_edge(row['aNodes'], row['bNodes'], 
                        weight=row['distance'])
+            
+        drive_edges['activity']='driving'
+        drive_edges['minutes']=drive_edges['distance']/(DRIVE_SPEED_M_S*60)
         fw_result=nx.floyd_warshall_predecessor_and_distance(G, weight='weight')
         json.dump(fw_result[0], open(self.FLOYD_PREDECESSOR_PATH, 'w'))
         drive_edges.to_csv(self.INT_NET_DF_FLOYD_PATH)

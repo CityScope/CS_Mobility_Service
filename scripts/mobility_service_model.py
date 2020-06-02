@@ -192,7 +192,7 @@ class MobilityModel():
                 if trip.enters_sim:
                     new_trip=trip.to_deckgl_trip_format()
                     if new_trip is not None:
-                        trips_layer_data.append(new_trip)
+                        trips_layer_data.extend(new_trip)
         return trips_layer_data
 
             
@@ -575,16 +575,36 @@ class Trip():
             self.utility=utility
     def to_deckgl_trip_format(self):
         if self.mode is not None:
-            cum_dist=np.cumsum(self.internal_route['distances'])
+#            cum_dist=np.cumsum(self.internal_route['distances'])
+            route_time_s=[m*60 for m in self.internal_route['minutes']]
+            cum_time=np.cumsum(route_time_s)
             internal_trip_start_time=self.activity_start+self.pre_time
-            timestamps=[int(internal_trip_start_time)] + [
-                    int(internal_trip_start_time+ (cd/self.mode.speed_met_s)) for cd in cum_dist]
-            trips_object={'mode': [self.mode.id, 0],
-                           'path': self.internal_route['coords'],
-                           'timestamps': timestamps}
-            return trips_object
+            timestamps=[int(internal_trip_start_time)] + [int(internal_trip_start_time)+ int(ct) for ct in cum_time]
+            if self.mode.name=='pt':
+                trips_objects=self.multi_mode_deck_gl_trip(timestamps, {'pt':3, 'walking':2})
+            else:    
+                trips_objects=[{'mode': [self.mode.id, 0],
+                               'path': self.internal_route['coords'],
+                               'timestamps': timestamps}]
+            return trips_objects
         else:
             return None
+        
+    def multi_mode_deck_gl_trip(self, timestamps, mode_ids):
+#        print('multi-modal')
+        i=0
+        trips_objects=[]
+        activities=self.internal_route['activities']
+        while i<len(activities):
+            j=i
+            while ((j+1)<len(activities) and (activities[j]==activities[j+1])):
+                j+=1
+            trip_part={'mode': [mode_ids[activities[j]], 0],
+                               'path': self.internal_route['coords'][i:j+2],
+                               'timestamps': timestamps[i:j+2]}
+            trips_objects.append(trip_part)
+            i=j+1
+        return trips_objects
 
 
             
