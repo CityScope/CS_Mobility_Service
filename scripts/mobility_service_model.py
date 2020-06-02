@@ -518,6 +518,7 @@ class GeoGrid():
         self.base_lu_to_lu=json.load(open(MAPPINGS_PATH+'/base_lu_to_lu.json'))
         self.cells=[]
         self.type_defs=grid_geojson['properties']['types']
+        self.type_defs.update(grid_geojson['properties']['static_types'])
         side_len=grid_geojson['properties']['header']['cellSize']
         area=side_len*side_len
         for ind_f, feature in enumerate(grid_geojson['features']):
