@@ -17,7 +17,7 @@ from cs_handler import CS_Handler
 # dockless bikes and shuttle buses
 # =============================================================================
 
-dockless_spec={'name': 'dockless', 
+bikeshare_spec={'name': 'bikeshare', 
                  'attrs':{'time_minutes': 'c*1'},  # dockless_time_minutes = cycle_time_minutes * 0.7
                  'copy': 'cycle',
                  "copy_route": "cycling","activity": "cycling","speed_m_s": 4.167,
@@ -28,11 +28,14 @@ shuttle_spec={'name': 'shuttle',
                  "copy_route": "driving","activity": "pt","speed_m_s": 8.33,
                  "co2_emissions_kg_met": 0.000066,"fixed_costs": {}}
 
-new_mode_specs=[dockless_spec, shuttle_spec]
+new_mode_specs=[bikeshare_spec, shuttle_spec]
 
 nests_spec=[{'name': 'pt_like', 
-             'alts':['PT','dockless', 'shuttle'], 
-             'sigma':0.9}
+             'alts':['PT','bikeshare', 'shuttle'], 
+             'lambda':0.3},
+             {'name': 'walk_like',
+             'alts': ['walk', 'bikeshare'],
+             'lambda':0.5}
             ]
     
 # =============================================================================
@@ -73,6 +76,17 @@ X, Y = handler.generate_training_data(iterations=500)
 # =============================================================================
 this_model.set_prop_electric_cars(0.5)
 this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
+
+pt_similarity = 0.7
+params_for_share_bike = {}
+existing_params = this_model.mode_choice_model.logit_model['params']
+for g_attr in this_model.mode_choice_model.logit_generic_attrs:
+    params_for_share_bike['{} for bikeshare'.format(g_attr)] = \
+        existing_params['{} for PT'.format(g_attr)] * pt_similarity + \
+        existing_params['{} for walk'.format(g_attr)] * (1-pt_similarity)
+params_for_share_bike['ASC for bikeshare'] = existing_params['ASC for PT'] * pt_similarity + \
+        existing_params['ASC for walk'] * (1-pt_similarity)
+this_model.mode_choice_model.set_logit_model_params(params_for_share_bike)
 
 geogrid_data=handler.random_geogrid_data()
 handler.model.update_simulation(geogrid_data)
