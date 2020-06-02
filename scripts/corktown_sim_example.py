@@ -21,12 +21,14 @@ bikeshare_spec={'name': 'bikeshare',
                  'attrs':{'time_minutes': 'c*1'},  # dockless_time_minutes = cycle_time_minutes * 0.7
                  'copy': 'cycle',
                  "copy_route": "cycling","activity": "cycling","speed_m_s": 4.167,
-                 "co2_emissions_kg_met": 0,"fixed_costs": {}}
+                 "co2_emissions_kg_met": 0,"fixed_costs": {},
+                 'internal_net': 'drive'}
 shuttle_spec={'name': 'shuttle', 
                  'attrs':{'time_minutes': 'd*1'},  # dockless_time_minutes = cycle_time_minutes * 0.7
                  'copy': 'PT',
                  "copy_route": "driving","activity": "pt","speed_m_s": 8.33,
-                 "co2_emissions_kg_met": 0.000066,"fixed_costs": {}}
+                 "co2_emissions_kg_met": 0.000066,"fixed_costs": {},
+                 'internal_net': 'drive'}
 
 new_mode_specs=[bikeshare_spec, shuttle_spec]
 
