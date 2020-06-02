@@ -551,6 +551,49 @@ def asclogit_pred(data_in, modelDict, customIDColumnName, method='random', seed=
         y = None
     return p, y, v_raw
 
+    
+def observable_utility_calc(data_in, modelDict, customIDColumnName, alts):
+    data = data_in.copy()
+    numChoices = len(set(data[customIDColumnName]))
+    # fectch variable names and parameters 
+    if modelDict['just_point']:
+        params, varnames = modelDict['params'].values(), modelDict['params'].keys()
+    else:
+        params, varnames = list(modelDict['model'].coefs.values), list(modelDict['model'].coefs.index)
+    
+    # case specific vars and alternative specific vars
+    nalt = len(alts)
+    if isinstance(alts, list):
+        alts = {i:i for i in alts}
+    dummies_dict = dict()
+    case_varname_endswith_flag = []
+    for alt_idx, alt_name in alts.items():
+        case_varname_endswith_flag.append(' for '+alt_name)
+        tmp = [0 for i in range(nalt)]
+        tmp[alt_idx] = 1
+        dummies_dict[alt_name] = np.tile(np.asarray(tmp), numChoices)
+    case_varname_endswith_flag = tuple(case_varname_endswith_flag)
+    
+    # calc utilities
+    data['utility'] = 0
+    for varname, param in zip(varnames, params):
+        if not varname.endswith(case_varname_endswith_flag):
+            # this is an alternative specific varname
+            data['utility'] += data[varname] * param
+        else:
+            # this is a case specific varname (ASC-like)
+            main_varname, interact_with_alt = varname.split(' for ')
+            use_dummy = dummies_dict[interact_with_alt]
+            if main_varname == 'ASC':
+                data['utility'] += use_dummy * param
+            elif main_varname in data.columns:
+                data['utility'] += data[main_varname] * use_dummy * param
+            else:
+                print('Error: can not find variable: {}'.format(varname))
+                return
+    v = np.array(data['utility']).copy().reshape(numChoices, -1)
+    return v
+
 
 class NhtsModeRF:
     def __init__(self, table_name, city_folder):
@@ -733,7 +776,7 @@ class NhtsModeLogit:
         
     def predict_modes(self, method='max'):
         if self.nests_spec is not None:
-            self.quasi_nl_predict(self.nests_spec, method=method)
+            self.gnl_predict(self.nests_spec, method=method)
         else:
             self.mnl_predict(method=method)
     
@@ -744,7 +787,6 @@ class NhtsModeLogit:
         prob, mode, v = asclogit_pred(long_data_df, self.logit_model, customIDColumnName='group', 
             method=method, alts=self.alts, seed=seed)
         self.predicted_prob, self.predicted_modes, self.predicted_v = prob, mode, v
-#        self.apply_predictions()
         
     def quasi_nl_predict(self, nests_spec, method='random', n_sample=10, seed=None):
         """
@@ -777,6 +819,85 @@ class NhtsModeLogit:
         elif method == 'max':
             mode = prob.argmax(axis=1)
         self.predicted_modes, self.predicted_prob = mode, prob
+        
+    def gnl_predict(self, nests_spec, method='random', seed=None):
+        """
+        generalized nested logit prediction
+        nests_spec: 
+            a list of dicts, each dict speicifies a nest with keys='name', 'alts', 'lambda', ['alpha']
+            'lambda': a float (normally 0~1) to represent degree of dissimilarity among alts in the nest,
+                      larger lambda = greater dissimilarity, GNL=MNL if all lambdas are set to 1
+            'alpha': an optional list with the same length of 'alts' to represent degree of membership that each alt
+                     in 'alts' belongs to this nest. When an alt belongs to multiple nests, its alphas would be 
+                     normalized to make sum(alphas)=1. If alpha list is not given, a default list with all ones is used.
+        """
+        self.update_alts()
+        self.get_long_form_data()
+        long_data_df = copy.deepcopy(self.long_data_df)
+        alts = self.alts
+        v = observable_utility_calc(long_data_df, self.logit_model, customIDColumnName='group',alts=alts)
+        v_raw = v.copy()
+        v = v - v.mean(axis=1, keepdims=True) 
+        v[v>700] = 700
+        v[v<-700] = -700
+        very_large_num = np.exp(700)
+        # set "others" nest for alts that are not in any specfied nest:
+        alts_in_any_nest = list(set([alt for nest in nests_spec for alt in nest['alts']]))
+        alts_not_in_any_nest = [alt for alt in self.alts_reverse if alt not in alts_in_any_nest]
+        nests_spec = copy.deepcopy(nests_spec)
+        if len(alts_not_in_any_nest) > 0:
+            nests_spec.append({'name': 'others', 'alts':alts_not_in_any_nest, 'lambda':1})
+        # or set stand-alone nests for each alt that does not belong to any nest:
+        # for alt in alts_not_in_any_nest: nests_spec.append({'name': alt+'_alone' ,'alts':[alt], 'lambda':1})
+        
+        # alpha_matrix is a #alt * #nest matrix, with row_sum=1, alpha_jk: the degree that alt_j belongs to nest_k
+        alpha_matrix = np.zeros((len(alts), len(nests_spec)))
+        for nest_idx, nest in enumerate(nests_spec): 
+            alts_idx = [self.alts_reverse[alt] for alt in nest['alts']]
+            nest['alts_idx'] = alts_idx
+            if 'alpha' not in nest: 
+                alpha_matrix[alts_idx, nest_idx] = 1
+            else:
+                alpha_matrix[alts_idx, nest_idx] = nest['alpha']
+        alpha_matrix = alpha_matrix / alpha_matrix.sum(axis=1, keepdims=True)
+        
+        # for each nest_k, calc nest_utility = sum((alpha_jk*exp(Vj))**(1/lambda_k)),
+        # where alt_j belongs to nest_k with alpha_jk
+        nest_utility = []
+        for nest_idx, nest in enumerate(nests_spec):
+            alts_idx = nest['alts_idx']
+            tmp = ((np.exp(v[:, alts_idx]) * alpha_matrix[alts_idx, nest_idx]) ** (1/nest['lambda'])).sum(axis=1)
+            nest_utility.append(tmp)
+        nest_utility = np.asarray(nest_utility).T
+
+        lambda_array = np.asarray([nest['lambda'] for nest in nests_spec])
+        denominator = (nest_utility ** lambda_array).sum(axis=1)
+        denominator[np.where(denominator==np.inf)] = very_large_num
+
+        prob = []
+        for alt_idx, alt in enumerate(alts):
+            nests_idx = np.where(alpha_matrix[alt_idx,:]>0)[0]   #index of all nests this alt belongs to
+            numerator_left_term = (np.exp(v[:,[alt_idx]]) * alpha_matrix[alt_idx, nests_idx]) ** (1/lambda_array[nests_idx])
+            numerator_right_term = nest_utility[:, nests_idx] ** (lambda_array[nests_idx]-1) 
+            numerator = (numerator_left_term * numerator_right_term).sum(axis=1)
+            numerator[np.where(numerator==np.inf)] = very_large_num
+            prob.append(numerator / denominator)
+        prob = np.asarray(prob).T
+
+        # for nan values caused by overflow, use uniform probs (1/#nalt) for each alt
+        for row_idx, row in enumerate(prob):
+            if any(np.isnan(row)):
+                prob[row_idx] = np.ones(len(row)) * (1/len(row))
+                print('\n[warning] Probabilities of all modes for case #{} are set equal due to overflow'.format(row_idx))
+                print('Raw data for case #{}: '.format(row_idx))
+                for k, v in self.feature_df.iloc[row_idx].to_dict().items(): print('{}: {}'.format(k,v))
+        prob = prob / prob.sum(axis=1, keepdims=True)
+        
+        if method == 'random':
+            mode = np.asarray([np.random.choice(list(self.alts.keys()), size=1, p=row)[0] for row in prob])
+        elif method == 'max':
+            mode = prob.argmax(axis=1)
+        self.predicted_modes, self.predicted_prob, self.predicted_v = mode, prob, v_raw
             
         
     def set_logit_model_params(self, params={}):
@@ -864,6 +985,42 @@ class NhtsModeLogit:
         for idx, m in self.alts.items():
             this_ncs = len(np.where(self.mode==idx)[0])
             print('{}: {}, {:4.2f}%'.format(m, this_ncs, this_ncs/ncs*100))
+    
+    def mnl_elasticity(self, vars=[], disp=True):
+        """
+        calculate MNL elasiticity of P(alt_j) wrt changes of variables of alt_i 
+        Results are calculated based on TRAINNING data used for MNL estimation
+        vars: the list of vararibles to be anlyzed, only for attributes of alts (not choice makers)
+        """
+        mnl_ela = {}
+        train_data = self.logit_model['model'].data
+        pred_prob_train, __, __ = asclogit_pred(train_data, self.logit_model, 
+            customIDColumnName='group', alts=self.base_alts, method='none')
+        for var in vars:
+            if not var in self.logit_alt_attrs:
+                print('[Error] {} is not a valid attribute of alternative'.format(var))
+                continue
+            mnl_ela[var] = {}
+            b = self.logit_model['params'][var]
+            for alt_idx, alt_name in self.base_alts.items():
+                idenfifier = np.zeros_like(pred_prob_train)
+                idenfifier[:, alt_idx] = 1
+                x = np.asarray(train_data[var]).reshape(-1, len(self.base_alts))
+                ela_mat = (idenfifier - pred_prob_train[:, [alt_idx]]) * x[:, [alt_idx]] * b
+                ela_mean = ela_mat.mean(axis=0)
+                mnl_ela[var][alt_name] = {self.base_alts[alt_idx]: ela for alt_idx, ela in enumerate(ela_mean)}
+        if disp:
+            for var, ela in mnl_ela.items():
+                print('\nAverage elasticity of prob(alt) wrt {}\n'.format(var) + '-'*60)
+                header = '{:10s}'.format(var)
+                for key in mnl_ela[var]: header += '{:10s}'.format(key)
+                print(header)
+                for alt_i, ela_i in mnl_ela[var].items():
+                    line = '{:10s}'.format(alt_i)
+                    for alt_j, ela_ij in ela_i.items():
+                        line += '{:<10.4f}'.format(ela_ij)
+                    print(line)
+        return mnl_ela
     
     def train(self, just_point=False):
         mode_table=create_mode_choice_trip_table(self.city_folder)
