@@ -353,8 +353,8 @@ class MobilityModel():
         if nests_spec is not None:
             self.mode_choice_model.add_nests_spec(nests_spec)
     
-    def set_prop_electric_cars(self, prop):
-        self.tn.base_modes[0].co2_emissions_kg_met*=((1-prop)+prop*0.5)
+    def set_prop_electric_cars(self, prop, co2_emissions_kg_met_ic,co2_emissions_kg_met_ev):
+        self.tn.base_modes[0].co2_emissions_kg_met=(1-prop)*co2_emissions_kg_met_ic +prop*co2_emissions_kg_met_ev
         # assume electric cars are half as polluting
         
     

@@ -34,12 +34,17 @@ shuttle_spec={'name': 'shuttle',
 
 new_mode_specs=[bikeshare_spec, shuttle_spec]
 
+pt_dissimilarity = 0.5
+walk_dissimilarity = 0.5
+prop_pt_similarity=1-(pt_dissimilarity/(pt_dissimilarity+walk_dissimilarity))
+print(prop_pt_similarity)
+
 nests_spec=[{'name': 'pt_like', 
              'alts':['PT','bikeshare', 'shuttle'], 
-             'lambda':0.3},
+             'lambda':pt_dissimilarity},
              {'name': 'walk_like',
              'alts': ['walk', 'bikeshare'],
-             'lambda':0.5}
+             'lambda':walk_dissimilarity}
             ]
     
 # =============================================================================
@@ -82,18 +87,19 @@ X, Y = handler.generate_training_data(iterations=500)
 # =============================================================================
 # Mobility interventions
 # =============================================================================
-this_model.set_prop_electric_cars(0.5)
+this_model.set_prop_electric_cars(0.5, o2_emissions_kg_met_ic= 0.000272,
+                                  co2_emissions_kg_met_ev=0.00011)
 this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
 
-pt_similarity = 0.7
+
 params_for_share_bike = {}
 existing_params = this_model.mode_choice_model.logit_model['params']
 for g_attr in this_model.mode_choice_model.logit_generic_attrs:
     params_for_share_bike['{} for bikeshare'.format(g_attr)] = \
-        existing_params['{} for PT'.format(g_attr)] * pt_similarity + \
-        existing_params['{} for walk'.format(g_attr)] * (1-pt_similarity)
-params_for_share_bike['ASC for bikeshare'] = existing_params['ASC for PT'] * pt_similarity + \
-        existing_params['ASC for walk'] * (1-pt_similarity)
+        existing_params['{} for PT'.format(g_attr)] * prop_pt_similarity + \
+        existing_params['{} for walk'.format(g_attr)] * (1-prop_pt_similarity)
+params_for_share_bike['ASC for bikeshare'] = existing_params['ASC for PT'] * prop_pt_similarity + \
+        existing_params['ASC for walk'] * (1-prop_pt_similarity)
 this_model.mode_choice_model.set_logit_model_params(params_for_share_bike)
 
 geogrid_data=handler.random_geogrid_data()
