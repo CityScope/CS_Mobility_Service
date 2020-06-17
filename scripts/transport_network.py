@@ -7,7 +7,7 @@ Created on Thu Jul 18 10:10:02 2019
 """
 # shapely and osmnet dont work on anaconda default
 
-import osmnet
+
 import json
 from shapely.geometry import Point, shape
 import networkx as nx
@@ -346,6 +346,7 @@ class Transport_Network():
         return routes
         
     def prepare_external_routes(self):
+        import osmnet
         ALL_ZONES_PATH='./cities/'+self.city_folder+'/clean/model_area.geojson'
                
         # networks from CS_Accessibility- placed in folder manually for now
