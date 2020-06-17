@@ -63,9 +63,9 @@ class CS_Handler():
     def random_geogrid_data(self):
         geogrid_data=[]
         for cell in self.model.geogrid.cells:
-            if cell.updatable:                
+            if cell.interactive:           
                 cell_type=random.choice([
-                    type_name for type_name in self.model.geogrid.type_defs])
+                    type_name for type_name in self.model.geogrid.int_type_defs])
                 cell_height=random.randint(1,10)
             else:
                 cell_type=cell.base_land_use
@@ -74,14 +74,15 @@ class CS_Handler():
         return geogrid_data
     
     def get_outputs(self):
-        all_persons=self.model.pop.base_sim+self.model.pop.new
-        avg_co2=self.model.get_avg_co2(all_persons)
-        live_work_prop=self.model.get_live_work_prop(all_persons)
-        mode_split=self.model.get_mode_split(all_persons)
-        delta_f_physical_activity_pp=self.model.health_impacts_pp(all_persons)
-        return {'avg_co2': avg_co2, 'live_work_prop': live_work_prop,
-                'mode_split': mode_split, 
-                'delta_f_physical_activity_pp': delta_f_physical_activity_pp}
+        avg_co2=self.model.get_avg_co2()
+        live_work_prop=self.model.get_live_work_prop()
+        mode_split=self.model.get_mode_split()
+        delta_f_physical_activity_pp=self.model.health_impacts_pp()
+        output= {'avg_co2': avg_co2, 'live_work_prop': live_work_prop,
+                 'delta_f_physical_activity_pp':delta_f_physical_activity_pp}
+        for mode in mode_split:
+            output[mode]=100*mode_split[mode]
+        return output
                 
     def generate_training_example_co2_lwp(self):
         geogrid_data=self.random_geogrid_data()
@@ -93,8 +94,10 @@ class CS_Handler():
         return x, y
     
     def post_trips_data(self):
-        all_persons=self.model.pop.base_sim+self.model.pop.new
-        self.model.post_trips_layer(all_persons)
+        self.model.post_trips_layer()
+        
+    def post_trips_data_w_attrs(self):
+        self.model.post_trips_layer_w_attrs()
 
         
     

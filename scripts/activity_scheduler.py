@@ -32,6 +32,7 @@ class ActivityScheduler():
         activities=[]
         # TODO predict rather than random sample
         motif=random.choice(self.motif_sample_obj)
+        person.assign_motif(motif['cluster'])
         hourly_activity_ids=[motif['P{}'.format(str(period).zfill(3))] for period in range(24)]
 #        print(hourly_activity_ids)
         for t, a_id in enumerate(hourly_activity_ids):

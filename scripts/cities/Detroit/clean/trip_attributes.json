@@ -1,0 +1,58 @@
+{
+  "mode": {
+    "0": {
+      "name": "Drive",
+      "color": "#e41a1d"
+    },
+    "1": {
+      "name": "Cycle",
+      "color": "#377eb8"
+    },
+    "2": {
+      "name": "Walk",
+      "color": "#4daf4a"
+    },
+    "3": {
+      "name": "Public Transport",
+      "color": "#ffff33"
+    },
+    "4": {
+      "name": "Shared Micro",
+      "color": "#984ea3"
+    },
+    "5": {
+      "name": "On-demand Shuttle",
+      "color": "#ff7f00"
+    }
+  },
+  "profile": {
+    "1": {
+      "name": "Homemakers",
+      "color": "#7fc97f"
+    },
+    "2": {
+      "name": "9-5",
+      "color": "#beaed4"
+    },
+    "3": {
+      "name": "Afternoon Adventurers",
+      "color": "#fdc086"
+    },
+    "4": {
+      "name": "Night-shifters",
+      "color": "#ffff99"
+    },
+    "5": {
+      "name": "Socialites",
+      "color": "#386cb0"
+    },
+    "6": {
+      "name": "Work-Life Balancers",
+      "color": "#f0027f"
+    },
+    "7": {
+      "name": "Students",
+      "color": "#bf5b17"
+    }
+  }
+}

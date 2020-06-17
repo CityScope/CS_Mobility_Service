@@ -26,11 +26,15 @@ from two_stage_logit_hlc import TwoStageLogitHLC
 class MobilityModel():
     def __init__(self, table_name, city_folder):
         # TODO: new housing attributes directly from cityIO data
-        self.new_house_attributes={'rent': 1500, 'beds': 2, 'built_since_jan2010': True, 
-                  'puma_pop_per_sqmeter': 0.000292, 'puma_med_income': 60000,
-                  'pop_per_sqmile': 5000, 'tenure': 'rented'}
-        self.NEW_PERSONS_PER_BLD=1
+        self.new_house_attributes=[{'p': 0.2, 'rent': 950, 'beds': 3, 'built_since_jan2010': True, 
+                  'puma_pop_per_sqmeter': 0.0016077275, 'puma_med_income': 24000,
+                  'pop_per_sqmile': 0.0016077275/3.86102e-7, 'tenure': 'rented'},
+                                    {'p': 0.8, 'rent': 2000, 'beds': 3, 'built_since_jan2010': True, 
+                  'puma_pop_per_sqmeter': 0.0016077275, 'puma_med_income': 24000,
+                  'pop_per_sqmile': 0.0016077275/3.86102e-7, 'tenure': 'rented'}]
         self.table_name=table_name
+        trip_attrs_path='./cities/'+city_folder+'/clean/trip_attributes.json'
+        self.trip_attrs=json.load(open(trip_attrs_path))
         self.city_folder=city_folder
         self.ALL_ZONES_PATH='./cities/'+city_folder+'/clean/model_area.geojson'
         self.SIM_ZONES_PATH='./cities/'+city_folder+'/clean/sim_zones.json'
@@ -66,7 +70,7 @@ class MobilityModel():
         self.types=None
         # scale factor must match that from pop-synth
         # TODO: integrate the pop-synth as a class
-        self.scale_factor=10
+        self.scale_factor=20
         
         self.build_model()
     
@@ -141,6 +145,7 @@ class MobilityModel():
             self.activity_scheduler.sample_activity_schedules(person, model=self)
         self.create_trips(self.pop.base_sim)
         self.predict_trip_modes(self.pop.base_sim)
+        self.pop.impact=self.pop.base_sim
 #        self.predict_mode_choices()
             
     def create_trips(self, persons):
@@ -185,7 +190,9 @@ class MobilityModel():
             persons[person_id].trips[trip_id].set_mode(predicted_mode, 
                    mode_list)
             
-    def get_trips_layer(self, persons):
+    def get_trips_layer(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
         trips_layer_data=[]
         for person in persons:
             for trip in person.trips:
@@ -194,11 +201,26 @@ class MobilityModel():
                     if new_trip is not None:
                         trips_layer_data.extend(new_trip)
         return trips_layer_data
+    
+    def get_trips_layer_w_attrs(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
+        trips_layer_data=[]
+        for person in persons:
+            for trip in person.trips:
+                if trip.enters_sim:
+                    new_trip=trip.to_deckgl_trip_format_w_attrs(person.motif)
+                    if new_trip is not None:
+                        trips_layer_data.extend(new_trip)
+        return {"trips": trips_layer_data, "attr": self.trip_attrs}
 
             
-    def post_trips_layer(self, persons):
+    def post_trips_layer(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
         trips_layer_data=self.get_trips_layer(persons)
         if len(trips_layer_data)>2000:
+            print('{} trips'.format(len(trips_layer_data)))
             sample_data=random.sample(trips_layer_data, 2000)
         else:
             sample_data=trips_layer_data
@@ -208,7 +230,24 @@ class MobilityModel():
             r = requests.post(post_url, data = trips_str)
             print('Trips Layer: {}'.format(r))
         except requests.exceptions.RequestException as e:
-            print('Couldnt send to cityio')        
+            print('Couldnt send to cityio')
+            
+    def post_trips_layer_w_attrs(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
+        trips_layer_data=self.get_trips_layer_w_attrs(persons)
+        if len(trips_layer_data)>2000:
+            print('{} trips'.format(len(trips_layer_data)))
+            sample_data=random.sample(trips_layer_data, 2000)
+        else:
+            sample_data=trips_layer_data
+        post_url=self.CITYIO_POST_URL+'ABM2'
+        trips_str = json.dumps(sample_data)
+        try:
+            r = requests.post(post_url, data = trips_str)
+            print('Trips Layer: {}'.format(r))
+        except requests.exceptions.RequestException as e:
+            print('Couldnt send to cityio')   
             
     def update_simulation(self, geogrid_data):
         then=datetime.datetime.now()
@@ -217,7 +256,12 @@ class MobilityModel():
         self.update_grid()
         self.create_new_agents()
         self.hlc.home_location_choices(self.pop)
-        new_sim_pop=self.pop.new + self.pop.base_floating
+        new_sim_pop=[]
+        for p in self.pop.new + self.pop.base_floating:
+            if p.home_loc is not None:
+                if ((p.home_loc.area_type=='grid') or (p.work_loc.area_type=='grid')):
+                    new_sim_pop.append(p)
+        self.pop.impact=self.pop.base_sim+new_sim_pop
         print('\t Activity Scheduling')
         for person in new_sim_pop:
             self.activity_scheduler.sample_activity_schedules(person, model=self)
@@ -253,7 +297,12 @@ class MobilityModel():
                 new_housing_capacity=new_housing_capacity/self.scale_factor
                 # TODO: number of new housing records to create
                 if new_housing_capacity>0:
-                    add_house_record=self.new_house_attributes.copy()
+                    num_new_housing_units=max(1, int(new_housing_capacity/2))
+                else:
+                    num_new_housing_units=0
+                for i in range(num_new_housing_units):
+                    chosen_house_type=random.choices(self.new_house_attributes, [h['p'] for h in self.new_house_attributes], k=1)[0]
+                    add_house_record=chosen_house_type.copy()
                     add_house_id=len(self.pop.base_vacant)+len(new_houses)
                     add_house=Housing_Unit(add_house_record, house_id=add_house_id)
                     add_house.set_location(cell)
@@ -261,7 +310,9 @@ class MobilityModel():
         self.pop.add_new_pop(new_persons)
         self.pop.add_new_housing_units(new_houses)
         
-    def get_avg_co2(self, persons):
+    def get_avg_co2(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
         total_co2_kg=0
         total_dist=0
         count=0
@@ -277,7 +328,9 @@ class MobilityModel():
                         total_dist+=trip.total_distance
         return total_co2_kg/count
     
-    def get_mode_split(self, persons):
+    def get_mode_split(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
         count=0
         split={m.name: 0 for m in self.tn.base_modes+self.tn.new_modes}
         for p in persons:
@@ -291,22 +344,26 @@ class MobilityModel():
         prop_split={mode_name: split[mode_name]/count for mode_name in split}
         return prop_split
     
-    def get_live_work_prop(self, persons):
+    def get_live_work_prop(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
         live_work=0
         for p in persons:
             if p.home_loc is not None:
-                if (p.home_loc.area_type=='grid') and (p.work_loc.area_type=='grid'):
+                if ((p.home_loc.area_type=='grid') and (p.work_loc.area_type=='grid')):
                     live_work+=1
-        return live_work/len(self.pop.base_sim+self.pop.base_floating+self.pop.new)
+        return live_work/len(persons)
     
     def health_impacts(self, ref_rr, ref_quantity, actual_quantity, 
                       min_RR, N,  base_MR= 0.0090421):
-        RR=ref_rr*(actual_quantity/ref_quantity)
+        RR=1-ref_rr*(actual_quantity/ref_quantity)
         RR=max(RR, min_RR)
         deltaF=(1-RR)*N*base_MR
         return deltaF
     
-    def health_impacts_pp(self, persons):
+    def health_impacts_pp(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
         delta_F, count=0, 0
         heat_params={'cycling': {'ref_RR': 0.9, 'ref_mins_week':100, 'min_RR':0.55},
                      'walking': {'ref_RR': 0.89, 'ref_mins_week':168, 'min_RR':0.7}}
@@ -321,8 +378,8 @@ class MobilityModel():
                         mode_name=trip.mode.name
                         if mode_name not in trip.mode_choice_set: # base mode
                             mode_name=trip.mode.copy_route
-                        total_mins_per_week['walking']+=2*5*trip.mode_choice_set[mode_name].costs['walking']
-                        total_mins_per_week['cycling']+=2*5*trip.mode_choice_set[mode_name].costs['cycling']
+                        total_mins_per_week['walking']+=5*trip.mode_choice_set[mode_name].costs['walking']
+                        total_mins_per_week['cycling']+=5*trip.mode_choice_set[mode_name].costs['cycling']
         avg_mins_per_week= {mode_name: total_mins_per_week[mode_name]/count for mode_name in total_mins_per_week}
         for mode_name in avg_mins_per_week:
             delta_F+=self.health_impacts(heat_params[mode_name]['ref_RR'], 
@@ -334,7 +391,9 @@ class MobilityModel():
         
         
     
-    def get_avg_utility(self, persons):
+    def get_avg_utility(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
         total_v=0
         count=0
         for p in persons:
@@ -365,6 +424,7 @@ class Population():
         self.base_floating=[]
         self.base_vacant=[]
         self.new=[]
+        self.impact=[]
 
         for ind_p, person_record in enumerate(base_sim_persons):
             new_person=Person(person_record, p_id='b' + str(ind_p))
@@ -411,6 +471,9 @@ class Person():
             
     def assign_work_location(self, loc):
         self.work_loc=loc
+        
+    def assign_motif(self, motif):
+        self.motif=motif
         
     def assign_home_location(self, loc):
         self.home_loc=loc
@@ -509,6 +572,9 @@ class GridCell(Polygon_Location):
     def set_updatable(self, updatable):
         self.updatable=updatable
         
+    def set_interactive(self, interactive):
+        self.interactive=interactive
+        
 class GeoGrid():
     def __init__(self, grid_geojson, transport_network, city_folder):
         MAPPINGS_PATH = './cities/'+city_folder+'/mappings'
@@ -517,6 +583,7 @@ class GeoGrid():
         self.activities_to_lbcs=json.load(open(MAPPINGS_PATH+'/activities_to_lbcs.json'))
         self.base_lu_to_lu=json.load(open(MAPPINGS_PATH+'/base_lu_to_lu.json'))
         self.cells=[]
+        self.int_type_defs=grid_geojson['properties']['types'].copy()
         self.type_defs=grid_geojson['properties']['types']
         self.type_defs.update(grid_geojson['properties']['static_types'])
         side_len=grid_geojson['properties']['header']['cellSize']
@@ -525,6 +592,7 @@ class GeoGrid():
             new_grid_cell=GridCell(feature['geometry'], 
                                     area_type='grid',
                                     in_sim_area=True)
+            new_grid_cell.set_interactive(feature['properties']['interactive'])
             new_grid_cell.set_updatable(feature['properties']['interactive'] or feature['properties']['static_new'])
             new_grid_cell.attach_geogrid(geogrid=self, geogrid_id=ind_f,area=area)
             new_grid_cell.get_close_nodes(transport_network=transport_network)
@@ -591,6 +659,25 @@ class Trip():
         else:
             return None
         
+    def to_deckgl_trip_format_w_attrs(self, motif):
+        if self.mode is not None:
+#            cum_dist=np.cumsum(self.internal_route['distances'])
+            route_time_s=[m*60 for m in self.internal_route['minutes']]
+            cum_time=np.cumsum(route_time_s)
+            internal_trip_start_time=self.activity_start+self.pre_time
+            timestamps=[int(internal_trip_start_time)] + [int(internal_trip_start_time)+ int(ct) for ct in cum_time]
+            if self.mode.name=='pt':
+                trips_objects=self.multi_mode_deck_gl_trip_w_attrs(timestamps, {'pt':3, 'walking':2}, motif)
+            else:    
+                trips_objects=[{'mode': str(self.mode.id),
+                                'profile': str(motif),
+                               'path': self.internal_route['coords'],
+                               'timestamps': timestamps}]
+            
+            return trips_objects
+        else:
+            return None
+        
     def multi_mode_deck_gl_trip(self, timestamps, mode_ids):
 #        print('multi-modal')
         i=0
@@ -601,6 +688,23 @@ class Trip():
             while ((j+1)<len(activities) and (activities[j]==activities[j+1])):
                 j+=1
             trip_part={'mode': [mode_ids[activities[j]], 0],
+                               'path': self.internal_route['coords'][i:j+2],
+                               'timestamps': timestamps[i:j+2]}
+            trips_objects.append(trip_part)
+            i=j+1
+        return trips_objects
+    
+    def multi_mode_deck_gl_trip_w_attrs(self, timestamps, mode_ids, motif):
+#        print('multi-modal')
+        i=0
+        trips_objects=[]
+        activities=self.internal_route['activities']
+        while i<len(activities):
+            j=i
+            while ((j+1)<len(activities) and (activities[j]==activities[j+1])):
+                j+=1
+            trip_part={'mode': str(mode_ids[activities[j]]),
+                       'profile': str(motif),
                                'path': self.internal_route['coords'][i:j+2],
                                'timestamps': timestamps[i:j+2]}
             trips_objects.append(trip_part)
