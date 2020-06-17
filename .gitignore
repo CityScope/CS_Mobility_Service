@@ -17,4 +17,9 @@ scripts/simulation/__pycache__/Agents.cpython-35.pyc
 **/comb_network_nodes.csv
 **/osm_ped_network_edges.csv
 **/osm_ped_network_nodes.csv
-**/fw_result.json
+**/fw_result*
+**/sim_net_df_floyd*
+**-checkpoint.ipynb
+**/network_changes.geojson
+scripts/corktown_internal_drive_cycle_net.ipynb
+scripts/corktown_internal_pt_net.ipynb

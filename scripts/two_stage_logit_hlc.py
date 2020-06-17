@@ -10,6 +10,13 @@ import time
 
 from transport_network import approx_shape_centroid, get_haversine_distance, Polygon_Location
 
+def get_chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    chunks=[]
+    for i in range(0, len(lst), n):
+        chunks.append(lst[i:i + n])
+    return chunks
+        
 def utility_to_prob(v):
     """ takes a utility vector and predicts probability 
     """
@@ -191,48 +198,71 @@ class TwoStageLogitHLC():
         """
         print('\t Home Location Choice: stage 1')
         self.update_pumas(pop)
-        valid_pumas=[p for p in self.pumas if ((len(p.base_houses)>0) or (len(p.new_houses)>0))]
+#        valid_pumas=[p for p in self.pumas if ((len(p.base_houses)>0) or (len(p.new_houses)>0))]
         # create long data for puma model
-        long_data_puma = []
         chosen_pumas=[]
         all_floating_persons=pop.new+pop.base_floating
         all_vacant_houses=pop.base_vacant+pop.new_vacant
         
-        for ind_p, p in enumerate(all_floating_persons):
-            for puma in valid_pumas:
-                this_sample_long_record_puma = self.create_long_record_puma(p, puma, ind_p)
-                long_data_puma.append(this_sample_long_record_puma)
-        long_df_puma = pd.DataFrame(long_data_puma)
-        long_df_puma['predictions'] = self.pylogit_pred(long_df_puma, self.PUMA_model,'custom_id', even=True)   
-        if self.top_n_pumas is None:
-            custom_specific_long_df_puma = {custom_id: group for custom_id, group in long_df_puma[['custom_id', 'choice_id', 'predictions']].groupby('custom_id')}
-        else:
-            long_df_puma_sorted = long_df_puma[['custom_id', 'choice_id', 'predictions']].sort_values(['custom_id','predictions'], ascending=[True, False])
-            custom_specific_long_df_puma = {custom_id: group.iloc[:self.top_n_pumas,:] for custom_id, group in long_df_puma_sorted.groupby('custom_id')}
+        for p in all_floating_persons:
+            p.assign_home_location(None)
 
-
-        for p_ind in range(len(all_floating_persons)):
-            if self.top_n_pumas is None:
-                house_puma=np.random.choice(custom_specific_long_df_puma[p_ind]['choice_id'], p=custom_specific_long_df_puma[p_ind]['predictions'])
+        units_available_by_puma={}
+        for p in self.pumas:
+            total_available=2*len(p.base_houses)+len(p.new_houses)
+            units_available_by_puma[p.geoid]=total_available
+                
+        chunk_size=50
+        # split floating_persons into lists of ~50 persons
+        chunks=get_chunks(all_floating_persons, chunk_size)
+        # for each chunk
+        for ch in chunks:
+            valid_pumas=[p for p in self.pumas if units_available_by_puma[p.geoid]>0]
+            if len(valid_pumas)>0:
+                # create long data            
+                # perform prediction
+                # decrement available houses  
+                long_data_puma = []
+                for ind_p, p in enumerate(ch):
+                    for puma in valid_pumas:
+                        this_sample_long_record_puma = self.create_long_record_puma(p, puma, ind_p)
+                        long_data_puma.append(this_sample_long_record_puma)
+                long_df_puma = pd.DataFrame(long_data_puma)
+                long_df_puma['predictions'] = self.pylogit_pred(long_df_puma, self.PUMA_model,'custom_id', even=True)   
+                if self.top_n_pumas is None:
+                    custom_specific_long_df_puma = {custom_id: group for custom_id, group in long_df_puma[['custom_id', 'choice_id', 'predictions']].groupby('custom_id')}
+                else:
+                    long_df_puma_sorted = long_df_puma[['custom_id', 'choice_id', 'predictions']].sort_values(['custom_id','predictions'], ascending=[True, False])
+                    custom_specific_long_df_puma = {custom_id: group.iloc[:self.top_n_pumas,:] for custom_id, group in long_df_puma_sorted.groupby('custom_id')}
+    
+                for p_ind in range(len(ch)):
+                    if self.top_n_pumas is None:
+                        house_puma=np.random.choice(custom_specific_long_df_puma[p_ind]['choice_id'], p=custom_specific_long_df_puma[p_ind]['predictions'])
+                    else:
+                        house_puma=np.random.choice(custom_specific_long_df_puma[p_ind]['choice_id'], 
+                                                    p=custom_specific_long_df_puma[p_ind]['predictions'] / custom_specific_long_df_puma[p_ind]['predictions'].sum())
+                    chosen_pumas.append(house_puma)
+                for puma in units_available_by_puma:
+                    units_available_by_puma[puma]-=chosen_pumas.count(puma)
             else:
-                house_puma=np.random.choice(custom_specific_long_df_puma[p_ind]['choice_id'], 
-                                            p=custom_specific_long_df_puma[p_ind]['predictions'] / custom_specific_long_df_puma[p_ind]['predictions'].sum())
-            chosen_pumas.append(house_puma)
+                chosen_pumas.extend([None for p in ch])
+                
         # stage2: housing unit choice
         print('\t Home Location Choice: stage 2')
         long_data_house = []
         even = True  # use "even" to monitor if every choice situation has the same number of alternatives
         for ind_p, p in enumerate(all_floating_persons):
-            ind_puma=self.puma_order.index(chosen_pumas[ind_p])
-            houses_in_puma = self.pumas[ind_puma].base_houses+ self.pumas[ind_puma].new_houses
-            if len(houses_in_puma) < 9:
-                house_alts = houses_in_puma 
-                even = False
-            else:
-                house_alts = random.sample(houses_in_puma, 9)
-            for hi, h in enumerate(house_alts):
-                this_sample_long_record_house = self.create_long_record_house(p, h, hi+1, ind_p)
-                long_data_house.append(this_sample_long_record_house)             
+            if chosen_pumas[ind_p] is not None:
+                ind_puma=self.puma_order.index(chosen_pumas[ind_p])
+                houses_in_puma = self.pumas[ind_puma].base_houses+ self.pumas[ind_puma].new_houses
+                if len(houses_in_puma) < 9:
+                    house_alts = houses_in_puma 
+                    even = False
+                else:
+                    house_alts = random.sample(houses_in_puma, 9)
+                for hi, h in enumerate(house_alts):
+                    this_sample_long_record_house = self.create_long_record_house(p, h, hi+1, ind_p)
+                    long_data_house.append(this_sample_long_record_house)             
         long_df_house = pd.DataFrame(long_data_house)
         long_df_house.loc[long_df_house['norm_rent'].isnull(), 'norm_rent']=0
         long_df_house['income_norm_rent'] = long_df_house['income'] * long_df_house['norm_rent']

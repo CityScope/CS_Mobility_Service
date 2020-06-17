@@ -66,7 +66,8 @@ def workers_cat(r):
 # =============================================================================
 # Configuration
 # =============================================================================
-sample_factor=10 # for the simulation population
+sample_factor=20 # for the simulation population
+vacancy_rate=0.03
 
 city='Detroit'
 
@@ -82,6 +83,7 @@ SIM_ZONES_PATH='./scripts/cities/'+city+'/clean/sim_zones.json'
 OD_PATH='./scripts/cities/'+city+'/raw/LODES/'+state_code+'_od_main_JT00_2015.csv'
 ALL_SYNTH_HH_PATH='./scripts/cities/'+city+'/clean/all_synth_hh.csv'
 ALL_SYNTH_PERSONS_PATH='./scripts/cities/'+city+'/clean/all_synth_persons.csv'
+PUMA_ATTR_PATH='./scripts/cities/'+city+'/models/puma_attr.json'
 SIM_POP_PATH='./scripts/cities/'+city+'/clean/sim_pop.json'
 VACANT_PATH='./scripts/cities/'+city+'/clean/vacant.json'
 FLOATING_PATH='./scripts/cities/'+city+'/clean/floating.json'
@@ -308,6 +310,8 @@ synth_persons_df['bach_degree']=synth_persons_df.apply(lambda row:
 all_zones=[str(geo) for geo in list(set(synth_hh_df['home_geoid']))]
 all_sim_zones=list(set([z.split('US')[1] for 
                         z in sim_zones]))
+    
+puma_attr=json.load(open(PUMA_ATTR_PATH))
 
 # get and process the LODES O-D data
 od=pd.read_csv(OD_PATH)
@@ -334,7 +338,7 @@ count=0
 for ind, row in od_bg.iterrows():
     count+=1
     if count%1000==0: 
-        print(count)
+        print('{} of {} '.format(count, len(od_bg)))
     if (((row['h_block_group'] in all_sim_zones) or 
          (row['w_block_group'] in all_sim_zones)) and 
          (row['w_block_group'] in all_zones) and 
@@ -351,9 +355,10 @@ for ind, row in od_bg.iterrows():
                     hh_same_home_bg['serialno'].values)]
             sampled_persons=people_candidates.sample(n=people_to_sample_int)
             sampled_persons=sampled_persons.merge(hh_same_home_bg, on='serialno', how='left')
+            puma=str(sampled_persons.iloc[0]['puma10_x']).zfill(5)
             for s_ind, s_row in sampled_persons.iterrows():
                 add_person={col: s_row[col] for col in person_cols}
-                add_person['pop_per_sqmile_home']=5000
+                add_person['pop_per_sqmile_home']=puma_attr['puma_pop_per_sqm'][puma]/3.86102e-7
                 add_person['home_geoid']=row['h_block_group']
                 add_person['work_geoid']=row['w_block_group']
                 sim_people.append(add_person)
@@ -365,28 +370,32 @@ json.dump(sim_people, open(SIM_POP_PATH, 'w'))
 # to be used for the vacant houses, people moving house and new population
 #take 1% sample of all HHs:
 vacant_houses, floating_people=[], []
-sample_HHs=synth_hh_df.sample(frac=0.0001)
+frac=vacancy_rate/sample_factor
+sample_HHs=synth_hh_df.sample(frac=frac)
 #for each:
 for ind, row in sample_HHs.iterrows():
     # sample a home location
+    puma=str(row['puma10']).zfill(5)
     house_obj={col: row[col] for col in house_cols}
-    house_obj['puma_med_income']=60000
-    house_obj['puma_pop_per_sqmeter']= 0.000292
+    house_obj['puma_med_income']=puma_attr['med_income'][puma]
+    house_obj['puma_pop_per_sqmeter']= puma_attr['puma_pop_per_sqm'][puma]
 #    add housing info to housing stock object
     vacant_houses.append(house_obj)
 #    get subset of people with this hh id
-    persons_in_house=synth_persons_df.loc[
-            synth_persons_df['serialno']==row['serialno']]
-    sample_persons=persons_in_house.sample(n=row['NP'])
-    sample_persons=sample_persons.merge(sample_HHs, on='serialno', how='left')
-    for p_ind, p_row in sample_persons.iterrows():
-        add_person={col: p_row[col] for col in person_cols}
-        add_person['pop_per_sqmile_home']=5000
-        od_bg_subset=od_bg.loc[od_bg['h_block_group']==str(row['home_geoid'])]
-        add_person['work_geoid']=np.random.choice(
-                od_bg_subset['w_block_group'].values,
-                p=od_bg_subset['S000'].values/sum(od_bg_subset['S000'].values))
-        floating_people.append(add_person)
+    if random.randint(1, 6)==1:
+        # 3% houses vacant but only fewer households seeking
+        persons_in_house=synth_persons_df.loc[
+                synth_persons_df['serialno']==row['serialno']]
+        sample_persons=persons_in_house.sample(n=row['NP'])
+        sample_persons=sample_persons.merge(sample_HHs, on='serialno', how='left')
+        for p_ind, p_row in sample_persons.iterrows():
+            add_person={col: p_row[col] for col in person_cols}
+            add_person['pop_per_sqmile_home']=puma_attr['puma_pop_per_sqm'][puma]/3.86102e-7
+            od_bg_subset=od_bg.loc[od_bg['h_block_group']==str(row['home_geoid'])]
+            add_person['work_geoid']=np.random.choice(
+                    od_bg_subset['w_block_group'].values,
+                    p=od_bg_subset['S000'].values/sum(od_bg_subset['S000'].values))
+            floating_people.append(add_person)
 
 json.dump(vacant_houses, open(VACANT_PATH, 'w'))
 json.dump(floating_people, open(FLOATING_PATH, 'w'))                  
