@@ -254,6 +254,7 @@ class MobilityModel():
         print('Updating Simulation')
         self.geogrid_data=geogrid_data
         self.update_grid()
+        self.activity_scheduler.find_locations_for_activities(self)
         self.create_new_agents()
         self.hlc.home_location_choices(self.pop)
         new_sim_pop=[]

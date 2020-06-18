@@ -20,12 +20,20 @@ class Activity():
         self.start_time=start_time
     
 class ActivityScheduler():
+    
+    def find_locations_for_activities(self, model):
+        self.potential_locs={}
+        for a_id in self.activity_names:
+            activity_name=self.activity_names[a_id]
+            self.potential_locs[activity_name]=model.geogrid.find_locations_for_activity(activity_name)
+    
     def __init__(self, model):
         ACTIVITY_NAME_PATH='./cities/'+model.city_folder+'/mappings/activities.json'
         self.activity_names=json.load(open(ACTIVITY_NAME_PATH))
         MOTIF_SAMPLE_PATH='./cities/'+model.city_folder+'/clean/motif_samples.csv'
         sample_motifs=pd.read_csv(MOTIF_SAMPLE_PATH)
         self.motif_sample_obj=sample_motifs.to_dict(orient='records')
+        self.find_locations_for_activities(model)
         
     def sample_activity_schedules(self, person, model):
         last_loc=person.home_loc
@@ -45,7 +53,8 @@ class ActivityScheduler():
                 elif activity_name=='Work':
                     activity_location=person.work_loc
                 else:
-                    potential_locations=model.geogrid.find_locations_for_activity(activity_name)
+#                    potential_locations=model.geogrid.find_locations_for_activity(activity_name)
+                    potential_locations=self.potential_locs[activity_name]
                     if len(potential_locations)==0:
 #                        print('No locations for {} in geogrid'.format(activity_name))
                         potential_locations=[z for z in model.zones if not z.in_sim_area]
