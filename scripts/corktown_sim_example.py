@@ -18,7 +18,7 @@ import json
 # Create 2 new mode specs:
 # dockless bikes and shuttle buses
 # =============================================================================
-
+geogrid_data_inno_com=json.load(open('../../Scenarios/12_Jun_20/ford_inno_com.json'))
 new_mode_specs=json.load(open('cities/Detroit/clean/new_mode_specs.json'))
 
 pt_dissimilarity = 0.7
@@ -77,7 +77,7 @@ print(handler.get_outputs())
 # =============================================================================
 # Perform multiple random updates, saving the inputs and outputs
 # =============================================================================
-X_no_fm, Y_no_fm = handler.generate_training_data(iterations=1000)
+X_no_fm, Y_no_fm = handler.generate_training_data(iterations=1000, ref_geogrid=geogrid_data_inno_com)
 for x in X_no_fm:
     x['future_mobility']=0
 
@@ -92,7 +92,7 @@ mode_choice_model.set_logit_model_params(params_for_share_bike)
 # =============================================================================
 # Perform multiple random updates, saving the inputs and outputs
 # =============================================================================
-X_future_m, Y_future_m = handler.generate_training_data(iterations=1000)
+X_future_m, Y_future_m = handler.generate_training_data(iterations=1000, ref_geogrid=geogrid_data_inno_com)
 for x in X_future_m:
     x['future_mobility']=1
     

@@ -60,13 +60,20 @@ class CS_Handler():
             print('Cant access cityIO for GEOGRIDDATA')
             return None
     
-    def random_geogrid_data(self):
+    def random_geogrid_data(self, ref_geogrid):
         geogrid_data=[]
-        for cell in self.model.geogrid.cells:
-            if cell.interactive:           
-                cell_type=random.choice([
-                    type_name for type_name in self.model.geogrid.int_type_defs])
-                cell_height=random.randint(1,10)
+        for i_c, cell in enumerate(self.model.geogrid.cells):
+            if cell.interactive:  
+                if random.randint(1,5)==3:
+                    # only change 20% of cells
+                    cell_type=random.choice([
+                        type_name for type_name in self.model.geogrid.int_type_defs])
+                    cell_height=random.randint(1,10)
+                else:
+                    cell_type=ref_geogrid[i_c]['name']
+                    cell_height=ref_geogrid[i_c]['height']
+                    if isinstance(cell_height, list):
+                        cell_height=cell_height[-1]
             else:
                 cell_type=cell.base_land_use
                 cell_height=cell.base_height
@@ -84,8 +91,8 @@ class CS_Handler():
             output[mode]=100*mode_split[mode]
         return output
                 
-    def generate_training_example_co2_lwp(self):
-        geogrid_data=self.random_geogrid_data()
+    def generate_training_example_co2_lwp(self, ref_geogrid):
+        geogrid_data=self.random_geogrid_data(ref_geogrid)
         x={cs_type:0 for cs_type in self.model.geogrid.type_defs}
         for g in geogrid_data:
             x[g['name']]+=g['height']
@@ -101,14 +108,14 @@ class CS_Handler():
 
         
     
-    def generate_training_data(self, iterations):
+    def generate_training_data(self, iterations, ref_geogrid):
         """ In order to train a ML model to approximate the results of the simulation
         in deployments where indicators must be available in real-time
         """
         X=[]
         Y=[]
         for it in range(iterations):
-            x, y = self.generate_training_example_co2_lwp()
+            x, y = self.generate_training_example_co2_lwp(ref_geogrid)
             X.append(x)
             Y.append(y)
         return X, Y
