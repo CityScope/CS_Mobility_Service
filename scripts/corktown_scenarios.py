@@ -37,6 +37,22 @@ nests_spec=[{'name': 'pt_like',
 
 mode_choice_model=NhtsModeLogit(table_name='corktown', city_folder='Detroit')
 
+# =============================================================================
+# Adjust Base ASCs
+# =============================================================================
+initial_ASC_PT=mode_choice_model.logit_model['params']['ASC for PT']
+initial_ASC_cycle=mode_choice_model.logit_model['params']['ASC for cycle']
+initial_ASC_walk=mode_choice_model.logit_model['params']['ASC for walk']
+mode_choice_model.logit_model['params']['ASC for PT']=-0.9
+mode_choice_model.logit_model['params']['ASC for cycle']=-0.9
+mode_choice_model.logit_model['params']['ASC for walk']=2.9
+print('Modified ASC of PT from {} to {}'.format(
+        initial_ASC_PT, mode_choice_model.logit_model['params']['ASC for PT']))
+print('Modified ASC of cycling from {} to {}'.format(
+        initial_ASC_cycle, mode_choice_model.logit_model['params']['ASC for cycle']))
+print('Modified ASC of walkinf from {} to {}'.format(
+        initial_ASC_walk, mode_choice_model.logit_model['params']['ASC for walk']))
+
 params_for_share_bike = {}
 existing_params = mode_choice_model.logit_model['params']
 for g_attr in mode_choice_model.logit_generic_attrs:
@@ -59,7 +75,7 @@ this_model=MobilityModel('corktown', 'Detroit')
 this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
 
 this_model.assign_mode_choice_model(mode_choice_model)
-#this_model.assign_mode_choice_model(NhtsModeRF(table_name='corktown', city_folder='Detroit'))
+
 
 this_model.assign_home_location_choice_model(
         TwoStageLogitHLC(table_name='corktown', city_folder='Detroit', 
