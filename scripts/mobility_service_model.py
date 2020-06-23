@@ -256,6 +256,10 @@ class MobilityModel():
         print('Updating Simulation')
         self.geogrid_data=geogrid_data
         self.update_grid()
+        print(len(self.pop.base_sim))
+        print(len(self.pop.new))
+        print(len(self.pop.floating))
+        print(len(self.pop.vacant))
         self.activity_scheduler.find_locations_for_activities(self)
         self.create_new_agents()
         self.hlc.home_location_choices(self.pop)
