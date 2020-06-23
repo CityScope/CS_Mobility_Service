@@ -304,7 +304,8 @@ class MobilityModel():
                 else:
                     num_new_housing_units=0
                 for i in range(num_new_housing_units):
-                    chosen_house_type=random.choices(self.new_house_attributes, [h['p'] for h in self.new_house_attributes], k=1)[0]
+#                    chosen_house_type=random.choices(self.new_house_attributes, [h['p'] for h in self.new_house_attributes], k=1)[0]
+                    chosen_house_type=np.random.choice(self.new_house_attributes, 1, [h['p'] for h in self.new_house_attributes])[0]
                     add_house_record=chosen_house_type.copy()
                     add_house_id=len(self.pop.base_vacant)+len(new_houses)
                     add_house=Housing_Unit(add_house_record, house_id=add_house_id)
