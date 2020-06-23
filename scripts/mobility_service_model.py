@@ -163,7 +163,7 @@ class MobilityModel():
             person.assign_trips(trips)
 
             
-    def predict_trip_modes(self, persons):
+    def predict_trip_modes(self, persons, method='random', seed=None, logit_params={}):
         print('\t Predicting Trip modes')
         temp_mode_choice_model=deepcopy(self.mode_choice_model)
         all_trips=[]
@@ -180,8 +180,9 @@ class MobilityModel():
         if len(temp_mode_choice_model.new_alt_specs)>0:
             for new_spec in temp_mode_choice_model.new_alt_specs:
                 temp_mode_choice_model.set_new_alt(new_spec)
+        temp_mode_choice_model.set_logit_model_params(logit_params)
         print('\t \t predicting')
-        temp_mode_choice_model.predict_modes(method='random')
+        temp_mode_choice_model.predict_modes(method=method, seed=seed)
         mode_list=self.tn.base_modes+ self.tn.new_modes
         print('\t \t applying predictions to trips')
         for i, trip_record in enumerate(all_trips):
@@ -512,6 +513,8 @@ class Person():
                     this_trip_record[m+'_route']=t.mode_choice_set[m].costs
                     # TODO: dont hard code driving speed
                 this_trip_record['network_dist_km']=this_trip_record['driving_route']['driving']*30/60
+                this_trip_record['external_network_dist_mile'] = \
+                    (t.mode_choice_set['walking'].pre_time+t.mode_choice_set['walking'].post_time)*0.041
                 if this_trip_record['network_dist_km']>0:
                     trips_list.append(this_trip_record)
                 else:

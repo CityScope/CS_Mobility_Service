@@ -12,6 +12,7 @@ import pickle
 import json
 from collections import OrderedDict
 import copy
+import re
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
@@ -767,17 +768,36 @@ class NhtsModeLogit:
             generic_attrs=self.logit_generic_attrs, nalt=nalt, y_true=False)
         self.long_data_df = copy.deepcopy(long_data_df)
         
+    def get_availability_mask(self):
+        if not hasattr(self, 'alts'): self.update_alts
+        pattern = re.compile('(.*?)([<=>]+.*)')
+        mask = np.ones((self.feature_df.shape[0], len(self.alts)))
+        for new_alt in self.new_alts:
+            if 'availability' not in new_alt:
+                continue
+            parse = pattern.findall(new_alt['availability'])
+            print('parse: ', parse)
+            if len(parse) != 1 or len(parse[0]) != 2 or parse[0][0] not in self.feature_df.columns:
+                print('The availability setting of new alt {} is invalid'.format(new_alt['name']))
+                continue
+            availability_varname, availability_condition = parse[0]
+            case_idx = eval('np.where(self.feature_df["{}"]{})'.format(availability_varname, availability_condition))
+            alt_idx = self.alts_reverse[new_alt['name']]
+            mask[:, [alt_idx]] = 0      
+            mask[case_idx, [alt_idx]] = 1   # make this alt available only for case_idx
+        self.mask = mask
+        
     def update_alts(self):
         alts = self.base_alts.copy()
-        for i, new_alt in enumerate(self.new_alts): alts[4+i] = new_alt
+        for i, new_alt in enumerate(self.new_alts): alts[4+i] = new_alt['name']
         self.alts = alts
         self.alts_reverse = {v:k for k,v in self.alts.items()}
         
-    def predict_modes(self, method='max'):
+    def predict_modes(self, method='random', seed=None):
         if self.nests_spec is not None:
-            self.gnl_predict(self.nests_spec, method=method)
+            self.gnl_predict(self.nests_spec, method=method, seed=seed)
         else:
-            self.mnl_predict(method=method)
+            self.mnl_predict(method=method, seed=seed)
     
     def mnl_predict(self, method='random', seed=None):
         self.update_alts()
@@ -802,7 +822,7 @@ class NhtsModeLogit:
             long_data_df.loc[long_data_df['alt'].isin(idx_alts_in_nest), nest['name']] = 1
         
         # mxlogit prediction by simulation
-        if seed: np.random.seed(seed)
+        if seed is not None: np.random.seed(seed) 
         std_normal_samples = np.random.randn(n_sample, len(nests_spec))
         std_normal_samples = -np.abs(std_normal_samples)   
         prob = np.zeros(long_data_df.shape[0]).reshape(-1, len(self.alts))
@@ -898,7 +918,11 @@ class NhtsModeLogit:
                 for k, v in self.feature_df.iloc[row_idx].to_dict().items(): print('{}: {}'.format(k,v))
         # TODO: pass in matrix of availability bools for each mode
         # mask the prob matrix
+        self.get_availability_mask()
+        prob = prob * self.mask
+        
 #        print('\t \t \t pick results based on probs')
+        if seed is not None: np.random.seed(seed)
         prob = prob / prob.sum(axis=1, keepdims=True)
         if method == 'random':
             mode = np.asarray([np.random.choice(list(self.alts.keys()), size=1, p=row)[0] for row in prob])
@@ -930,7 +954,7 @@ class NhtsModeLogit:
         name = new_alt_spec['name']
         new_alt_attrs = new_alt_spec.get('attrs', {})
         new_alt_generic_params = new_alt_spec.get('params', {})
-        self.new_alts.append(name)
+        self.new_alts.append(new_alt_spec)
         self.update_alts()
         
         # alternative specific attributes
