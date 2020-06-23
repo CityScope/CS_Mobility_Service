@@ -10,7 +10,6 @@ from sklearn.metrics import confusion_matrix, accuracy_score, f1_score
 import matplotlib.pyplot as plt
 import pickle
 import json
-import pylogit as pl
 from collections import OrderedDict
 import copy
 
@@ -831,10 +830,13 @@ class NhtsModeLogit:
                      in 'alts' belongs to this nest. When an alt belongs to multiple nests, its alphas would be 
                      normalized to make sum(alphas)=1. If alpha list is not given, a default list with all ones is used.
         """
+#        print('\t \t \t update alts')
         self.update_alts()
+#        print('\t \t \t get long form')
         self.get_long_form_data()
         long_data_df = copy.deepcopy(self.long_data_df)
         alts = self.alts
+#        print('\t \t \t get utilities')
         v = observable_utility_calc(long_data_df, self.logit_model, customIDColumnName='group',alts=alts)
         v_raw = v.copy()
         v = v - v.mean(axis=1, keepdims=True) 
@@ -842,6 +844,7 @@ class NhtsModeLogit:
         v[v<-700] = -700
         very_large_num = np.exp(700)
         # set "others" nest for alts that are not in any specfied nest:
+#        print('\t \t \t nesting')
         alts_in_any_nest = list(set([alt for nest in nests_spec for alt in nest['alts']]))
         alts_not_in_any_nest = [alt for alt in self.alts_reverse if alt not in alts_in_any_nest]
         nests_spec = copy.deepcopy(nests_spec)
@@ -851,6 +854,7 @@ class NhtsModeLogit:
         # for alt in alts_not_in_any_nest: nests_spec.append({'name': alt+'_alone' ,'alts':[alt], 'lambda':1})
         
         # alpha_matrix is a #alt * #nest matrix, with row_sum=1, alpha_jk: the degree that alt_j belongs to nest_k
+#        print('\t \t \t alphas')
         alpha_matrix = np.zeros((len(alts), len(nests_spec)))
         for nest_idx, nest in enumerate(nests_spec): 
             alts_idx = [self.alts_reverse[alt] for alt in nest['alts']]
@@ -863,6 +867,7 @@ class NhtsModeLogit:
         
         # for each nest_k, calc nest_utility = sum((alpha_jk*exp(Vj))**(1/lambda_k)),
         # where alt_j belongs to nest_k with alpha_jk
+#        print('\t \t \t nest utility')
         nest_utility = []
         for nest_idx, nest in enumerate(nests_spec):
             alts_idx = nest['alts_idx']
@@ -873,7 +878,7 @@ class NhtsModeLogit:
         lambda_array = np.asarray([nest['lambda'] for nest in nests_spec])
         denominator = (nest_utility ** lambda_array).sum(axis=1)
         denominator[np.where(denominator==np.inf)] = very_large_num
-
+#        print('\t \t \t calc probs')
         prob = []
         for alt_idx, alt in enumerate(alts):
             nests_idx = np.where(alpha_matrix[alt_idx,:]>0)[0]   #index of all nests this alt belongs to
@@ -883,7 +888,7 @@ class NhtsModeLogit:
             numerator[np.where(numerator==np.inf)] = very_large_num
             prob.append(numerator / denominator)
         prob = np.asarray(prob).T
-
+#        print('\t \t \t deal with nan')
         # for nan values caused by overflow, use uniform probs (1/#nalt) for each alt
         for row_idx, row in enumerate(prob):
             if any(np.isnan(row)):
@@ -891,8 +896,10 @@ class NhtsModeLogit:
                 print('\n[warning] Probabilities of all modes for case #{} are set equal due to overflow'.format(row_idx))
                 print('Raw data for case #{}: '.format(row_idx))
                 for k, v in self.feature_df.iloc[row_idx].to_dict().items(): print('{}: {}'.format(k,v))
+        # TODO: pass in matrix of availability bools for each mode
+        # mask the prob matrix
+#        print('\t \t \t pick results based on probs')
         prob = prob / prob.sum(axis=1, keepdims=True)
-        
         if method == 'random':
             mode = np.asarray([np.random.choice(list(self.alts.keys()), size=1, p=row)[0] for row in prob])
         elif method == 'max':
@@ -1023,6 +1030,7 @@ class NhtsModeLogit:
         return mnl_ela
     
     def train(self, just_point=False):
+        import pylogit as pl
         mode_table=create_mode_choice_trip_table(self.city_folder)
         mode_table['PT_vehicle_time_minutes']=mode_table['PT_time_minutes']+mode_table['drive_time_PT_minutes']
         # generate logit long form data

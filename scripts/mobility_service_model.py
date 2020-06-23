@@ -180,8 +180,10 @@ class MobilityModel():
         if len(temp_mode_choice_model.new_alt_specs)>0:
             for new_spec in temp_mode_choice_model.new_alt_specs:
                 temp_mode_choice_model.set_new_alt(new_spec)
+        print('\t \t predicting')
         temp_mode_choice_model.predict_modes(method='random')
         mode_list=self.tn.base_modes+ self.tn.new_modes
+        print('\t \t applying predictions to trips')
         for i, trip_record in enumerate(all_trips):
             person_id=trip_record['person_id']
             trip_id=trip_record['trip_id']

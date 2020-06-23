@@ -232,7 +232,7 @@ class Transport_Network():
             path.insert(0,pred)
         return path
             
-    def get_path_coords_distances(self, path, internal_net, weight):
+    def get_path_coords_distances(self, path, internal_net, weight, mode):
         """
         takes a list of node ids and returns:
             a list of coordinates of each node
@@ -240,6 +240,7 @@ class Transport_Network():
         may return empty lists if the path has length of 0 or 1
         """
         coords, distances, activities,  minutes=[], [], [], []
+        costs= {'driving':0, 'walking':0, 'waiting':0,'cycling':0, 'pt':0}
         if len(path)>1:
             for node_ind in range(len(path)-1):
                 from_node=path[node_ind]
@@ -247,11 +248,15 @@ class Transport_Network():
                 link_attributes=self.nodes_to_link_attributes[internal_net]['{}_{}'.format(from_node, to_node)]
                 distances+=[link_attributes['distance']]
                 coords+=[link_attributes['from_coord']]
-                activities+=[link_attributes['activity']]
                 minutes+=[link_attributes[weight]]
+                if mode.name=='pt':
+                    costs[link_attributes['activity']]+=link_attributes[weight]
+                    activities.append(link_attributes['activity'])
+                else:
+                    costs[mode.activity]+=link_attributes[weight]
             # add the final coordinate of the very last segment
             coords+= [link_attributes['to_coord']]       
-        return coords, distances, activities, minutes
+        return coords, distances, activities, minutes, costs
     
     def get_internal_routes(self, from_loc, to_loc):
         routes={}
@@ -260,22 +265,23 @@ class Transport_Network():
             path=self.get_node_path_from_fw_try_multi(from_loc.close_nodes[internal_net], to_loc.close_nodes[internal_net], internal_net)  
             if path is None:
                 coords, distances, total_distance, activities, minutes=[], [], float('1e10') , [], []
+                costs= {'driving':0, 'walking':0, 'waiting':0,'cycling':0, 'pt':0}
             else:
-                coords, distances, activities, minutes=self.get_path_coords_distances(path, internal_net, mode.weight)
+                coords, distances, activities, minutes, costs=self.get_path_coords_distances(path, internal_net, mode.weight, mode=mode)
                 total_distance=sum(distances)
             routes[mode.name]={
-                    'costs': {'driving':0, 'walking':0, 'waiting':0,'cycling':0, 'pt':0},
+                    'costs': costs,
                     'internal_route':{
                             'node_path':path, 'distances': distances,
                             'activities': activities, 'minutes': minutes,
                             'total_distance': total_distance, 'coords': coords}}
-            for i in range(len(minutes)):
-                if mode.name=='pt':
-                    link_activity=activities[i]
-                else:
-                    link_activity=mode.activity
-                link_minutes=minutes[i]
-                routes[mode.name]['costs'][link_activity]+=link_minutes
+#            for i in range(len(minutes)):
+#                if mode.name=='pt':
+#                    link_activity=activities[i]
+#                else:
+#                    link_activity=mode.activity
+#                link_minutes=minutes[i]
+#                routes[mode.name]['costs'][link_activity]+=link_minutes
         return routes
     
     def get_routes(self, from_loc, to_loc):
