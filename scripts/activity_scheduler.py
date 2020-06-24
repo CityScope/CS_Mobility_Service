@@ -9,6 +9,7 @@ import pandas as pd
 import random
 import json
 import numpy as np
+import pickle
 from transport_network import get_haversine_distance
 
 
@@ -31,16 +32,46 @@ class ActivityScheduler():
         ACTIVITY_NAME_PATH='./cities/'+model.city_folder+'/mappings/activities.json'
         self.activity_names=json.load(open(ACTIVITY_NAME_PATH))
         MOTIF_SAMPLE_PATH='./cities/'+model.city_folder+'/clean/motif_samples.csv'
-        sample_motifs=pd.read_csv(MOTIF_SAMPLE_PATH)
-        self.motif_sample_obj=sample_motifs.to_dict(orient='records')
+        self.sample_motifs=pd.read_csv(MOTIF_SAMPLE_PATH)
+        self.training_data_attributes_path='./cities/'+model.city_folder+'/clean/person_sched_weekday.csv'
+        self.training_data_profiles_path='./cities/'+model.city_folder+'/clean/profile_labels.csv'
+#        self.motif_sample_obj=sample_motifs.to_dict(orient='records')
         self.find_locations_for_activities(model)
+        self.model_path='./cities/'+model.city_folder+'/models/profile_rf.p'
+        self.model_features_path='./cities/'+model.city_folder+'/models/profile_rf_features.json'
+        self.load_profile_rf()
+        
+    def assign_profiles(self, persons):
+        persons_list=[]
+        for ip, person in enumerate(persons):
+            persons_list.append({'income': person.income,
+                                 'age': person.age,
+                                 'cars': person.cars,
+                                 'male': person.sex=='male',
+                                 'bach_degree':person.bach_degree=='yes',
+                                 'worker': person.worker})
+        feature_df=pd.DataFrame(persons_list)
+        for feat in ['income', 'age', 'cars']:
+            new_dummys=pd.get_dummies(feature_df[feat], prefix=feat)
+            feature_df=pd.concat([feature_df, new_dummys],  axis=1)
+        for rff in self.profile_rf_features:
+            if rff not in feature_df.columns:
+                feature_df[rff]=False
+        feature_df=feature_df[self.profile_rf_features]
+#        profile_probs=self.profile_rf.predict_proba(feature_df)
+#        chosen_profiles=[int(np.random.choice(range(profile_probs.shape[1]), size=1, replace=False, p=profile_probs[i])[0]) for i in range(len(profile_probs))]
+        chosen_profiles=list(self.profile_rf.predict(feature_df))
+        for ip in range(len(chosen_profiles)):
+            persons[ip].assign_motif(chosen_profiles[ip])
+
         
     def sample_activity_schedules(self, person, model):
         last_loc=person.home_loc
         activities=[]
         # TODO predict rather than random sample
-        motif=random.choice(self.motif_sample_obj)
-        person.assign_motif(motif['cluster'])
+#        X_dict=['worker': person.worker, ]
+        motif_options=self.sample_motifs.loc[self.sample_motifs['cluster']==person.motif].to_dict(orient='records')
+        motif=random.choice(motif_options)
         hourly_activity_ids=[motif['P{}'.format(str(period).zfill(3))] for period in range(24)]
 #        print(hourly_activity_ids)
         for t, a_id in enumerate(hourly_activity_ids):
@@ -70,7 +101,99 @@ class ActivityScheduler():
                                            location=activity_location))
                 last_loc=activity_location
         person.assign_activities(activities)
-
+        
+    def load_profile_rf(self):
+        try:
+            self.profile_rf=pickle.load(open(self.model_path, 'rb'))
+            self.profile_rf_features=json.load(open(self.model_features_path))
+        except:
+            self.train_profile_rf()    
+        
+    def train_profile_rf(self):
+        print('Training Profile RF')
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.model_selection import train_test_split, RandomizedSearchCV 
+        import matplotlib.pyplot as plt
+        from sklearn.metrics import confusion_matrix
+        attributes_df=pd.read_csv(self.training_data_attributes_path)
+        profiles_df=pd.read_csv(self.training_data_profiles_path)
+        feature_dummys_df=pd.DataFrame()
+        for col in ['income', 'age',  'cars']:
+            new_dummys=pd.get_dummies(attributes_df[col], prefix=col)
+            feature_dummys_df=pd.concat([feature_dummys_df, new_dummys],  axis=1)
+        feature_dummys_df['male']=attributes_df['sex']=='male'
+        feature_dummys_df['bach_degree']=attributes_df['bach_degree']=='yes'
+        feature_dummys_df['worker']=attributes_df['worker']
+        features=list(feature_dummys_df.columns)
+        X=np.array(feature_dummys_df[features])
+        y=np.array(profiles_df['cluster'])
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1)
+        
+        rf = RandomForestClassifier(n_estimators =64, random_state=0, class_weight='balanced')
+        # Test different values of the hyper-parameters:
+        # 'max_features','max_depth','min_samples_split' and 'min_samples_leaf'
+        
+        # Create the parameter ranges
+        maxDepth = list(range(5,100,5)) # Maximum depth of tree
+        maxDepth.append(None)
+        minSamplesSplit = range(2,42,5) # Minimum samples required to split a node
+        minSamplesLeaf = range(1,101,10) # Minimum samples required at each leaf node
+        
+        #Create the grid
+        randomGrid = {
+                       'max_depth': maxDepth,
+                       'min_samples_split': minSamplesSplit,
+                       'min_samples_leaf': minSamplesLeaf}
+        
+        # Create the random search object
+        rfRandom = RandomizedSearchCV(estimator = rf, param_distributions = randomGrid,
+                                       n_iter = 128, cv = 5, verbose=1, random_state=0, 
+                                       refit=True, scoring='f1_macro', n_jobs=-1)
+        # f1-macro better where there are class imbalances as it 
+        # computes f1 for each class and then takes an unweighted mean
+        # "In problems where infrequent classes are nonetheless important, 
+        # macro-averaging may be a means of highlighting their performance."
+        
+        # Perform the random search and find the best parameter set
+        rfRandom.fit(X_train, y_train)
+        rfWinner=rfRandom.best_estimator_
+        bestParams=rfRandom.best_params_
+        #forest_to_code(rf.estimators_, features)
+        
+        
+        importances = rfWinner.feature_importances_
+        std = np.std([tree.feature_importances_ for tree in rfWinner.estimators_],
+                     axis=0)
+        indices = np.argsort(importances)[::-1]
+        print("Feature ranking:")
+        
+        for f in range(len(features)):
+            print("%d. %s (%f)" % (f + 1, features[indices[f]], importances[indices[f]]))
+        
+        # Plot the feature importances of the forest
+        plt.figure(figsize=(16, 9))
+        plt.title("Feature importances")
+        plt.bar(range(len(features)), importances[indices],
+               color="r", yerr=std[indices], align="center")
+        plt.xticks(range(len(features)), [features[i] for i in indices], rotation=90, fontsize=15)
+        plt.xlim([-1, len(features)])
+        plt.show()
+        
+        
+        predicted=rfWinner.predict(X_test)
+        conf_mat=confusion_matrix(y_test, predicted)
+        print(conf_mat)
+        # rows are true labels and coluns are predicted labels
+        # Cij  is equal to the number of observations 
+        # known to be in group i but predicted to be in group j.
+        for i in range(len(conf_mat)):
+            print('Total True for Class '+str(i)+': '+str(sum(conf_mat[i])))
+            print('Total Predicted for Class '+str(i)+': '+str(sum([p[i] for p in conf_mat])))
+        pickle.dump( rfWinner, open( self.model_path, "wb" ) )
+        json.dump(features,open(self.model_features_path, 'w' )) 
+        self.profile_rf=rfWinner
+        self.profile_rf_features=features
+        
     def huff_model(self, dist, attract=None, alt_names=None, alpha=1, beta=2, predict_y=False, topN=None):
         """ 
         takes a distance matrix and a optional attraction matrix, calculates choice probabilities 

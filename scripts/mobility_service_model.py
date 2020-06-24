@@ -24,8 +24,9 @@ from two_stage_logit_hlc import TwoStageLogitHLC
 
 
 class MobilityModel():
-    def __init__(self, table_name, city_folder):
+    def __init__(self, table_name, city_folder, seed=0):
         # TODO: new housing attributes directly from cityIO data
+        self.seed=seed
         self.new_house_attributes=[{'p': 0.2, 'rent': 950, 'beds': 3, 'built_since_jan2010': True, 
                   'puma_pop_per_sqmeter': 0.0016077275, 'puma_med_income': 24000,
                   'pop_per_sqmile': 0.0016077275/3.86102e-7, 'tenure': 'rented'},
@@ -38,6 +39,7 @@ class MobilityModel():
         self.city_folder=city_folder
         self.ALL_ZONES_PATH='./cities/'+city_folder+'/clean/model_area.geojson'
         self.SIM_ZONES_PATH='./cities/'+city_folder+'/clean/sim_zones.json'
+        self.GEOGRID_PATH='./cities/'+city_folder+'/clean/geogrid.geojson'
         # Synthpop results
         self.SIM_POP_PATH='./cities/'+city_folder+'/clean/sim_pop.json'
         self.VACANT_PATH='./cities/'+city_folder+'/clean/vacant.json'
@@ -106,8 +108,12 @@ class MobilityModel():
         self.zones=all_zones  
         
     def build_geogrid(self):
-        with urllib.request.urlopen(self.CITYIO_GET_URL+'/GEOGRID') as url:
-            geogrid_geojson=json.loads(url.read().decode())
+        try:
+            with urllib.request.urlopen(self.CITYIO_GET_URL+'/GEOGRID') as url:
+                geogrid_geojson=json.loads(url.read().decode())
+        except:
+            print('Couldnt get GEOGRID. Using local copy')
+            geogrid_geojson=json.load(open(self.GEOGRID_PATH))
         self.geogrid=GeoGrid(geogrid_geojson, transport_network=self.tn, 
                              city_folder=self.city_folder)
         
@@ -138,13 +144,16 @@ class MobilityModel():
     def get_geogrid_data(self):
         pass
     
-    def init_simulation(self):
+    def init_simulation(self, new_logit_params={}):
         print('Initialising Simulation')
         print('\t Activity Scheduling')
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        self.activity_scheduler.assign_profiles(self.pop.base_sim)
         for person in self.pop.base_sim:
             self.activity_scheduler.sample_activity_schedules(person, model=self)
         self.create_trips(self.pop.base_sim)
-        self.predict_trip_modes(self.pop.base_sim)
+        self.predict_trip_modes(self.pop.base_sim, logit_params=new_logit_params)
         self.pop.impact=self.pop.base_sim
 #        self.predict_mode_choices()
             
@@ -252,17 +261,13 @@ class MobilityModel():
         except requests.exceptions.RequestException as e:
             print('Couldnt send to cityio')   
             
-    def update_simulation(self, geogrid_data):
+    def update_simulation(self, geogrid_data, new_logit_params={}):
         then=datetime.datetime.now()
         print('Updating Simulation')
         self.geogrid_data=geogrid_data
         self.update_grid()
         self.activity_scheduler.find_locations_for_activities(self)
         self.create_new_agents()
-        print(len(self.pop.base_sim))
-        print(len(self.pop.new))
-        print(len(self.pop.base_floating))
-        print(len(self.pop.base_vacant))
         self.hlc.home_location_choices(self.pop)
         new_sim_pop=[]
         for p in self.pop.new + self.pop.base_floating:
@@ -271,10 +276,11 @@ class MobilityModel():
                     new_sim_pop.append(p)
         self.pop.impact=self.pop.base_sim+new_sim_pop
         print('\t Activity Scheduling')
+        self.activity_scheduler.assign_profiles(new_sim_pop)
         for person in new_sim_pop:
             self.activity_scheduler.sample_activity_schedules(person, model=self)
         self.create_trips(new_sim_pop)
-        self.predict_trip_modes(new_sim_pop)  
+        self.predict_trip_modes(new_sim_pop, logit_params=new_logit_params)  
         now=datetime.datetime.now()
         print('Update took {} seconds'.format((now-then).total_seconds()))
 
@@ -436,12 +442,14 @@ class Population():
         self.impact=[]
 
         for ind_p, person_record in enumerate(base_sim_persons):
-            new_person=Person(person_record, p_id='b' + str(ind_p))
+            new_person=Person(person_record, p_id='b' + str(ind_p), 
+                              worker=((person_record['COW']>0) and (person_record['COW']<9)))
             new_person.get_home_location_from_zone(model=model)
             new_person.get_work_location_from_zone(model=model)
             self.base_sim.append(new_person)
         for ind_p, person_record in enumerate(base_floating_persons):
-            new_person=Person(person_record , p_id='f' + str(ind_p))
+            new_person=Person(person_record , p_id='f' + str(ind_p), 
+                              worker=((person_record['COW']>0) and (person_record['COW']<9)))
             new_person.get_work_location_from_zone(model=model)
             new_person.assign_home_location(None)
             self.base_floating.append(new_person)
@@ -455,10 +463,11 @@ class Population():
         self.new_vacant=new_housing
                 
 class Person():
-    def __init__(self, attributes, p_id):
+    def __init__(self, attributes, p_id, worker=True):
         for key in attributes:
             setattr(self, key, attributes[key]) 
         self.person_id=p_id
+        self.worker=worker
         self.trips=[]
         
     def get_home_location_from_zone(self, model):

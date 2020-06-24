@@ -26,31 +26,31 @@
     }
   },
   "profile": {
-    "1": {
+    "0": {
       "name": "Homemakers",
       "color": "#7fc97f"
     },
-    "2": {
+    "1": {
       "name": "9-5",
       "color": "#beaed4"
     },
-    "3": {
+    "2": {
       "name": "Afternoon Adventurers",
       "color": "#fdc086"
     },
-    "4": {
+    "3": {
       "name": "Night-shifters",
       "color": "#ffff99"
     },
-    "5": {
+    "4": {
       "name": "Socialites",
       "color": "#386cb0"
     },
-    "6": {
+    "5": {
       "name": "Work-Life Balancers",
       "color": "#f0027f"
     },
-    "7": {
+    "6": {
       "name": "Students",
       "color": "#bf5b17"
     }

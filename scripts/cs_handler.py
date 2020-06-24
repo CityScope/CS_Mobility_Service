@@ -16,8 +16,9 @@ from mode_choice_nhts import NhtsModeLogit
 from two_stage_logit_hlc import TwoStageLogitHLC
 
 class CS_Handler():
-    def __init__(self, mobility_model,  host='https://cityio.media.mit.edu/',sleep_time=1):
+    def __init__(self, mobility_model,  host='https://cityio.media.mit.edu/',sleep_time=1, new_logit_params={}):
         self.model=mobility_model
+        self.new_logit_params=new_logit_params
         self.table_name=mobility_model.table_name
         self.CITYIO_GET_URL=mobility_model.CITYIO_GET_URL
         self.sleep_time=sleep_time # seconds
@@ -26,7 +27,7 @@ class CS_Handler():
 
         
     def initialise_model(self):
-        self.model.init_simulation()
+        self.model.init_simulation(new_logit_params=self.new_logit_params)
         
     def listen_city_IO(self):
         while True:
@@ -38,7 +39,7 @@ class CS_Handler():
     def perform_city_io_update(self, grid_hash_id):
         geogrid_data=self.get_geogrid_data()
         if geogrid_data is not None:
-            self.model.update_simulation(geogrid_data)
+            self.model.update_simulation(geogrid_data, new_logit_params=self.new_logit_params)
             self.model.post_trips_layer()
             self.grid_hash_id=grid_hash_id
         
@@ -96,7 +97,7 @@ class CS_Handler():
         x={cs_type:0 for cs_type in self.model.geogrid.type_defs}
         for g in geogrid_data:
             x[g['name']]+=g['height']
-        self.model.update_simulation(geogrid_data)
+        self.model.update_simulation(geogrid_data, new_logit_params=self.new_logit_params)
         y=self.get_outputs()
         return x, y
     

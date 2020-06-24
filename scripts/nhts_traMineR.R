@@ -40,7 +40,7 @@ library(cluster)
 clusterward1 <- agnes(dist.om1, diss = TRUE, method = "ward")
 # plot(clusterward1, which.plot = 2)
 
-n_clusters=3
+n_clusters=7
 
 cl1 <- cutree(clusterward1, k = n_clusters)
 cl1.fac <- factor(cl1, labels = paste("Cluster", 1:n_clusters))
@@ -74,7 +74,7 @@ seqIplot(act_seq.seq, group = cl1.fac, sortv = "from.start")
 # sample 100 of each and save
 act_seq$cluster=cl1
 act_seq$cluster_name=cl1.fac
-
+write.csv(act_seq,paste('cities/', city,'/clean/profile_labels.csv', sep=""))
 
 all_cluster_names=levels(cl1.fac)
 subset_cluster=act_seq[act_seq$cluster_name==all_cluster_names[1],]
