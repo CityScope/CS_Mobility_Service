@@ -19,8 +19,9 @@ import math
 #import urllib
 import matplotlib.path as mplPath
 
-import xml.etree.ElementTree as et
-import urllib.request
+#import xml.etree.ElementTree as et
+#import urllib.request
+import gzip
 
 
 # =============================================================================
@@ -73,6 +74,19 @@ def approx_shape_centroid(geometry):
         return centroid
     else:
         print('Unknown geometry type')
+        
+def dict_to_gzip(data, write_location):
+    json_data = json.dumps(data)
+    # Convert to bytes
+    encoded = json_data.encode('utf-8')
+    with gzip.open(write_location, 'wb') as f:
+        f.write(encoded)
+
+def gzip_to_dict(location):
+    with gzip.open(location, 'rb') as f:
+        file_content = f.read()        
+    test2=json.loads(file_content.decode('utf-8'))
+    return test2
 
 class Mode():
     def __init__(self, mode_descrip, mode_id):
@@ -140,9 +154,12 @@ class Transport_Network():
         # load internal routes
         self.sim_net_floyd_results={}
         sim_net_floyd_df={}
-        self.sim_net_floyd_results['driving']=json.load(open(self.INT_NET_PATH+'fw_result.json'))
-        self.sim_net_floyd_results['pt']=json.load(open(self.INT_NET_PATH+'fw_result_pt.json'))
-        self.sim_net_floyd_results['active']=json.load(open(self.INT_NET_PATH+'fw_result_active.json'))
+#        self.sim_net_floyd_results['driving']=json.load(open(self.INT_NET_PATH+'fw_result.json'))
+#        self.sim_net_floyd_results['pt']=json.load(open(self.INT_NET_PATH+'fw_result_pt.json'))
+#        self.sim_net_floyd_results['active']=json.load(open(self.INT_NET_PATH+'fw_result_active.json'))
+        self.sim_net_floyd_results['driving']=gzip_to_dict(self.INT_NET_PATH+'fw_result.txt.gz')
+        self.sim_net_floyd_results['pt']=gzip_to_dict(self.INT_NET_PATH+'fw_result_pt.txt.gz')
+        self.sim_net_floyd_results['active']=gzip_to_dict(self.INT_NET_PATH+'fw_result_active.txt.gz')
         sim_net_floyd_df['driving']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd.csv')
         sim_net_floyd_df['pt']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_pt.csv')
         sim_net_floyd_df['active']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_active.csv')
