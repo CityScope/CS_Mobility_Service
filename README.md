@@ -1,7 +1,7 @@
 # CS_Mobility_Service
 A web service providing mobility simulations for CityScope projects.
 
-![viz](./images/grasbrook_trips.gif)
+![viz](./images/mob_sim_viz.gif)
 
 ## MobilityModel Class
 The MobilityModel class creates a model of the target and simulates the mobility behaviour of a sample of the population. The following inputs ust be provided on initialisation:
