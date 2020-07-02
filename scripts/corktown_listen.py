@@ -19,11 +19,11 @@ import json
 # =============================================================================
 new_mode_specs=json.load(open('cities/Detroit/clean/new_mode_specs.json'))
 
-ASC_micromobility= 2.8
-ASC_shuttle= 2.75
-beta_similarity_PT= 0.45
-lambda_PT= 0.7
-lambda_walk= 0.4
+ASC_micromobility= 2.63
+ASC_shuttle= 2.33
+beta_similarity_PT= 0.5
+lambda_PT= 0.65
+lambda_walk= 0.29
 
 nests_spec=[{'name': 'PT_like', 'alts':['micromobility', 'PT', 'shuttle'], 'lambda':lambda_PT},
             {'name': 'walk_like', 'alts':['micromobility','walk'], 'lambda':lambda_walk}
@@ -35,14 +35,18 @@ initial_ASC_PT=mode_choice_model.logit_model['params']['ASC for PT']
 initial_ASC_cycle=mode_choice_model.logit_model['params']['ASC for cycle']
 initial_ASC_walk=mode_choice_model.logit_model['params']['ASC for walk']
 
-new_ASCs = {'ASC for cycle': -0.9, 'ASC for PT': -0.9, 'ASC for walk': 2.9}
+new_ASCs = {
+#        'ASC for cycle': -0.9, 
+            'ASC for PT': -0.9, 
+#            'ASC for walk': 2.9
+}
 initial_ASCs= {param:mode_choice_model.logit_model['params'][param] for param in new_ASCs}
 mode_choice_model.set_logit_model_params(new_ASCs)
 
 for param in new_ASCs:
     print('Modified {} from {} to {}'.format(param, initial_ASCs[param], mode_choice_model.logit_model['params'][param]))
 
-# calculate paams for new modes
+# calculate params for new modes
 new_beta_params = {}
 crt_logit_params = mode_choice_model.logit_model['params']
 for g_attr in mode_choice_model.logit_generic_attrs:
