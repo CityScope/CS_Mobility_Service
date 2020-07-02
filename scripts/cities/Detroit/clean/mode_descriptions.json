@@ -5,7 +5,7 @@
     "internal_net": "driving",
     "weight": "minutes",
     "activity": "driving",
-    "speed_m_s": 8.33,
+    "speed_m_s": 11.11,
     "co2_emissions_kg_met": 0.000272,
     "fixed_costs": {}
   },

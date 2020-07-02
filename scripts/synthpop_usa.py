@@ -368,7 +368,6 @@ for ind, row in od_bg.iterrows():
 json.dump(sim_people, open(SIM_POP_PATH, 'w'))
 # a random sample of people and a random sample of housing units  
 # to be used for the vacant houses, people moving house and new population
-#take 1% sample of all HHs:
 vacant_houses, floating_people=[], []
 frac=vacancy_rate/sample_factor
 sample_HHs=synth_hh_df.sample(frac=frac)
@@ -383,7 +382,7 @@ for ind, row in sample_HHs.iterrows():
     vacant_houses.append(house_obj)
 #    get subset of people with this hh id
     if random.randint(1, 6)==1:
-        # 3% houses vacant but only fewer households seeking
+        # 3% houses vacant but fewer households seeking
         persons_in_house=synth_persons_df.loc[
                 synth_persons_df['serialno']==row['serialno']]
         sample_persons=persons_in_house.sample(n=row['NP'])

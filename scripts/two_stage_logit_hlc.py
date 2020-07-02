@@ -362,33 +362,6 @@ class TwoStageLogitHLC():
                 else:
                     dist_mat[puma][pow_puma] = np.sqrt(puma_land_sqm[puma] / np.pi) # set inner distance to quasi-radius
         
-        # =============================================================================
-        # Amenity Density
-        # =============================================================================
-        # a poiConfigure is a dict indicating how different kinds of POIs are extracted and summarized. 
-        # Each key of poiConfigure is one category of POIs to be finally summarized, 
-        # its value is a dict as extracting rules indicating which OSM points would be categorized as this kind of POI.
-        # The keys of these extracting rules are OSM keys, and values are lists of OSM values to be extracted,
-        # an empty list indicates all OSM values under that OSM key will be extracted.
-        # For instance, the following poiConfigure will identify 3 categories:  "entertainment", "medical", "school"
-        # a point with "amenity" attribute, and its "amenity" value is in the list of "amenityEntertainmentList + amenityRestaurantList", 
-        # or any point has "leisure" / "shop" attribue (no matter what the value of "leisure" / "shop" is) would be categorized as "entertainment". 
-        # a point with "amenity" attribute, and its "amentiy" value is in the list of "amenityHealthList" would be categorized as "medical"
-        # a point with "amenity" attribute, and its "amentiy" value is in the list of "amenitySchoolList" would be categorized as "school"
-        
-        #poiConfigure = {
-        #    'entertainment': {'amenity': amenityEntertainmentList + amenityRestaurantList,
-        #            'leisure': [],
-        #            'shop':[]
-        #    },
-        #    'medical': {'amenity':amenityHealthList},
-        #    'school': {'amenity': amenitySchoolList}
-        #    }
-        #print('\n[info] Processing POIs...')
-        #PUMAsJointPOIsData = process_poi(POI_PATH, PUMA_SHAPE_PATH, poiConfigure)
-        #poiFields = [x+'_den' for x in poiConfigure]
-        #puma_poi_dict = {str(int(x['properties']['PUMACE10'])).zfill(5):x['properties'] for x in PUMAsJointPOIsData['features']}
-        
         
         # build the PUMA aggregate data data frame
         median_income_by_puma=hh.groupby('PUMA')['HINCP'].median()
@@ -597,6 +570,6 @@ class TwoStageLogitHLC():
             home_loc_mnl['home_loc_mnl_hh'] = {'just_point': True, 'model': home_loc_mnl_hh, 'params': params, 'var_names': home_loc_mnl_hh.ind_var_names}
                 
         # save models to file
-        pickle.dump(home_loc_mnl, open(FITTED_HOME_LOC_MODEL_PATH, 'wb'))
-        json.dump(rent_normalisation, open(RENT_NORM_PATH, 'w'))
-        puma_attr_df.to_json(PUMA_ATTR_PATH)
+        pickle.dump(home_loc_mnl, open(self.FITTED_HOME_LOC_MODEL_PATH, 'wb'))
+        json.dump(rent_normalisation, open(self.RENT_NORM_PATH, 'w'))
+        puma_attr_df.to_json(self.PUMA_ATTR_PATH)

@@ -25,7 +25,6 @@ from two_stage_logit_hlc import TwoStageLogitHLC
 
 class MobilityModel():
     def __init__(self, table_name, city_folder, seed=0):
-        # TODO: new housing attributes directly from cityIO data
         self.seed=seed
         self.new_house_attributes=[{'p': 0.2, 'rent': 950, 'beds': 3, 'built_since_jan2010': True, 
                   'puma_pop_per_sqmeter': 0.0016077275, 'puma_med_income': 24000,
@@ -55,14 +54,11 @@ class MobilityModel():
         # activity schedule results
         self.MOTIF_SAMPLE_PATH='./cities/'+city_folder+'/clean/motif_samples.csv'        
         # portals
-#        self.PORTALS_PATH='./cities/'+city_folder+'/clean/portals.geojson'
         # external route costs
         self.ROUTE_COSTS_PATH='./cities/'+city_folder+'/clean/route_costs.json'
         # internal network and route costs
         self.FLOYD_PREDECESSOR_PATH='./cities/'+city_folder+'/clean/fw_result.json'
         self.INT_NET_DF_FLOYD_PATH='./cities/'+city_folder+'/clean/sim_net_df_floyd.csv'
-        self.INT_NET_COORDINATES_PATH='./cities/'+city_folder+'/clean/sim_net_node_coords.json'
-        self.EXTERNAL_LU_PATH = './cities/'+city_folder+'/clean/external_lu.json'
         # activity-LU mappings
         self.MAPPINGS_PATH = './cities/'+city_folder+'/mappings'
         # city_folderIO
@@ -71,7 +67,6 @@ class MobilityModel():
         self.CITYIO_POST_URL=host+'api/table/update/'+table_name+'/'
         self.types=None
         # scale factor must match that from pop-synth
-        # TODO: integrate the pop-synth as a class
         self.scale_factor=20
         
         self.build_model()
@@ -179,13 +174,6 @@ class MobilityModel():
         for person_id, p in enumerate(persons):
             all_trips.extend(p.trips_to_list(person_id=person_id))
         temp_mode_choice_model.generate_feature_df(all_trips)
-# =============================================================================
-#         TODO: fix the drive time and PT times in building the Transport Network
-# =============================================================================
-        temp_mode_choice_model.feature_df['drive_vehicle_time_minutes']=temp_mode_choice_model.feature_df['drive_vehicle_time_minutes']*3/4
-        temp_mode_choice_model.base_feature_df=temp_mode_choice_model.feature_df
-##        temp_mode_choice_model.feature_df['PT_time_minutes']=temp_mode_choice_model.feature_df['PT_time_minutes']*10        temp_mode_choice_model.base_feature_df=deepcopy(temp_mode_choice_model.feature_df) 
-# =============================================================================
         if len(temp_mode_choice_model.new_alt_specs)>0:
             for new_spec in temp_mode_choice_model.new_alt_specs:
                 temp_mode_choice_model.set_new_alt(new_spec)
@@ -534,11 +522,6 @@ class Person():
                     print([t.enters_sim, t.purpose])
         return trips_list
         
-
-#mode_choice_set
-        
-#class Mode():
-#    def __init__(self, graph_ind, name, speed_met_s, kg_co2_per_met)  :
         
 class Housing_Unit():
     def __init__(self, attributes, house_id):       
@@ -598,10 +581,7 @@ class GridCell(Polygon_Location):
 class GeoGrid():
     def __init__(self, grid_geojson, transport_network, city_folder):
         MAPPINGS_PATH = './cities/'+city_folder+'/mappings'
-        self.lu_inputs=json.load(open(MAPPINGS_PATH+'/lu_inputs.json'))
-        self.lu_input_to_lu_standard=json.load(open(MAPPINGS_PATH+'/lu_input_to_lu_standard.json'))
         self.activities_to_lbcs=json.load(open(MAPPINGS_PATH+'/activities_to_lbcs.json'))
-        self.base_lu_to_lu=json.load(open(MAPPINGS_PATH+'/base_lu_to_lu.json'))
         self.cells=[]
         self.int_type_defs=grid_geojson['properties']['types'].copy()
         self.type_defs=grid_geojson['properties']['types']
@@ -632,8 +612,6 @@ class GeoGrid():
                     suitable=True
             if suitable:
                 possible_cells.append(c)
-#        if len(possible_cells)==0:
-#            print('No suitable cells found for {}'.format(activity))
         return possible_cells
     
 
@@ -734,7 +712,6 @@ class Trip():
 
             
 def main():
-#if True:
     this_model=MobilityModel('corktown', 'Detroit')
     
     this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))

@@ -35,7 +35,6 @@ class ActivityScheduler():
         self.sample_motifs=pd.read_csv(MOTIF_SAMPLE_PATH)
         self.training_data_attributes_path='./cities/'+model.city_folder+'/clean/person_sched_weekday.csv'
         self.training_data_profiles_path='./cities/'+model.city_folder+'/clean/profile_labels.csv'
-#        self.motif_sample_obj=sample_motifs.to_dict(orient='records')
         self.find_locations_for_activities(model)
         self.model_path='./cities/'+model.city_folder+'/models/profile_rf.p'
         self.model_features_path='./cities/'+model.city_folder+'/models/profile_rf_features.json'
@@ -58,8 +57,6 @@ class ActivityScheduler():
             if rff not in feature_df.columns:
                 feature_df[rff]=False
         feature_df=feature_df[self.profile_rf_features]
-#        profile_probs=self.profile_rf.predict_proba(feature_df)
-#        chosen_profiles=[int(np.random.choice(range(profile_probs.shape[1]), size=1, replace=False, p=profile_probs[i])[0]) for i in range(len(profile_probs))]
         chosen_profiles=list(self.profile_rf.predict(feature_df))
         for ip in range(len(chosen_profiles)):
             persons[ip].assign_motif(chosen_profiles[ip])
@@ -68,8 +65,6 @@ class ActivityScheduler():
     def sample_activity_schedules(self, person, model):
         last_loc=person.home_loc
         activities=[]
-        # TODO predict rather than random sample
-#        X_dict=['worker': person.worker, ]
         motif_options=self.sample_motifs.loc[self.sample_motifs['cluster']==person.motif].to_dict(orient='records')
         motif=random.choice(motif_options)
         hourly_activity_ids=[motif['P{}'.format(str(period).zfill(3))] for period in range(24)]
@@ -84,7 +79,6 @@ class ActivityScheduler():
                 elif activity_name=='Work':
                     activity_location=person.work_loc
                 else:
-#                    potential_locations=model.geogrid.find_locations_for_activity(activity_name)
                     potential_locations=self.potential_locs[activity_name]
                     if len(potential_locations)==0:
 #                        print('No locations for {} in geogrid'.format(activity_name))
@@ -149,17 +143,11 @@ class ActivityScheduler():
         rfRandom = RandomizedSearchCV(estimator = rf, param_distributions = randomGrid,
                                        n_iter = 128, cv = 5, verbose=1, random_state=0, 
                                        refit=True, scoring='f1_macro', n_jobs=-1)
-        # f1-macro better where there are class imbalances as it 
-        # computes f1 for each class and then takes an unweighted mean
-        # "In problems where infrequent classes are nonetheless important, 
-        # macro-averaging may be a means of highlighting their performance."
         
         # Perform the random search and find the best parameter set
         rfRandom.fit(X_train, y_train)
         rfWinner=rfRandom.best_estimator_
         bestParams=rfRandom.best_params_
-        #forest_to_code(rf.estimators_, features)
-        
         
         importances = rfWinner.feature_importances_
         std = np.std([tree.feature_importances_ for tree in rfWinner.estimators_],
@@ -245,5 +233,4 @@ class ActivityScheduler():
         else:
             y = None
         return prob, y        
-    
-# acts= Activity_Scheduler(this_world)               
+              

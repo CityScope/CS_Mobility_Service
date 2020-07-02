@@ -137,26 +137,16 @@ class Transport_Network():
             print('External routes not yet prepared. Preparing now')
             self.prepare_external_routes()
             self.external_costs=json.load(open(self.ROUTE_COSTS_PATH))
-        try:
-            self.sim_net_floyd_results={}
-            sim_net_floyd_df={}
-            self.sim_net_floyd_results['driving']=json.load(open(self.INT_NET_PATH+'fw_result.json'))
-            self.sim_net_floyd_results['pt']=json.load(open(self.INT_NET_PATH+'fw_result_pt.json'))
-            self.sim_net_floyd_results['active']=json.load(open(self.INT_NET_PATH+'fw_result_active.json'))
-            sim_net_floyd_df['driving']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd.csv')
-            sim_net_floyd_df['pt']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_pt.csv')
-            sim_net_floyd_df['active']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_active.csv')
-        except:
-            print('Internal routes not yet prepared. Preparing now')
-            self.prepare_internal_net()
-            self.sim_net_floyd_results={}
-            sim_net_floyd_df={}
-            self.sim_net_floyd_results['driving']=json.load(open(self.INT_NET_PATH+'fw_result.json'))
-            self.sim_net_floyd_results['pt']=json.load(open(self.INT_NET_PATH+'fw_result_pt.json'))
-            self.sim_net_floyd_results['active']=json.load(open(self.INT_NET_PATH+'fw_result_active.json'))
-            sim_net_floyd_df['driving']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd.csv')
-            sim_net_floyd_df['pt']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_pt.csv')
-            sim_net_floyd_df['active']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_active.csv')
+        # load internal routes
+        self.sim_net_floyd_results={}
+        sim_net_floyd_df={}
+        self.sim_net_floyd_results['driving']=json.load(open(self.INT_NET_PATH+'fw_result.json'))
+        self.sim_net_floyd_results['pt']=json.load(open(self.INT_NET_PATH+'fw_result_pt.json'))
+        self.sim_net_floyd_results['active']=json.load(open(self.INT_NET_PATH+'fw_result_active.json'))
+        sim_net_floyd_df['driving']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd.csv')
+        sim_net_floyd_df['pt']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_pt.csv')
+        sim_net_floyd_df['active']=pd.read_csv(self.INT_NET_PATH+'sim_net_df_floyd_active.csv')
+
 
         # create dictionaries for node coordinates and attributes
         self.nodes_to_link_attributes={}
@@ -275,13 +265,6 @@ class Transport_Network():
                             'node_path':path, 'distances': distances,
                             'activities': activities, 'minutes': minutes,
                             'total_distance': total_distance, 'coords': coords}}
-#            for i in range(len(minutes)):
-#                if mode.name=='pt':
-#                    link_activity=activities[i]
-#                else:
-#                    link_activity=mode.activity
-#                link_minutes=minutes[i]
-#                routes[mode.name]['costs'][link_activity]+=link_minutes
         return routes
     
     def get_routes(self, from_loc, to_loc):
@@ -391,8 +374,6 @@ class Transport_Network():
                        max([b[2] for b in bounds]), #E
                        max([b[3] for b in bounds])] #N
         
-        # get the osm as nodes and edges dfs
-        # TODO: try one-way and find routes between highest degree node in each zone
         drive_nodes,drive_edges=osmnet.load.network_from_bbox(lat_min=boundsAll[1], lng_min=boundsAll[0], lat_max=boundsAll[3], 
                                       lng_max=boundsAll[2], bbox=None, network_type='drive', 
                                       two_way=True, timeout=180, 
@@ -506,134 +487,3 @@ class Transport_Network():
         # Save the results
         json.dump(ext_route_costs, open(self.ROUTE_COSTS_PATH, 'w'))  
 
-    def prepare_internal_net(self):
-        DRIVE_SPEED_M_S=8.33
-        sim_area=json.load(open(self.SIM_AREA_PATH))
-
-        full_area=[shape(f['geometry']) for f in sim_area['features']]
-        bounds=[shp.bounds for shp in full_area]
-        boundsAll=[min([b[0] for b in bounds]), #W
-                       min([b[1] for b in bounds]), #S
-                       max([b[2] for b in bounds]), #E
-                       max([b[3] for b in bounds])] #N   
-
-        query='http://api.openstreetmap.org/api/0.6/map?bbox='+','.join([str(b) for b in boundsAll])
-        file = urllib.request.urlopen(query)
-        xData=et.parse(file)
-        file.close()
-        
-        root=xData.getroot()
-        root.tag
-        
-        nodeLat, nodeLong, nodeId, aNodes, bNodes, hwTags, names, oneway, ref, maxspeed, osmid=[
-                [], [],[],[],[],[],[],[],[],[],[]]
-        
-        for child in root:
-            if child.tag=='node':
-                nodeLat.extend([child.get('lat')])
-                nodeLong.extend([child.get('lon')])
-                nodeId.extend([child.get('id')])
-            elif child.tag=='way':
-                highwayTag, name, oneW, re, mSp=[], [], [], [], []
-                for t in child.findall('tag'):
-                    key=t.get('k')
-                    if key=='highway':
-                        value=t.get('v')
-                        highwayTag.extend([value])
-                #now confirmed if the child is a way: if so, loop through the tags again and save them
-                if any(highwayTag):
-                    for t in child.findall('tag'):
-                        if t.get('k')=='name':
-                            name=t.get('v')
-                        if t.get('k')=='oneway':
-                            oneW=t.get('v')
-                        if t.get('k')=='ref':
-                            re=t.get('v')
-                        if t.get('k')=='maxspeed':
-                            mSp=t.get('v')
-                    first=1
-                    for gChild in child:
-                        if gChild.tag=='nd':
-                            if first==1:
-                                #aNodes.extend([gChild.get('ref')])
-                                lastNode=gChild.get('ref')
-                            else:
-                                aNodes.extend([lastNode])
-                                lastNode=gChild.get('ref')
-                                bNodes.extend([lastNode])
-                                hwTags.extend([highwayTag[0]])
-                                names.extend([name])
-                                oneway.extend([oneW])
-                                ref.extend([re])
-                                maxspeed.extend([mSp])
-                                osmid.extend([list(child.getiterator())[0].attrib['id']])
-                            first=0
-        latLong= [[nodeLat[i], nodeLong[i]] for i in range(len(nodeId))]
-        LatLongDict = dict(zip(nodeId, latLong))
-        
-        aNodeLat=[LatLongDict[aNodes[i]][0] for i in range(len(aNodes))]
-        aNodeLon=[LatLongDict[aNodes[i]][1] for i in range(len(aNodes))]
-        bNodeLat=[LatLongDict[bNodes[i]][0] for i in range(len(bNodes))]
-        bNodeLon=[LatLongDict[bNodes[i]][1] for i in range(len(bNodes))]
-        
-        network=pd.DataFrame({'aNodes':aNodes, 'bNodes':bNodes, 
-        'aNodeLat':aNodeLat, 'aNodeLon':aNodeLon,'bNodeLat':bNodeLat,'bNodeLon':bNodeLon, 'type':hwTags, 
-        'name':names, 'speed':maxspeed, 'ref':ref, 'osmid':osmid, 'oneway':oneway})
-            
-        network['distance']=network.apply(lambda row: get_haversine_distance([float(row['aNodeLon']), float(row['aNodeLat'])],
-              [float(row['bNodeLon']), float(row['bNodeLat'])]), axis=1)
-        copy_edges=network.copy()
-        for i in range(len(copy_edges)):
-            if copy_edges.iloc[i]['oneway']!='yes':
-                temp_link=copy_edges.iloc[i].copy()
-                temp_from_node = temp_link['aNodes']
-                temp_link['aNodes']=temp_link['bNodes']
-                temp_link['bNodes']=temp_from_node
-                network.loc[len(network)]=temp_link.copy()
-                
-        network['aNode_bNode']=network.apply(lambda row: '{}_{}'. format(row['aNodes'], row['bNodes']), axis=1)
-        network=network.set_index('aNode_bNode')
-        len(network)
-        
-        network = network.loc[~network.index.duplicated(keep='first')]
-        len(network)
-        
-        # find subset where at least 1 node in sim area
-        sim_area_nodes=set()
-        # check if each node in any sim area, if so add to list
-        for node_num in LatLongDict:
-            for feat in sim_area['features']:
-                if shape(feat['geometry']).contains(Point(
-                    float(LatLongDict[node_num][1]), 
-                    float(LatLongDict[node_num][0]))):
-                    sim_area_nodes.add(node_num)
-                    
-        network=network.loc[((network['aNodes'].isin(sim_area_nodes))|
-                (network['bNodes'].isin(sim_area_nodes)))]
-            
-        edges_types=set(network['type'])
-        drive_types=[t for t in edges_types if t not in ['footway', 'path', 'steps', 'pedestrian', 'track']]
-        drive_edges=network.loc[network['type'].isin(drive_types)]
-        
-        G=nx.DiGraph()
-        for i, row in drive_edges.iterrows():
-            G.add_edge(row['aNodes'], row['bNodes'], 
-                       weight=row['distance'])
-            
-        drive_edges['activity']='driving'
-        drive_edges['minutes']=drive_edges['distance']/(DRIVE_SPEED_M_S*60)
-        fw_result=nx.floyd_warshall_predecessor_and_distance(G, weight='weight')
-        json.dump(fw_result[0], open(self.FLOYD_PREDECESSOR_PATH, 'w'))
-        drive_edges.to_csv(self.INT_NET_DF_FLOYD_PATH)
-
-
-        
-
-
-
-
-#def main():
-#    tn=Transport_Network('corktown', 'Detroit')
-
-#if __name__ == '__main__':
-#	main()  
