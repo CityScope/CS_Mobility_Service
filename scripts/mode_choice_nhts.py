@@ -18,23 +18,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.metrics import confusion_matrix
 
-#********************************************
-#      Constants
-#********************************************
-#city='Detroit'
-#REGION_CDIVMSARS_BY_CITY={"Boston": [11,21] ,
-#                           "Detroit": [31, 32]
-#                           }
-#region_cdivsmars=REGION_CDIVMSARS_BY_CITY[city]
-#
-#NHTS_PATH='scripts/NHTS/perpub.csv'
-#NHTS_TOUR_PATH='scripts/NHTS/tour17.csv'
-#NHTS_TRIP_PATH='scripts/NHTS/trippub.csv'
-##MODE_TABLE_PATH='./'+city+'/clean/trip_modes.csv'
-#PICKLED_MODEL_PATH='./scripts/cities/'+city+'/models/trip_mode_logit.p'
-#LOGIT_FEATURES_LIST_PATH='./scripts/cities/'+city+'/models/logit_features.json'
-#PERSON_SCHED_TABLE_PATH='./scripts/cities/'+city+'/clean/person_sched_weekday.csv'
-
 # =============================================================================
 # Functions
 # =============================================================================

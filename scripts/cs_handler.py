@@ -81,13 +81,21 @@ class CS_Handler():
             geogrid_data.append({'name': cell_type, 'height': cell_height})
         return geogrid_data
     
+    def normalise_ind(self, value, min_value, max_value):
+        return (value-min_value)/(max_value-min_value)
+    
     def get_outputs(self):
         avg_co2=self.model.get_avg_co2()
+        avg_co2_norm=self.normalise_ind(avg_co2, min_value=12, max_value=5)
         live_work_prop=self.model.get_live_work_prop()
         mode_split=self.model.get_mode_split()
         delta_f_physical_activity_pp=self.model.health_impacts_pp()
-        output= {'avg_co2': avg_co2, 'live_work_prop': live_work_prop,
-                 'delta_f_physical_activity_pp':delta_f_physical_activity_pp}
+        delta_f_norm=self.normalise_ind(delta_f_physical_activity_pp, min_value=0, max_value=0.004)
+        output= {'CO2 Performance raw kg/day': avg_co2, 
+                 'Mobility Health Impacts raw mortality/year':delta_f_physical_activity_pp,
+                 'CO2 Performance norm': avg_co2_norm,
+                 'Mobility Health Impacts norm': delta_f_norm
+                 }
         for mode in mode_split:
             output[mode]=100*mode_split[mode]
         return output
@@ -103,12 +111,7 @@ class CS_Handler():
     
     def post_trips_data(self):
         self.model.post_trips_layer()
-        
-    def post_trips_data_w_attrs(self):
-        self.model.post_trips_layer_w_attrs()
-
-        
-    
+           
     def generate_training_data(self, iterations, ref_geogrid):
         """ In order to train a ML model to approximate the results of the simulation
         in deployments where indicators must be available in real-time

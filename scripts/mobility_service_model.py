@@ -24,7 +24,7 @@ from two_stage_logit_hlc import TwoStageLogitHLC
 
 
 class MobilityModel():
-    def __init__(self, table_name, city_folder, seed=0):
+    def __init__(self, table_name, city_folder, seed=0, host='https://cityio.media.mit.edu/'):
         self.seed=seed
         self.new_house_attributes=[{'p': 0.2, 'rent': 950, 'beds': 3, 'built_since_jan2010': True, 
                   'puma_pop_per_sqmeter': 0.0016077275, 'puma_med_income': 24000,
@@ -61,8 +61,6 @@ class MobilityModel():
         self.INT_NET_DF_FLOYD_PATH='./cities/'+city_folder+'/clean/sim_net_df_floyd.csv'
         # activity-LU mappings
         self.MAPPINGS_PATH = './cities/'+city_folder+'/mappings'
-        # city_folderIO
-        host='https://cityio.media.mit.edu/'
         self.CITYIO_GET_URL=host+'api/table/'+table_name
         self.CITYIO_POST_URL=host+'api/table/update/'+table_name+'/'
         self.types=None
@@ -190,6 +188,18 @@ class MobilityModel():
             persons[person_id].trips[trip_id].set_mode(predicted_mode, 
                    mode_list)
             
+#    def get_trips_layer(self, persons=None):
+#        if persons==None:
+#            persons=self.pop.impact
+#        trips_layer_data=[]
+#        for person in persons:
+#            for trip in person.trips:
+#                if trip.enters_sim:
+#                    new_trip=trip.to_deckgl_trip_format()
+#                    if new_trip is not None:
+#                        trips_layer_data.extend(new_trip)
+#        return trips_layer_data
+    
     def get_trips_layer(self, persons=None):
         if persons==None:
             persons=self.pop.impact
@@ -197,52 +207,44 @@ class MobilityModel():
         for person in persons:
             for trip in person.trips:
                 if trip.enters_sim:
-                    new_trip=trip.to_deckgl_trip_format()
+                    new_trip=trip.to_deckgl_trip_format(person.motif)
                     if new_trip is not None:
                         trips_layer_data.extend(new_trip)
-        return trips_layer_data
-    
-    def get_trips_layer_w_attrs(self, persons=None):
-        if persons==None:
-            persons=self.pop.impact
-        trips_layer_data=[]
-        for person in persons:
-            for trip in person.trips:
-                if trip.enters_sim:
-                    new_trip=trip.to_deckgl_trip_format_w_attrs(person.motif)
-                    if new_trip is not None:
-                        trips_layer_data.extend(new_trip)
-        return {"trips": trips_layer_data, "attr": self.trip_attrs}
+        mode_split=self.get_mode_split(persons, by_id=True)
+        mode_attrs={}
+        for mode_ind in self.trip_attrs['mode']:
+            if int(mode_ind) in mode_split:
+                splt_pct=str(int(1000*mode_split[int(mode_ind)])/10)+'%'# convert to percent with 1 decimal place
+                mode_attrs[mode_ind]={'name':self.trip_attrs['mode'][mode_ind]['name']+': '+splt_pct,'color': self.trip_attrs['mode'][mode_ind]['color']}
+        return {"trips": trips_layer_data, "attr": {'mode': mode_attrs, 'profile': self.trip_attrs['profile']}}
 
+            
+#    def post_trips_layer(self, persons=None):
+#        if persons==None:
+#            persons=self.pop.impact
+#        trips_layer_data=self.get_trips_layer(persons)
+#        if len(trips_layer_data)>2000:
+#            print('{} trips'.format(len(trips_layer_data)))
+#            sample_data=random.sample(trips_layer_data, 2000)
+#        else:
+#            sample_data=trips_layer_data
+#        post_url=self.CITYIO_POST_URL+'ABM'
+#        trips_str = json.dumps(sample_data)
+#        try:
+#            r = requests.post(post_url, data = trips_str)
+#            print('Trips Layer: {}'.format(r))
+#        except requests.exceptions.RequestException as e:
+#            print('Couldnt send to cityio')
             
     def post_trips_layer(self, persons=None):
         if persons==None:
             persons=self.pop.impact
         trips_layer_data=self.get_trips_layer(persons)
-        if len(trips_layer_data)>2000:
-            print('{} trips'.format(len(trips_layer_data)))
-            sample_data=random.sample(trips_layer_data, 2000)
-        else:
-            sample_data=trips_layer_data
-        post_url=self.CITYIO_POST_URL+'ABM'
-        trips_str = json.dumps(sample_data)
-        try:
-            r = requests.post(post_url, data = trips_str)
-            print('Trips Layer: {}'.format(r))
-        except requests.exceptions.RequestException as e:
-            print('Couldnt send to cityio')
-            
-    def post_trips_layer_w_attrs(self, persons=None):
-        if persons==None:
-            persons=self.pop.impact
-        trips_layer_data=self.get_trips_layer_w_attrs(persons)
-        if len(trips_layer_data)>2000:
-            print('{} trips'.format(len(trips_layer_data)))
-            sample_data=random.sample(trips_layer_data, 2000)
-        else:
-            sample_data=trips_layer_data
+        if len(trips_layer_data["trips"])>2000:
+            print('{} trips'.format(len(trips_layer_data["trips"])))
+            trips_layer_data["trips"]=random.sample(trips_layer_data["trips"], 2000)
         post_url=self.CITYIO_POST_URL+'ABM2'
-        trips_str = json.dumps(sample_data)
+        trips_str = json.dumps(trips_layer_data)
         try:
             r = requests.post(post_url, data = trips_str)
             print('Trips Layer: {}'.format(r))
@@ -331,7 +333,7 @@ class MobilityModel():
                         total_dist+=trip.total_distance
         return total_co2_kg/count
     
-    def get_mode_split(self, persons=None):
+    def get_mode_split(self, persons=None, by_id=False):
         if persons==None:
             persons=self.pop.impact
         count=0
@@ -344,7 +346,10 @@ class MobilityModel():
                         count+=1
 #                        split[trip.mode.name]+=trip.total_distance
 #                        count+=trip.total_distance
-        prop_split={mode_name: split[mode_name]/count for mode_name in split}
+        if by_id:
+            prop_split={m.id: split[m.name]/count for m in self.tn.base_modes+self.tn.new_modes}
+        else:
+            prop_split={mode_name: split[mode_name]/count for mode_name in split}
         return prop_split
     
     def get_live_work_prop(self, persons=None):
@@ -640,24 +645,25 @@ class Trip():
                                 ]+((self.pre_time)+(self.post_time))*60*self.mode.speed_met_s
         if utility is not None:
             self.utility=utility
-    def to_deckgl_trip_format(self):
-        if self.mode is not None:
-#            cum_dist=np.cumsum(self.internal_route['distances'])
-            route_time_s=[m*60 for m in self.internal_route['minutes']]
-            cum_time=np.cumsum(route_time_s)
-            internal_trip_start_time=self.activity_start+self.pre_time
-            timestamps=[int(internal_trip_start_time)] + [int(internal_trip_start_time)+ int(ct) for ct in cum_time]
-            if self.mode.name=='pt':
-                trips_objects=self.multi_mode_deck_gl_trip(timestamps, {'pt':3, 'walking':2})
-            else:    
-                trips_objects=[{'mode': [self.mode.id, 0],
-                               'path': self.internal_route['coords'],
-                               'timestamps': timestamps}]
-            return trips_objects
-        else:
-            return None
+            
+#    def to_deckgl_trip_format(self):
+#        if self.mode is not None:
+##            cum_dist=np.cumsum(self.internal_route['distances'])
+#            route_time_s=[m*60 for m in self.internal_route['minutes']]
+#            cum_time=np.cumsum(route_time_s)
+#            internal_trip_start_time=self.activity_start+self.pre_time
+#            timestamps=[int(internal_trip_start_time)] + [int(internal_trip_start_time)+ int(ct) for ct in cum_time]
+#            if self.mode.name=='pt':
+#                trips_objects=self.multi_mode_deck_gl_trip(timestamps, {'pt':3, 'walking':2})
+#            else:    
+#                trips_objects=[{'mode': [self.mode.id, 0],
+#                               'path': self.internal_route['coords'],
+#                               'timestamps': timestamps}]
+#            return trips_objects
+#        else:
+#            return None
         
-    def to_deckgl_trip_format_w_attrs(self, motif):
+    def to_deckgl_trip_format(self, motif):
         if self.mode is not None:
 #            cum_dist=np.cumsum(self.internal_route['distances'])
             route_time_s=[m*60 for m in self.internal_route['minutes']]
@@ -665,7 +671,7 @@ class Trip():
             internal_trip_start_time=self.activity_start+self.pre_time
             timestamps=[int(internal_trip_start_time)] + [int(internal_trip_start_time)+ int(ct) for ct in cum_time]
             if self.mode.name=='pt':
-                trips_objects=self.multi_mode_deck_gl_trip_w_attrs(timestamps, {'pt':3, 'walking':2}, motif)
+                trips_objects=self.multi_mode_deck_gl_trip(timestamps, {'pt':3, 'walking':2}, motif)
             else:    
                 trips_objects=[{'mode': str(self.mode.id),
                                 'profile': str(motif),
@@ -676,23 +682,23 @@ class Trip():
         else:
             return None
         
-    def multi_mode_deck_gl_trip(self, timestamps, mode_ids):
-#        print('multi-modal')
-        i=0
-        trips_objects=[]
-        activities=self.internal_route['activities']
-        while i<len(activities):
-            j=i
-            while ((j+1)<len(activities) and (activities[j]==activities[j+1])):
-                j+=1
-            trip_part={'mode': [mode_ids[activities[j]], 0],
-                               'path': self.internal_route['coords'][i:j+2],
-                               'timestamps': timestamps[i:j+2]}
-            trips_objects.append(trip_part)
-            i=j+1
-        return trips_objects
+#    def multi_mode_deck_gl_trip(self, timestamps, mode_ids):
+##        print('multi-modal')
+#        i=0
+#        trips_objects=[]
+#        activities=self.internal_route['activities']
+#        while i<len(activities):
+#            j=i
+#            while ((j+1)<len(activities) and (activities[j]==activities[j+1])):
+#                j+=1
+#            trip_part={'mode': [mode_ids[activities[j]], 0],
+#                               'path': self.internal_route['coords'][i:j+2],
+#                               'timestamps': timestamps[i:j+2]}
+#            trips_objects.append(trip_part)
+#            i=j+1
+#        return trips_objects
     
-    def multi_mode_deck_gl_trip_w_attrs(self, timestamps, mode_ids, motif):
+    def multi_mode_deck_gl_trip(self, timestamps, mode_ids, motif):
 #        print('multi-modal')
         i=0
         trips_objects=[]
