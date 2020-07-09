@@ -17,6 +17,7 @@ import pandas as pd
 
 
 folder='../../Scenarios/24_Jun_20/'
+host='https://cityio.media.mit.edu/'
 # =============================================================================
 # Create 2 new mode specs:
 # dockless bikes and shuttle buses
@@ -45,13 +46,14 @@ new_ASCs = {
             'ASC for PT': -0.9, 
 #            'ASC for walk': 2.9
 }
+
 initial_ASCs= {param:mode_choice_model.logit_model['params'][param] for param in new_ASCs}
 mode_choice_model.set_logit_model_params(new_ASCs)
 
 for param in new_ASCs:
     print('Modified {} from {} to {}'.format(param, initial_ASCs[param], mode_choice_model.logit_model['params'][param]))
 
-# calculate paams for new modes
+# calculate params for new modes
 new_beta_params = {}
 crt_logit_params = mode_choice_model.logit_model['params']
 for g_attr in mode_choice_model.logit_generic_attrs:
@@ -64,7 +66,7 @@ new_beta_params['ASC for shuttle'] = ASC_shuttle
 # =============================================================================
 # Create Model
 # =============================================================================
-this_model=MobilityModel('corktown', 'Detroit', seed=42)
+this_model=MobilityModel('corktown', 'Detroit', seed=42, host=host)
 
 this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
 
@@ -77,7 +79,7 @@ this_model.assign_home_location_choice_model(
 
 all_results=[]
 
-handler=CS_Handler(this_model)
+handler=CS_Handler(this_model, host=host)
 
 print('Baseline')
 #handler.post_trips_data()
@@ -112,7 +114,7 @@ all_results.append(outputs)
 # With Mobility interventions
 # =============================================================================
 
-this_model=MobilityModel('corktown', 'Detroit', seed=0)
+this_model=MobilityModel('corktown', 'Detroit', seed=0, host=host)
 
 this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
 
@@ -127,7 +129,7 @@ this_model.set_prop_electric_cars(0.5, co2_emissions_kg_met_ic= 0.000272,
                                   co2_emissions_kg_met_ev=0.00011)
 this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
 
-handler=CS_Handler(this_model, new_logit_params=new_beta_params)
+handler=CS_Handler(this_model, new_logit_params=new_beta_params, host=host)
 
 print('Campus and Mobility')
 handler.model.update_simulation(geogrid_data_campus, new_logit_params=new_beta_params)

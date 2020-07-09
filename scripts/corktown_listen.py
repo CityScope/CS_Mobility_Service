@@ -12,8 +12,16 @@ from mode_choice_nhts import NhtsModeLogit, NhtsModeRF
 from two_stage_logit_hlc import TwoStageLogitHLC
 from cs_handler import CS_Handler
 import json
+import sys
 
-
+if len(sys.argv)>1:
+    host_mode=sys.argv[1]
+    if host_mode=='local':
+        host='http://127.0.0.1:5000/'
+        print('running locally')
+else:
+    host='https://cityio.media.mit.edu/'
+    print('running remotely')
 # =============================================================================
 # Define New Modes
 # =============================================================================
@@ -60,7 +68,7 @@ new_beta_params['ASC for shuttle'] = ASC_shuttle
 # =============================================================================
 # Create model
 # =============================================================================
-this_model=MobilityModel('corktown', 'Detroit', seed=0)
+this_model=MobilityModel('corktown', 'Detroit', seed=0, host=host)
 
 this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
 
@@ -75,6 +83,6 @@ this_model.set_prop_electric_cars(0.5, co2_emissions_kg_met_ic= 0.000272,
                                   co2_emissions_kg_met_ev=0.00011)
 this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
 
-handler=CS_Handler(this_model, new_logit_params=new_beta_params)
+handler=CS_Handler(this_model, new_logit_params=new_beta_params, host=host)
 
 handler.listen_city_IO()
