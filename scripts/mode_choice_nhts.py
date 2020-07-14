@@ -759,7 +759,7 @@ class NhtsModeLogit:
             if 'availability' not in new_alt:
                 continue
             parse = pattern.findall(new_alt['availability'])
-            print('parse: ', parse)
+#            print('parse: ', parse)
             if len(parse) != 1 or len(parse[0]) != 2 or parse[0][0] not in self.feature_df.columns:
                 print('The availability setting of new alt {} is invalid'.format(new_alt['name']))
                 continue
@@ -957,7 +957,7 @@ class NhtsModeLogit:
                     self.feature_df['{}_{}'.format(name, alt_attr)] = tmp
             else:
                 self.feature_df['{}_{}'.format(name, alt_attr)] = 0
-                print('[warning] no information for {}_{}, set to 0'.format(name, alt_attr))
+#                print('[warning] no information for {}_{}, set to 0'.format(name, alt_attr))
             self.logit_alt_attrs[alt_attr].append('{}_{}'.format(name, alt_attr))
         # for new attributes first appeard and only for this new alternative 
         for alt_attr in new_alt_attrs:

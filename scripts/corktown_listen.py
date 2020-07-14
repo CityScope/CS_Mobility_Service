@@ -20,6 +20,7 @@ if len(sys.argv)>1:
         host='http://127.0.0.1:5000/'
         print('running locally')
 else:
+    host_mode='remote'
     host='https://cityio.media.mit.edu/'
     print('running remotely')
 # =============================================================================
@@ -83,6 +84,6 @@ this_model.set_prop_electric_cars(0.5, co2_emissions_kg_met_ic= 0.000272,
                                   co2_emissions_kg_met_ev=0.00011)
 this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
 
-handler=CS_Handler(this_model, new_logit_params=new_beta_params, host=host)
+handler=CS_Handler(this_model, new_logit_params=new_beta_params, host_mode=host_mode)
 
 handler.listen_city_IO()

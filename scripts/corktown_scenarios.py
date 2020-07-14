@@ -18,6 +18,7 @@ import pandas as pd
 
 folder='../../Scenarios/24_Jun_20/'
 host='https://cityio.media.mit.edu/'
+host_mode='remote'
 # =============================================================================
 # Create 2 new mode specs:
 # dockless bikes and shuttle buses
@@ -79,7 +80,7 @@ this_model.assign_home_location_choice_model(
 
 all_results=[]
 
-handler=CS_Handler(this_model, host=host)
+handler=CS_Handler(this_model, host_mode=host_mode)
 
 print('Baseline')
 #handler.post_trips_data()

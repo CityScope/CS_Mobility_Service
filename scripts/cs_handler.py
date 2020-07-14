@@ -9,6 +9,7 @@ from time import sleep
 import urllib
 import json
 import random
+import requests
 
 from mobility_service_model import MobilityModel
 from activity_scheduler import ActivityScheduler
@@ -16,7 +17,7 @@ from mode_choice_nhts import NhtsModeLogit
 from two_stage_logit_hlc import TwoStageLogitHLC
 
 class CS_Handler():
-    def __init__(self, mobility_model,  host='https://cityio.media.mit.edu/',sleep_time=1, new_logit_params={}):
+    def __init__(self, mobility_model,  host_mode='remote',sleep_time=1, new_logit_params={}):
         self.model=mobility_model
         self.new_logit_params=new_logit_params
         self.table_name=mobility_model.table_name
@@ -24,6 +25,7 @@ class CS_Handler():
         self.sleep_time=sleep_time # seconds
         self.grid_hash_id=-1
         self.initialise_model()
+        self.host_mode=host_mode
 
         
     def initialise_model(self):
@@ -37,11 +39,14 @@ class CS_Handler():
                 self.perform_city_io_update(grid_hash_id)
                 
     def perform_city_io_update(self, grid_hash_id):
+        print('Starting update')
         geogrid_data=self.get_geogrid_data()
         if geogrid_data is not None:
             self.model.update_simulation(geogrid_data, new_logit_params=self.new_logit_params)
+            self.ind_get_update_post()
             self.model.post_trips_layer()
             self.grid_hash_id=grid_hash_id
+        print('Done with update')
         
     def get_grid_hash_id(self):
         try:
@@ -111,6 +116,56 @@ class CS_Handler():
     
     def post_trips_data(self):
         self.model.post_trips_layer()
+        
+    def calculate_indicators(self):
+        avg_co2=self.model.get_avg_co2()
+        avg_co2_norm=self.normalise_ind(avg_co2, min_value=12, max_value=5)
+        delta_f_physical_activity_pp=self.model.health_impacts_pp()
+        delta_f_norm=self.normalise_ind(delta_f_physical_activity_pp, min_value=0, max_value=0.004)
+        sustainable_mobility=(avg_co2_norm+ delta_f_norm)/2
+        indicators=[{'name': 'Mobility CO2 Performance', 'value': avg_co2_norm, 
+                 'raw_value':avg_co2,'viz_type': 'bar', 'units': 'kg/day'},
+                {'name': 'Mobility Health Impacts', 'value': delta_f_norm, 
+                 'raw_value':delta_f_physical_activity_pp, 'viz_type': 'bar', 'units': 'mortality/year'},
+                 {'name': 'Sustainable Mobility', 'value': sustainable_mobility, 
+                  'units': None, 'raw_value': None, "viz_type": "radar",
+                  'ref_value': 0.42}]
+        return indicators
+
+        
+#    def post_ind(self):
+#        new_indicators=self.calculate_indicators()
+#        post_url=self.model.CITYIO_POST_URL+'indicators/update'
+#        try:            
+#            r = requests.post(post_url, data = json.dumps(new_indicators))
+#            print('Mobility Indicators: {}'.format(r))
+#        except requests.exceptions.RequestException as e:
+#            print('Couldnt send to cityio') 
+            
+    def ind_get_update_post(self):
+        new_indicators=self.calculate_indicators()
+        post_url=self.model.CITYIO_POST_URL+'indicators'
+        with urllib.request.urlopen(self.CITYIO_GET_URL+'/indicators') as url:
+            existing_indicators=json.loads(url.read().decode())
+        existing_indicator_names=[ind['name'] for ind in existing_indicators]
+        for indicator_update in new_indicators:
+            try:
+                loc=existing_indicator_names.index(indicator_update['name'])
+                existing_indicators[loc]['value']=indicator_update['value']
+                existing_indicators[loc]['raw_value']=indicator_update['raw_value']
+            except:
+                existing_indicators.append(indicator_update)
+        try:            
+            r = requests.post(post_url, data = json.dumps(existing_indicators))
+            print('Mobility Indicators: {}'.format(r))
+        except requests.exceptions.RequestException as e:
+            print('Couldnt send to cityio') 
+        
+
+        
+        
+        
+        
            
     def generate_training_data(self, iterations, ref_geogrid):
         """ In order to train a ML model to approximate the results of the simulation

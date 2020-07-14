@@ -115,8 +115,10 @@ X_future_m, Y_future_m = handler.generate_training_data(iterations=4000, ref_geo
 for x in X_future_m:
     x['future_mobility']=1
     
-X=X_no_fm+X_future_m
-Y=Y_no_fm+Y_future_m
+#X=X_no_fm+X_future_m
+#Y=Y_no_fm+Y_future_m
+X=X_future_m
+Y=Y_future_m
 
 json.dump({'X': X, 'Y': Y}, open('sim_results.json', 'w'))
     
