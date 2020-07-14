@@ -130,7 +130,7 @@ this_model.set_prop_electric_cars(0.5, co2_emissions_kg_met_ic= 0.000272,
                                   co2_emissions_kg_met_ev=0.00011)
 this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
 
-handler=CS_Handler(this_model, new_logit_params=new_beta_params, host=host)
+handler=CS_Handler(this_model, new_logit_params=new_beta_params, host_mode=host_mode)
 
 print('Campus and Mobility')
 handler.model.update_simulation(geogrid_data_campus, new_logit_params=new_beta_params)
@@ -154,6 +154,7 @@ all_results_df=pd.DataFrame(all_results)
 all_results_df=all_results_df.set_index('Scenario')
 all_results_df=all_results_df.reindex(["BAU", "Campus Only", "Campus and Mobility",
                                        "Campus and Housing", "Innovation Community"])
+all_results_df['Sustainable_Mobility']=all_results_df[['Mobility Health Impacts norm', 'CO2 Performance norm']].mean(axis=1)
 
 all_results_df.to_csv('{}Mobility_Scenarios.csv'.format(folder))
 
