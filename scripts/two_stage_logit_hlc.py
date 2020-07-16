@@ -1,5 +1,4 @@
 import pandas as pd
-import pylogit as pl
 import numpy as np
 import json
 import pickle
@@ -277,6 +276,7 @@ class TwoStageLogitHLC():
         
         
     def train(self):
+        import pylogit as pl
         state_codes={'Detroit': 'mi', 'Boston': 'ma'}
         state_fips={'Detroit': '26', 'Boston': '25'}
         NUM_ALTS=8
