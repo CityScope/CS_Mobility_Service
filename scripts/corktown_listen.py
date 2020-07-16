@@ -15,14 +15,13 @@ import json
 import sys
 
 if len(sys.argv)>1:
-    host_mode=sys.argv[1]
-    if host_mode=='local':
-        host='http://127.0.0.1:5000/'
-        print('running locally')
+    table_name=sys.argv[1]
 else:
-    host_mode='remote'
-    host='https://cityio.media.mit.edu/'
-    print('running remotely')
+    table_name='corktown_dev'
+    
+print('Running for table named {} on city_IO'.format(table_name))
+host_mode='remote'
+host='https://cityio.media.mit.edu/'
 # =============================================================================
 # Define New Modes
 # =============================================================================
@@ -37,7 +36,7 @@ lambda_walk= 0.29
 nests_spec=[{'name': 'PT_like', 'alts':['micromobility', 'PT', 'shuttle'], 'lambda':lambda_PT},
             {'name': 'walk_like', 'alts':['micromobility','walk'], 'lambda':lambda_walk}
                ]
-mode_choice_model=NhtsModeLogit(table_name='corktown', city_folder='Detroit')
+mode_choice_model=NhtsModeLogit(table_name=table_name, city_folder='Detroit')
 
 # update ASCs of base model
 initial_ASC_PT=mode_choice_model.logit_model['params']['ASC for PT']
@@ -69,14 +68,14 @@ new_beta_params['ASC for shuttle'] = ASC_shuttle
 # =============================================================================
 # Create model
 # =============================================================================
-this_model=MobilityModel('corktown', 'Detroit', seed=0, host=host)
+this_model=MobilityModel(table_name, 'Detroit', seed=0, host=host)
 
 this_model.assign_activity_scheduler(ActivityScheduler(model=this_model))
 
 this_model.assign_mode_choice_model(mode_choice_model)
 
 this_model.assign_home_location_choice_model(
-        TwoStageLogitHLC(table_name='corktown', city_folder='Detroit', 
+        TwoStageLogitHLC(table_name=table_name, city_folder='Detroit', 
                          geogrid=this_model.geogrid, 
                          base_vacant_houses=this_model.pop.base_vacant))
 

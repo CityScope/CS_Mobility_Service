@@ -8,17 +8,18 @@ Created on Mon May 11 12:25:03 2020
 
 from mobility_service_model import MobilityModel
 from activity_scheduler import ActivityScheduler
-from mode_choice_nhts import NhtsModeLogit, NhtsModeRF
+from mode_choice_nhts import NhtsModeLogit
 from two_stage_logit_hlc import TwoStageLogitHLC
 from cs_handler import CS_Handler
 import json
 
 import pandas as pd
+import urllib
 
-
-folder='../../Scenarios/24_Jun_20/'
+table_name='corktown_dev'
 host='https://cityio.media.mit.edu/'
 host_mode='remote'
+cityIO_get_url=host+'api/table/'+table_name
 # =============================================================================
 # Create 2 new mode specs:
 # dockless bikes and shuttle buses
@@ -89,14 +90,29 @@ outputs['Scenario']='BAU'
 print(outputs)
 all_results.append(outputs)
 
-geogrid_data_campus=json.load(open('{}ford_campus.json'.format(folder)))
-geogrid_data_housing=json.load(open('{}ford_housing.json'.format(folder)))
-geogrid_data_inno_com=json.load(open('{}ford_inno_com.json'.format(folder)))
+# =============================================================================
+# Load the saved land use scenarios from city_IO
+# =============================================================================
+# Scenarios are saved as scenrio0, scenario1 etc. on cityIO
+# scenario name is contained in the 'info' field
+# try 0 to N and save all the results
+# Additional scenarios can be created and saved to cityIO using the CityScope interactive front-end
+all_scenarios={}
+for i in range(10):
+    try:
+        with urllib.request.urlopen(cityIO_get_url+'/scenarios'+str(i)) as url:
+            geogriddata=json.loads(url.read().decode())
+        all_scenarios[geogriddata['info']['name']]=geogriddata['GEOGRIDDATA']
+    except:
+        pass
+print('Downloaded {} land use scenarios'.format(len(all_scenarios)))
 
-# 
+
+# =============================================================================
+# Run the mobility model for saved scenarios WITHOUT mobility system changes
+# =============================================================================
 print('Campus Only')
-handler.model.update_simulation(geogrid_data_campus)
-#handler.post_trips_data()
+handler.model.update_simulation(all_scenarios['Campus_Only'])
 outputs=handler.get_outputs()
 outputs['Scenario']='Campus Only'
 print(outputs)
@@ -104,15 +120,14 @@ all_results.append(outputs)
 
 
 print('Campus and Housing')
-handler.model.update_simulation(geogrid_data_housing)
-#handler.post_trips_data()
+handler.model.update_simulation(all_scenarios['Campus_Housing'])
 outputs=handler.get_outputs()
 outputs['Scenario']='Campus and Housing'
 print(outputs)
 all_results.append(outputs)
 
 # =============================================================================
-# With Mobility interventions
+# Run the mobility model for saved scenarios WITH mobility system changes
 # =============================================================================
 
 this_model=MobilityModel('corktown', 'Detroit', seed=0, host=host)
@@ -133,21 +148,22 @@ this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
 handler=CS_Handler(this_model, new_logit_params=new_beta_params, host_mode=host_mode)
 
 print('Campus and Mobility')
-handler.model.update_simulation(geogrid_data_campus, new_logit_params=new_beta_params)
-#handler.post_trips_data()
+handler.model.update_simulation(all_scenarios['Campus_Only'], new_logit_params=new_beta_params)
 outputs=handler.get_outputs()
 outputs['Scenario']='Campus and Mobility'
 print(outputs)
 all_results.append(outputs)
 
 print('Campus and Housing and Mobility')
-handler.model.update_simulation(geogrid_data_inno_com, new_logit_params=new_beta_params)
-#handler.post_trips_data()
-#handler.post_trips_data_w_attrs()
+handler.model.update_simulation(all_scenarios['Innovation_Community'], new_logit_params=new_beta_params)
 outputs=handler.get_outputs()
 outputs['Scenario']='Innovation Community'
 print(outputs)
 all_results.append(outputs)
+
+# =============================================================================
+# Create a dataframe with all the results and save as csv
+# =============================================================================
 
 all_results_df=pd.DataFrame(all_results)
 
@@ -156,6 +172,6 @@ all_results_df=all_results_df.reindex(["BAU", "Campus Only", "Campus and Mobilit
                                        "Campus and Housing", "Innovation Community"])
 all_results_df['Sustainable_Mobility']=all_results_df[['Mobility Health Impacts norm', 'CO2 Performance norm']].mean(axis=1)
 
-all_results_df.to_csv('{}Mobility_Scenarios.csv'.format(folder))
+all_results_df.to_csv('Mobility_Scenarios.csv')
 
 
