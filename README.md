@@ -1,10 +1,10 @@
 # CS_Mobility_Service
-A web service providing mobility simulations for CityScope projects.
+A web service providing mobility simulations for CityScope projects. This project provides a mobility simulation framework which performs microsimulations of mobility behavior. It can be used to evaluate static scenarios or can be deployed as a web-service for a CityScope model which provides updated mobility simulations each time new inputs are available. The model also calculates mobility-related urban indicators based on the simulatino results. Each model is an object of the class MobilityModel.
 
 ![viz](./images/mob_sim_viz.gif)
 
 ## MobilityModel Class
-The MobilityModel class creates a model of the target area and simulates the mobility behaviour of a sample of the population. The following inputs ust be provided on initialisation:
+The MobilityModel class creates a model of the target area and simulates the mobility behaviour of a sample of the population. The following inputs must be provided on initialisation:
 - table_name: the name of the table end-point on city_IO
 - city_folder: the folder where the input data for this city are located.
 - seed: for the random number generator
@@ -119,7 +119,7 @@ new_mode_specs=[
 ]
 ```
 
-The prediction of new modes is done using a generalised logit model with a nesting structure and nesting parameters specified by the user. The following code creates 2 nests: a PT-like nest containing PT, micromobility and shuttle, and a walk-like nest containing walking and micromobility. The lambda variables are independence parameters (lambda) for each nest.
+The prediction of new modes is done using a generalised logit model with a nesting structure and nesting parameters specified by the user. The following code creates 2 nests: a PT-like nest containing PT, micromobility and shuttle, and a walk-like nest containing walking and micromobility. The lambda variables are independence parameters for each nest.
 
 ```
 lambda_PT= 0.65
@@ -128,20 +128,21 @@ nests_spec=[{'name': 'PT_like', 'alts':['micromobility', 'PT', 'shuttle'], 'lamb
             {'name': 'walk_like', 'alts':['micromobility','walk'], 'lambda':lambda_walk}
 
 ```
-We can also make changes to any of the logit parameters for the new modes. In the code below, we assign paraneters values in two ways: 
+We can also make changes to any of the logit parameters for the new modes. In the code below, we assign parameters values in two ways: 
 - an ACS is specified directly for each new mode.
 - Since micromobility is considered similar to both walking and PY, we calculate the logit parameters for micromobility as a weighted sum of the parameters for the 2 exisitng modes (apart from the ASC which was specified directly) To deice the relative weighting of PT and walk, we calibrated a parameter beta_similarity_PT which denotes the percentage similarity to PT.
 Suitable values for the both types of parameter can be found using the notebook fit_new_params.ipynb.
 
 ```
-ASC_micromobility= 2.63
-ASC_shuttle= 2.33
+new_logit_params = {}
+new_logit_params['ASC for micromobility'] =  2.63
+new_logit_params['ASC for shuttle'] = 2.33
+
 beta_similarity_PT= 0.5
 
-new_beta_params = {}
 crt_logit_params = mode_choice_model.logit_model['params']
 for g_attr in mode_choice_model.logit_generic_attrs:
-    new_beta_params['{} for micromobility'.format(g_attr)] = \
+    new_logit_params['{} for micromobility'.format(g_attr)] = \
         crt_logit_params['{} for PT'.format(g_attr)] * beta_similarity_PT + \
         crt_logit_params['{} for walk'.format(g_attr)] * (1-beta_similarity_PT)
 
@@ -165,7 +166,7 @@ this_model.set_prop_electric_cars(0.5, co2_emissions_kg_met_ic= 0.000272,
                                   co2_emissions_kg_met_ev=0.00011)
 this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
 
-handler=CS_Handler(this_model, new_logit_params=new_beta_params, host_mode=host_mode)
+handler=CS_Handler(this_model, new_logit_params=new_logit_params, host_mode=host_mode)
 
 ```
 ## Simulations
