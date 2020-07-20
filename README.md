@@ -4,7 +4,7 @@ A web service providing mobility simulations for CityScope projects. This projec
 ![viz](./images/mob_sim_viz.gif)
 
 ## MobilityModel Class
-The MobilityModel class creates a model of the target area and simulates the mobility behaviour of a sample of the population. The following inputs must be provided on initialisation:
+The MobilityModel class creates a model of the target area and simulates the mobility behaviour of a sample of the population. The sample size is controlled by the scale_factor parameter of the MobilityModel class. The following inputs must be provided on initialisation:
 - table_name: the name of the table end-point on city_IO
 - city_folder: the folder where the input data for this city are located.
 - seed: for the random number generator
@@ -169,6 +169,29 @@ this_model.set_new_modes(new_mode_specs, nests_spec=nests_spec)
 handler=CS_Handler(this_model, new_logit_params=new_logit_params, host_mode=host_mode)
 
 ```
+## Indicator Calculations
+The MobilityModel class has several methods for calculating aggregated statitical information about the mobility patterns (urban indicators). eg. mode split, CO2 emissions. These methods are called by the get_outputs() method of the Handler:
+
+```
+def get_outputs(self):
+    avg_co2=self.model.get_avg_co2()
+    avg_co2_norm=self.normalise_ind(avg_co2, min_value=12, max_value=5)
+    live_work_prop=self.model.get_live_work_prop()
+    mode_split=self.model.get_mode_split()
+    delta_f_physical_activity_pp=self.model.health_impacts_pp()
+    delta_f_norm=self.normalise_ind(delta_f_physical_activity_pp, min_value=0, max_value=0.004)
+    output= {'CO2 Performance raw kg/day': avg_co2, 
+             'Mobility Health Impacts raw mortality/year':delta_f_physical_activity_pp,
+             'CO2 Performance norm': avg_co2_norm,
+             'Mobility Health Impacts norm': delta_f_norm
+             }
+    for mode in mode_split:
+        output[mode]=100*mode_split[mode]
+    return output
+```
+
+These indicators can be adapted/extended by adding new methods to the MobilityModel class and calling them in the get_outputs() method of the Handler.
+
 ## Simulations
 
 The handler can also be used to simulate random input data or run simulations with many random inputs and record the outputs.
