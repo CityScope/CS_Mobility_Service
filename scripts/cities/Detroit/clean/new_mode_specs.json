@@ -1,20 +1,22 @@
 [
-  {"name": "micromobility", 
-                    "attrs":{"active_time_minutes": "c*1+5",
-                             "cost":0.2},  
-                    "copy": "cycle",
-                    "copy_route": "cycling","activity": "cycling","speed_m_s": 4.167,
-                    "co2_emissions_kg_met": 0,"fixed_costs": {},
-                    "internal_net": "active",
-                    "availability": "external_network_dist_mile<=1.5"},
-                   {"name": "shuttle", 
-              "attrs":{"vehicle_time_minutes": "d*1",
-                       "active_time_minutes": 5,
-                       "cost":5},  
-              "copy": "PT",
-              "copy_route": "driving","activity": "pt","speed_m_s": 8.33,
-              "co2_emissions_kg_met": 0.000066,"fixed_costs": {},
-              "internal_net": "pt",
-              "availability": "external_network_dist_mile<=3"
-             }
+  {"name":  "micromobility", 
+    "attrs":{
+      "active_time_minutes": "c*1+5",
+      "cost":0.2},  
+    "copy": "cycle",
+    "copy_route": "cycling","activity": "cycling","speed_m_s": 4.167,
+    "co2_emissions_kg_met": 0,"fixed_costs": {},
+    "internal_net": "active",
+    "availability": "external_network_dist_mile<=1.5"},
+  {"name": "shuttle", 
+    "attrs":{
+      "vehicle_time_minutes": "d*1",
+      "active_time_minutes": 5,
+      "cost":5},  
+    "copy": "PT",
+    "copy_route": "driving","activity": "pt","speed_m_s": 8.33,
+    "co2_emissions_kg_met": 0.000066,"fixed_costs": {},
+    "internal_net": "pt",
+    "availability": "external_network_dist_mile<=3"
+  }
 ]

@@ -33,10 +33,6 @@ nests_spec=[{'name': 'PT_like', 'alts':['micromobility', 'PT', 'shuttle'], 'lamb
 mode_choice_model=NhtsModeLogit(table_name='corktown', city_folder='Detroit')
 
 # update ASCs of base model
-initial_ASC_PT=mode_choice_model.logit_model['params']['ASC for PT']
-initial_ASC_cycle=mode_choice_model.logit_model['params']['ASC for cycle']
-initial_ASC_walk=mode_choice_model.logit_model['params']['ASC for walk']
-
 new_ASCs = {
 #        'ASC for cycle': -0.9, 
             'ASC for PT': -0.9, 
