@@ -302,6 +302,17 @@ class MobilityModel():
                         total_dist+=trip.total_distance
         return total_co2_kg/count
     
+    def get_num_trips(self, persons=None):
+        if persons==None:
+            persons=self.pop.impact
+        count=0
+        for p in persons:
+            for trip in p.trips:
+                if trip.mode is not None:
+                    if trip.total_distance<1000000:
+                        count+=1 
+        return count*self.scale_factor
+    
     def get_mode_split(self, persons=None, by_id=False):
         if persons==None:
             persons=self.pop.impact
@@ -319,6 +330,9 @@ class MobilityModel():
             prop_split={m.id: split[m.name]/count for m in self.tn.base_modes+self.tn.new_modes}
         else:
             prop_split={mode_name: split[mode_name]/count for mode_name in split}
+#        if normalise==False:
+#            for mode in prop_split:
+#                prop_split[mode]=prop_split[mode]*count*self.scale_factor # scale up to actual trip numbers
         return prop_split
     
     def get_live_work_prop(self, persons=None):
